@@ -23,7 +23,7 @@ Estrutura inicial e organização do trabalho. **O produto ainda será implement
 
 ## Equipe
 
-**Leunam Sousa** ([@leeunam](https://github.com/leeunam)), **José**, **Marcus** e **Gabriel**.
+**Leunam Sousa** ([@leeunam](https://github.com/leeunam)), **José**, **Marcus** ([@m4rcusml](https://github.com/m4rcusml)) e **Gabriel** ([@Gabriel-smm](https://github.com/Gabriel-smm)).
 
 ## Estrutura
 
@@ -41,7 +41,7 @@ Estrutura inicial e organização do trabalho. **O produto ainda será implement
 
 ## Começar
 
-Veja as [17 tarefas iniciais](docs/backlog.md) e o [fluxo do Kanban](docs/workflow.md).
+Abra o [Kanban da equipe](https://github.com/users/leeunam/projects/3/views/1) (acesso restrito aos integrantes) ou as [17 issues públicas](https://github.com/leeunam/korda/issues). Consulte a [ordem das tarefas](docs/backlog.md) e o [fluxo de trabalho](docs/workflow.md).
 
 Leia o [escopo](docs/scope.md), a [arquitetura](docs/architecture.md) e o [guia de contribuição](CONTRIBUTING.md). Agentes de IA devem ler [AGENTS.md](AGENTS.md).
 

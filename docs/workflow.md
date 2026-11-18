@@ -2,6 +2,10 @@
 
 Uma issue descreve uma entrega verificável. Uma pessoa responde por ela; a IA ajuda a executar e revisar, sem assumir decisões humanas.
 
+[Repositório público](https://github.com/leeunam/korda) · [Issues](https://github.com/leeunam/korda/issues) · [Kanban da equipe](https://github.com/users/leeunam/projects/3/views/1)
+
+O Kanban é privado para a equipe. As issues e seus critérios de aceite são públicos; registre somente informações apropriadas para esse público. O quadro é a referência do estado atual; [backlog.md](backlog.md) preserva a ordem e as dependências iniciais.
+
 ## Kanban
 
 | Coluna | Regra |
@@ -22,6 +26,8 @@ Uma dependência necessária para iniciar mantém a tarefa no Backlog. Dependên
 - No máximo dois PRs aguardando revisão; revisar antes de iniciar trabalho novo.
 - Preferir tarefas de até um dia. Se a issue for maior, dividi-la em entregas menores antes de iniciar, preservando dependências e aceite.
 - Começar pelas issues independentes de contratos, definições de métricas, desenho da medição e regulamento. Não marcar tarefas dependentes como prontas só para preencher o quadro.
+
+O ponto de partida tem quatro tarefas em **Pronto**: [#1 · contratos](https://github.com/leeunam/korda/issues/1), [#2 · regras dos indicadores](https://github.com/leeunam/korda/issues/2), [#14 · desenho da medição](https://github.com/leeunam/korda/issues/14) e [#16 · regulamento](https://github.com/leeunam/korda/issues/16). As outras 13 começam no Backlog. Mova os cartões conforme as condições forem atendidas.
 
 ## Fluxo com IA
 
