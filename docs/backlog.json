@@ -1,0 +1,267 @@
+[
+  {
+    "id": "K01",
+    "title": "[K01] Fechar contratos entre as quatro frentes",
+    "body": "**Frente:** Cross.\n**Responsável humano sugerido:** pessoa responsável pela integração; revisão conjunta das quatro frentes.\n\n## Entrega\n\nContratos versionados para contexto, lacunas, plano, execução, eventos, resultados e aprovações. Conservar o contrato mínimo de evento `run_id`, `step`, `type`, `message`, `attempt`, `ts`; decidir campos adicionais antes de consumo por outras frentes.\n\n## Dependências\n\nNenhuma. Pode ser iniciada agora.\n\n## Trabalho delegável à IA\n\nSchemas, exemplos sintéticos válidos/inválidos e validação de contrato.\n\n## Aceite humano\n\n- [ ] Cada frente confirma suas entradas e saídas.\n- [ ] Exemplos incluem sucesso, ausência de informação, conflito e falha.\n- [ ] Um plano possui versão e identificação de quem o aprovou.\n- [ ] Conclusão da execução é distinguida de autorização de entrega. Nenhum consumidor precisa adivinhar o significado dos campos.\n\n## Evidência para concluir\n\nVincular PR ou documento e evidência do aceite. Uma pessoa revisa o resultado; a resposta da IA, sozinha, não conclui a tarefa.",
+    "labels": [
+      "priority:p0",
+      "area:platform",
+      "type:task"
+    ],
+    "ready": true,
+    "dependencies": []
+  },
+  {
+    "id": "K02",
+    "title": "[K02] Aprovar as regras dos três indicadores e os casos esperados",
+    "body": "**Frente:** P2 Planejamento.\n**Responsável humano sugerido:** consultor/revisor técnico, com confirmação das regras de negócio pelo responsável do caso.\n\n## Entrega\n\nDefinir custo de frete por entrega, OTIF e ocupação dos veículos: unidade de análise, período, fórmula, exclusões, rateio, denominador e tolerâncias.\n\n## Dependências\n\nNenhuma. Pode ser iniciada agora. A definição humana das métricas independe do schema; K01 incorpora o catálogo depois.\n\n## Trabalho delegável à IA\n\nRascunho do catálogo de métricas e perguntas sobre ambiguidades; não pode declarar regras presumidas como aprovadas.\n\n## Aceite humano\n\n- [ ] OTIF exige prazo e completude.\n- [ ] Ocupação define capacidade, viagem/trecho e peso/volume.\n- [ ] Custo trata duplicatas e cancelamentos. O revisor calcula exemplos independentes, incluindo rateio por pedido, e aprova a versão de referência. Atraso sozinho não é chamado de OTIF.\n\n## Evidência para concluir\n\nVincular PR ou documento e evidência do aceite. Uma pessoa revisa o resultado; a resposta da IA, sozinha, não conclui a tarefa.",
+    "labels": [
+      "priority:p0",
+      "area:planning",
+      "type:task"
+    ],
+    "ready": true,
+    "dependencies": []
+  },
+  {
+    "id": "K03",
+    "title": "[K03] Criar as fontes sintéticas ERP, TMS e CT-e",
+    "body": "**Frente:** P3 Execução.\n**Responsável humano sugerido:** pessoa responsável pelos dados de demonstração.\n\n## Entrega\n\nGerar fixtures reproduzíveis com identificadores consistentes, XMLs de CT-e e dados necessários aos três indicadores; incluir duplicata, cancelamento, entrega incompleta, atraso e capacidade de veículo.\n\n## Dependências\n\nK01, K02\n\n## Trabalho delegável à IA\n\nGerador e documentação dos arquivos, seguindo cenários previamente revisados.\n\n## Aceite humano\n\n- [ ] Nenhuma pessoa ou empresa real é identificável.\n- [ ] Regenerar com a mesma configuração produz os mesmos dados.\n- [ ] As chaves e exceções correspondem ao catálogo. Respostas esperadas ficam em área controlada pelo avaliador, separada do espaço de escrita do executor.\n\n## Evidência para concluir\n\nVincular PR ou documento e evidência do aceite. Uma pessoa revisa o resultado; a resposta da IA, sozinha, não conclui a tarefa.",
+    "labels": [
+      "priority:p0",
+      "area:execution",
+      "type:task"
+    ],
+    "ready": false,
+    "dependencies": [
+      "K01",
+      "K02"
+    ]
+  },
+  {
+    "id": "K04",
+    "title": "[K04] Implementar a entrevista e o registro de lacunas",
+    "body": "**Frente:** P1 Contexto.\n**Responsável humano sugerido:** pessoa responsável pela experiência de descoberta.\n\n## Entrega\n\nConversar sobre problema, decisão, processo, resultados, regras, exceções, fontes e responsáveis; registrar respostas com evidência e distinguir declarado, confirmado, ausente e conflitante.\n\n## Dependências\n\nK01\n\n## Trabalho delegável à IA\n\nRoteiro, armazenamento do contexto e diálogo por texto como caminho mínimo demonstrável; preparar interface para áudio futuro.\n\n## Aceite humano\n\n- [ ] A IA pede esclarecimento diante de ambiguidade, não inventa respostas e não exige linguagem técnica do cliente. Lacuna crítica bloqueia a métrica afetada.\n- [ ] O produto explica em linguagem simples o que falta. É possível retomar uma conversa sem perder decisões.\n\n## Evidência para concluir\n\nVincular PR ou documento e evidência do aceite. Uma pessoa revisa o resultado; a resposta da IA, sozinha, não conclui a tarefa.",
+    "labels": [
+      "priority:p0",
+      "area:context",
+      "type:task"
+    ],
+    "ready": false,
+    "dependencies": [
+      "K01"
+    ]
+  },
+  {
+    "id": "K05",
+    "title": "[K05] Inspecionar as fontes e relacioná-las às regras",
+    "body": "**Frente:** P1 Contexto.\n**Responsável humano sugerido:** pessoa responsável pelo entendimento dos dados.\n\n## Entrega\n\nObter esquema, tipos, contagens, nulos, duplicatas e chaves; relacionar fatos observados às declarações da entrevista.\n\n## Dependências\n\nK01, K03\n\n## Trabalho delegável à IA\n\nProfiler determinístico e relatórios estruturados; usar o resultado para propor perguntas adicionais.\n\n## Aceite humano\n\n- [ ] Os problemas plantados são observáveis no relatório.\n- [ ] O processo é somente leitura.\n- [ ] Dados não são enviados a fornecedores externos sem a configuração prevista.\n- [ ] Uma coluna ausente não é substituída por valor inventado. Evidência de fonte e declaração do cliente permanecem distintas.\n\n## Evidência para concluir\n\nVincular PR ou documento e evidência do aceite. Uma pessoa revisa o resultado; a resposta da IA, sozinha, não conclui a tarefa.",
+    "labels": [
+      "priority:p0",
+      "area:context",
+      "type:task"
+    ],
+    "ready": false,
+    "dependencies": [
+      "K01",
+      "K03"
+    ]
+  },
+  {
+    "id": "K06",
+    "title": "[K06] Gerar o plano rastreável de implementação",
+    "body": "**Frente:** P2 Planejamento.\n**Responsável humano sugerido:** pessoa responsável pelo planejador.\n\n## Entrega\n\nProduzir plano com fórmulas, origem dos dados, modelos bronze/prata/ouro, testes de aceite, tarefas, limites, custo estimado e destino pretendido.\n\n## Dependências\n\nK01, K02, K04, K05\n\n## Trabalho delegável à IA\n\nGeração estruturada, validação de schema e revisão de consistência.\n\n## Aceite humano\n\n- [ ] Cada indicador aponta para regra e fonte.\n- [ ] Cada tarefa possui saída verificável.\n- [ ] Lacunas críticas aparecem como bloqueios.\n- [ ] Hipóteses não viram fatos. Alterar uma regra após aprovação gera nova versão e exige nova aprovação do escopo afetado.\n\n## Evidência para concluir\n\nVincular PR ou documento e evidência do aceite. Uma pessoa revisa o resultado; a resposta da IA, sozinha, não conclui a tarefa.",
+    "labels": [
+      "priority:p0",
+      "area:planning",
+      "type:task"
+    ],
+    "ready": false,
+    "dependencies": [
+      "K01",
+      "K02",
+      "K04",
+      "K05"
+    ]
+  },
+  {
+    "id": "K07",
+    "title": "[K07] Implementar as duas aprovações e os estados do trabalho",
+    "body": "**Frente:** Cross.\n**Responsável humano sugerido:** pessoa responsável pela orquestração, com revisão técnica.\n\n## Entrega\n\nAprovação 1 do plano antes de executar; aprovação 2 da entrega/promoção após resultado testado. Persistir versão, pessoa, instante e decisão.\n\n## Dependências\n\nK01, K06\n\n## Trabalho delegável à IA\n\nMáquina de estados, comandos de aprovação/rejeição e apresentação das pendências.\n\n## Aceite humano\n\n- [ ] Executar sem plano aprovado é bloqueado.\n- [ ] Entregar sem segunda aprovação é bloqueado.\n- [ ] Rejeição e mudança de versão não reaproveitam autorização antiga. A IA não pode aprovar em nome da pessoa nem marcar falha como sucesso.\n\n## Evidência para concluir\n\nVincular PR ou documento e evidência do aceite. Uma pessoa revisa o resultado; a resposta da IA, sozinha, não conclui a tarefa.",
+    "labels": [
+      "priority:p0",
+      "area:platform",
+      "type:task"
+    ],
+    "ready": false,
+    "dependencies": [
+      "K01",
+      "K06"
+    ]
+  },
+  {
+    "id": "K08",
+    "title": "[K08] Preparar o ambiente de execução e as ferramentas restritas",
+    "body": "**Frente:** P3 Execução.\n**Responsável humano sugerido:** pessoa responsável pelo executor.\n\n## Entrega\n\nAmbiente reproduzível com DuckDB/dbt; diretório por execução; ferramentas para ler plano, inspecionar fonte, escrever modelos, executar testes, consultar em leitura e emitir eventos.\n\n## Dependências\n\nK01, K03\n\n## Trabalho delegável à IA\n\nScaffold, comandos de execução, isolamento de caminhos e limites de tempo/recursos.\n\n## Aceite humano\n\n- [ ] O executor escreve somente nos locais permitidos.\n- [ ] Fontes, testes e respostas esperadas estão protegidos por mecanismo técnico. Uma tentativa real de escrita indevida é recusada. A documentação descreve as conexões existentes sem prometer isolamento total ou “dados nunca saem” quando isso não foi implementado.\n\n## Evidência para concluir\n\nVincular PR ou documento e evidência do aceite. Uma pessoa revisa o resultado; a resposta da IA, sozinha, não conclui a tarefa.",
+    "labels": [
+      "priority:p0",
+      "area:execution",
+      "type:task"
+    ],
+    "ready": false,
+    "dependencies": [
+      "K01",
+      "K03"
+    ]
+  },
+  {
+    "id": "K09",
+    "title": "[K09] Construir o pipeline dos três indicadores",
+    "body": "**Frente:** P3 Execução.\n**Responsável humano sugerido:** pessoa responsável pelos modelos de dados.\n\n## Entrega\n\nBronze com origem/metadados; prata com tipagem, parsing de CT-e, chaves e deduplicação; ouro com as três métricas exatamente aprovadas.\n\n## Dependências\n\nK02, K03, K06, K07, K08\n\n## Trabalho delegável à IA\n\nModelos dbt e documentação técnica vinculada ao plano.\n\n## Aceite humano\n\n- [ ] Um build reproduzível calcula os três indicadores.\n- [ ] Regras de cancelamento, rateio e completude são respeitadas.\n- [ ] Cada resultado pode ser explicado até a fonte. Corrigir o valor de um indicador não é apresentado como economia financeira efetiva.\n\n## Evidência para concluir\n\nVincular PR ou documento e evidência do aceite. Uma pessoa revisa o resultado; a resposta da IA, sozinha, não conclui a tarefa.",
+    "labels": [
+      "priority:p0",
+      "area:execution",
+      "type:task"
+    ],
+    "ready": false,
+    "dependencies": [
+      "K02",
+      "K03",
+      "K06",
+      "K07",
+      "K08"
+    ]
+  },
+  {
+    "id": "K10",
+    "title": "[K10] Implementar o ciclo de correção com limite e escalonamento",
+    "body": "**Frente:** P3 Execução.\n**Responsável humano sugerido:** pessoa responsável pelo agente executor.\n\n## Entrega\n\nInterpretar falha, propor correção em modelos, testar novamente e solicitar intervenção após limite configurado; proposta inicial de até três tentativas por etapa.\n\n## Dependências\n\nK08, K09, K11\n\n## Trabalho delegável à IA\n\nLoop de ferramentas, controle de tentativas, registros e tratamento de erro.\n\n## Aceite humano\n\n- [ ] Duplicata plantada provoca falha e correção observável.\n- [ ] Uma falha sem solução alcança o limite e pede ajuda. Não há loop infinito, mudança de teste para passar ou reaprovação automática de regra. Número de tentativas e custo ficam registrados.\n\n## Evidência para concluir\n\nVincular PR ou documento e evidência do aceite. Uma pessoa revisa o resultado; a resposta da IA, sozinha, não conclui a tarefa.",
+    "labels": [
+      "priority:p1",
+      "area:execution",
+      "type:task"
+    ],
+    "ready": false,
+    "dependencies": [
+      "K08",
+      "K09",
+      "K11"
+    ]
+  },
+  {
+    "id": "K11",
+    "title": "[K11] Validar os resultados com testes independentes e protegidos",
+    "body": "**Frente:** P3 Execução.\n**Responsável humano sugerido:** revisor técnico distinto do autor do modelo quando possível.\n\n## Entrega\n\nTestes de estrutura e casos com resposta conhecida, incluindo OTIF, ocupação, custo e distribuição do custo por pedido; relatório legível com valores encontrados e esperados.\n\n## Dependências\n\nK02, K03, K08\n\n## Trabalho delegável à IA\n\nInfraestrutura de testes e apresentação dos resultados; o executor do pipeline não modifica a referência aprovada.\n\n## Aceite humano\n\n- [ ] O revisor confirma os valores independentemente.\n- [ ] Erro intencional em um modelo é detectado.\n- [ ] O relatório distingue falha de dados, de implementação e de regra. Permissão de escrita é negada mesmo se o agente tentar editar testes por terminal ou outro caminho.\n\n## Evidência para concluir\n\nVincular PR ou documento e evidência do aceite. Uma pessoa revisa o resultado; a resposta da IA, sozinha, não conclui a tarefa.",
+    "labels": [
+      "priority:p0",
+      "area:execution",
+      "type:task"
+    ],
+    "ready": false,
+    "dependencies": [
+      "K02",
+      "K03",
+      "K08"
+    ]
+  },
+  {
+    "id": "K12",
+    "title": "[K12] Montar o painel do cliente e a linha do tempo",
+    "body": "**Frente:** P4 Experiência.\n**Responsável humano sugerido:** pessoa responsável pela interface e integração visual.\n\n## Entrega\n\nQuatro passos visíveis: entender → planejar/aprovar → construir/testar → autorizar/entregar. Exibir pendências, eventos, tentativas, plano, testes e indicadores.\n\n## Dependências\n\nPara iniciar: K01. A interface pode avançar com contratos e eventos sintéticos identificados.\n\nPara concluir a integração: K04, K06 e K07. Não marcar como entregue enquanto os eventos reais e aprovações não estiverem conectados.\n\n## Trabalho delegável à IA\n\nComponentes e estados com eventos sintéticos claramente sinalizados durante desenvolvimento; conectar aos eventos reais depois.\n\n## Aceite humano\n\n- [ ] A pessoa entende o próximo passo sem ler logs.\n- [ ] Aprovação exibe a versão certa.\n- [ ] Falha, espera e conclusão são estados diferentes. Atualizações duplicadas não duplicam tarefas. Na demo final, dados simulados ou replay são identificados e não fingem execução ao vivo.\n\n## Evidência para concluir\n\nVincular PR ou documento e evidência do aceite. Uma pessoa revisa o resultado; a resposta da IA, sozinha, não conclui a tarefa.",
+    "labels": [
+      "priority:p0",
+      "area:web",
+      "type:task"
+    ],
+    "ready": false,
+    "dependencies": [
+      "K01"
+    ],
+    "completion_dependencies": [
+      "K04",
+      "K06",
+      "K07"
+    ]
+  },
+  {
+    "id": "K13",
+    "title": "[K13] Entregar resultados, documentação e artefatos após autorização",
+    "body": "**Frente:** Cross.\n**Responsável humano sugerido:** pessoa responsável pela integração da entrega.\n\n## Entrega\n\nEscolher um destino controlado compatível com a demo; empacotar modelos, resultados, testes, documentação e linhagem vinculados à execução aprovada.\n\n## Dependências\n\nK07, K09, K11, K12\n\n## Trabalho delegável à IA\n\nExportação, manifesto de artefatos e validação de integridade.\n\n## Aceite humano\n\n- [ ] O revisor identifica o destino e autoriza a entrega.\n- [ ] Arquivos correspondem ao plano e à execução aprovados.\n- [ ] Não há segredos no pacote. Uma demo com pasta/arquivo exportável é descrita dessa forma, sem sugerir implantação em infraestrutura de cliente ainda não implementada.\n\n## Evidência para concluir\n\nVincular PR ou documento e evidência do aceite. Uma pessoa revisa o resultado; a resposta da IA, sozinha, não conclui a tarefa.",
+    "labels": [
+      "priority:p0",
+      "area:platform",
+      "type:task"
+    ],
+    "ready": false,
+    "dependencies": [
+      "K07",
+      "K09",
+      "K11",
+      "K12"
+    ]
+  },
+  {
+    "id": "K14",
+    "title": "[K14] Medir esforço humano, custo e qualidade sem confundir metas com resultados",
+    "body": "**Frente:** Cross.\n**Responsável humano sugerido:** pessoa responsável pelo negócio e avaliação.\n\n## Entrega\n\nDefinir linha de base comparável, registrar tempo de preparação/conversa/revisão/correção e consumo de modelos/áudio/infra; executar casos sintéticos com respostas de referência.\n\n## Dependências\n\nPara iniciar o protocolo e a linha de base: nenhuma. Preparar a medição antes da implementação.\n\nPara concluir a comparação completa: K04, K06, K11 e K13. Resultados permanecem pendentes até o experimento ocorrer.\n\n## Trabalho delegável à IA\n\nInstrumentação, formulário de avaliação e relatório de comparação.\n\n## Aceite humano\n\n- [ ] Meta inicial de reduzir 50% do esforço é rotulada como meta até medição.\n- [ ] O relatório informa número de casos, limite do experimento e erros críticos. Se os dez casos planejados não forem executados, registrar a amostra real. Tempo poupado não é convertido automaticamente em caixa, vendas ou mercado validado.\n\n## Evidência para concluir\n\nVincular PR ou documento e evidência do aceite. Uma pessoa revisa o resultado; a resposta da IA, sozinha, não conclui a tarefa.",
+    "labels": [
+      "priority:p1",
+      "area:business",
+      "type:task"
+    ],
+    "ready": true,
+    "dependencies": [],
+    "completion_dependencies": [
+      "K04",
+      "K06",
+      "K11",
+      "K13"
+    ]
+  },
+  {
+    "id": "K15",
+    "title": "[K15] Preparar a demo completa e o roteiro de apresentação",
+    "body": "**Frente:** Cross.\n**Responsável humano sugerido:** pessoa responsável pela demonstração, com participação das quatro frentes.\n\n## Entrega\n\nMostrar necessidade realista, esclarecimento de regra, aprovação, execução, falha/correção controlada, testes e entrega autorizada; preparar recuperação e gravação reserva.\n\n## Dependências\n\nK10, K12, K13, K14, K16\n\n## Trabalho delegável à IA\n\nRoteiro, checklist de execução, legendas e montagem assistida do material.\n\n## Aceite humano\n\n- [ ] Demonstração pode ser repetida.\n- [ ] Métricas e afirmações possuem origem.\n- [ ] Replay é anunciado como replay.\n- [ ] Vídeo respeita o limite confirmado em K16. Ao menos uma pessoa que não implementou o fluxo consegue explicar o benefício e o que ainda falta. Conferir o checklist K16 e registrar pendências da submissão.\n- [ ] Só registrar envio realizado com confirmação observável.\n\n## Evidência para concluir\n\nVincular PR ou documento e evidência do aceite. Uma pessoa revisa o resultado; a resposta da IA, sozinha, não conclui a tarefa.",
+    "labels": [
+      "priority:p1",
+      "area:business",
+      "type:task"
+    ],
+    "ready": false,
+    "dependencies": [
+      "K10",
+      "K12",
+      "K13",
+      "K14",
+      "K16"
+    ]
+  },
+  {
+    "id": "K16",
+    "title": "[K16] Conferir o regulamento e preparar o checklist de submissão",
+    "body": "**Frente:** Cross.\n**Responsável humano sugerido:** pessoa responsável pela submissão.\n\n## Entrega\n\nVerificar regulamento vigente, trilha escolhida, integrantes, elegibilidade do repositório/histórico, licença, demo pública, vídeo e prazos. Registrar links oficiais, instante da conferência e campos para evidências de entrega.\n\n**Referência:** [regulamento oficial](https://hackbrasil.com/regulamento), atualizado em 09/11/2026 e conferido em 17/11/2026: quatro critérios de 0 a 10, total de 40 pontos e peso de 25% cada; para finalistas, o repositório entregue fica congelado após 30/11 às 23h59 de Brasília até a retomada presencial em 12/12. A escala anterior de 25 pontos por critério não deve ser reutilizada.\n\n## Dependências\n\nNenhuma. Pode ser iniciada agora. Esta issue prepara o checklist; K15 confere os artefatos finais.\n\n## Trabalho delegável à IA\n\nChecklist, auditoria dos artefatos públicos e proposta de texto de submissão; não inventar conta, inscrição, permissão ou envio concluído.\n\n## Aceite humano\n\n- [ ] Checklist versionado com regras, fonte e data de conferência.\n- [ ] Integrantes/acessos conhecidos e pendentes identificados.\n- [ ] Cronologia, publicidade, vídeo, avaliação e congelamento registrados. Cada pendência tem papel responsável e prazo. Criar o checklist não significa realizar a submissão.\n- [ ] K15 só poderá registrar envio após confirmação observável.\n\n## Evidência para concluir\n\nVincular PR ou documento e evidência do aceite. Uma pessoa revisa o resultado; a resposta da IA, sozinha, não conclui a tarefa.",
+    "labels": [
+      "priority:p0",
+      "area:business",
+      "type:task"
+    ],
+    "ready": true,
+    "dependencies": []
+  },
+  {
+    "id": "K17",
+    "title": "[K17] Acrescentar voz ou avatar com alternativa funcional",
+    "body": "**Frente:** P1 Contexto / P4 Experiência.\n**Responsável humano sugerido:** pessoa responsável pela conversa multimodal.\n\n## Entrega\n\nExperimentar o provedor de voz/avatar previsto no planejamento, incluindo consentimento, limites de duração/custo e persistência do contexto; manter conversa por texto disponível.\n\n## Dependências\n\nK04, K12, K13\n\n## Trabalho delegável à IA\n\nAdaptador do fornecedor e estados de conexão/erro.\n\n## Aceite humano\n\n- [ ] Falha do provedor não impede concluir a entrevista.\n- [ ] Custos e serviços externos utilizados são visíveis à equipe.\n- [ ] Respostas mantêm a mesma estrutura e evidência da versão textual. Não implementar Meet, WhatsApp e plataforma própria simultaneamente sem justificativa e capacidade.\n\n## Evidência para concluir\n\nVincular PR ou documento e evidência do aceite. Uma pessoa revisa o resultado; a resposta da IA, sozinha, não conclui a tarefa.",
+    "labels": [
+      "priority:p2",
+      "area:context",
+      "type:task"
+    ],
+    "ready": false,
+    "dependencies": [
+      "K04",
+      "K12",
+      "K13"
+    ]
+  }
+]

@@ -1,0 +1,35 @@
+name: Falha
+description: Comportamento incorreto com reprodução e impacto.
+title: "[Falha] "
+body:
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Esperado e observado
+      description: Descreva a diferença e o efeito no usuário.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Como reproduzir
+      description: Informe versão/commit, passos e dados sintéticos. Não publique credenciais ou dados reais.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidência e verificação da correção
+      description: Log sanitizado, captura ou caso mínimo, e como saberemos que foi corrigido.
+    validations:
+      required: true
+  - type: dropdown
+    id: impact
+    attributes:
+      label: Impacto
+      options:
+        - Bloqueia o fluxo principal
+        - Resultado incorreto ou perda de evidência
+        - Problema localizado com alternativa
+    validations:
+      required: true

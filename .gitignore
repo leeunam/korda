@@ -1,0 +1,40 @@
+# Credenciais e configuração local
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Frontend
+node_modules/
+.next/
+dist/
+build/
+coverage/
+
+# Dados e saídas locais
+*.duckdb
+*.duckdb.wal
+*.db
+artifacts/
+runs/
+data/private/
+dbt_packages/
+target/
+logs/
+
+# Editor e sistema
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

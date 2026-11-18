@@ -1,0 +1,62 @@
+name: Tarefa
+description: Entrega delimitada para uma pessoa trabalhar com agentes de IA.
+title: "[Tarefa] "
+body:
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Resultado esperado
+      description: Quem precisa disso e qual resultado poderá observar?
+    validations:
+      required: true
+  - type: dropdown
+    id: workstream
+    attributes:
+      label: Frente
+      options:
+        - P1 · Contexto
+        - P2 · Planejamento
+        - P3 · Execução
+        - P4 · Experiência
+        - Transversal
+    validations:
+      required: true
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Prioridade
+      options:
+        - P0 · Caminho crítico da demo
+        - P1 · Valor e confiabilidade
+        - P2 · Depois do MVP
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Escopo e arquivos permitidos
+      description: O que entra, o que fica fora e quais contratos podem mudar?
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependências e decisões
+      description: Referencie issues e decisões necessárias. Escreva nenhuma quando não houver.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Critérios de aceite e verificação
+      description: Resultado verificável, exemplos, exceções e evidência que o revisor deverá conferir.
+      placeholder: "- [ ] ..."
+    validations:
+      required: true
+  - type: textarea
+    id: ai_contract
+    attributes:
+      label: Uso de IA e responsabilidade humana
+      description: Indique responsável, revisor, o que pode ser delegado e quando a IA deve parar.
+    validations:
+      required: true
