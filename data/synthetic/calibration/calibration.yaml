@@ -107,8 +107,3 @@ distancias_da_sede:
       - {codigo_ibge: 4210100, municipio: "Mafra", uf: SC, km_linha_reta: 94.7}
       - {codigo_ibge: 4119905, municipio: "Ponta Grossa", uf: PR, km_linha_reta: 97.8}
       - {codigo_ibge: 4209102, municipio: "Joinville", uf: SC, km_linha_reta: 106.8}
-
-frota_rntrc:
-  status: pendente
-  motivo: "parser só será escrito após conhecer as colunas reais; ver manifest.json"
-  uso_previsto: "proporção por tipo/carroceria na UF sede para conferir a frota suposta em empresa.yaml"

@@ -10,8 +10,8 @@ Etapas:
   2. Registrar: grava manifest.json (versionado, ao lado deste script) com URL, licença,
      data de obtenção, tamanho e sha256 de cada arquivo, a conferência das cópias versionadas
      em reference/ e o status de cada fonte. Checksum divergente é reportado, nunca corrigido.
-  3. Agregar: grava calibration.yaml só com agregados (diesel por UF, distâncias da sede,
-     status da frota RNTRC). Nenhuma linha bruta das fontes entra nos dados sintéticos.
+  3. Agregar: grava calibration.yaml só com agregados (diesel por UF e distâncias da sede).
+     Nenhuma linha bruta das fontes entra nos dados sintéticos.
 
 Sai com código 1 se alguma fonte estiver pendente ou divergente (as saídas são gravadas mesmo assim).
 Só biblioteca padrão; o YAML é escrito à mão em formato simples.
@@ -46,7 +46,6 @@ AREA = EMPRESAS / "01_demo" / "area_atendimento.csv"   # padrão dos testes
 
 ANP_ID = "anp_anuario_2026_t3_21"
 ANP_FILE = "anuario-2026-dados_abertos-tabela3-21.csv"
-ANTT_ID = "antt_rntrc_veiculos"
 USER_AGENT = "korda-calibration/0.1 (+https://github.com/leeunam/korda)"
 TIMEOUT_S = 60
 EARTH_RADIUS_KM = 6371.0
@@ -213,7 +212,7 @@ def q(value: str) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
-def render(diesel: dict | None, areas: dict[str, tuple[dict, list[dict]]], antt: dict) -> str:
+def render(diesel: dict | None, areas: dict[str, tuple[dict, list[dict]]]) -> str:
     lines = [
         "# Gerado por data/synthetic/calibration/calibrate.py. Não editar à mão.",
         "# Só agregados de fontes públicas; procedência completa em manifest.json.",
@@ -255,12 +254,6 @@ def render(diesel: dict | None, areas: dict[str, tuple[dict, list[dict]]], antt:
             lines.append(f"      - {{codigo_ibge: {d['codigo_ibge']}, municipio: {q(d['municipio'])}, "
                          f"uf: {d['uf']}, km_linha_reta: {d['km_linha_reta']:.1f}}}")
 
-    antt_status = antt.get("status", "pendente")
-    if antt_status == "ok":
-        antt_status = "arquivo_presente_parser_pendente"
-    lines += ["", "frota_rntrc:", f"  status: {antt_status}",
-              "  motivo: \"parser só será escrito após conhecer as colunas reais; ver manifest.json\"",
-              "  uso_previsto: \"proporção por tipo/carroceria na UF sede para conferir a frota suposta em empresa.yaml\""]
     return "\n".join(lines) + "\n"
 
 
@@ -280,7 +273,7 @@ def aggregate(manifest_by_id: dict[str, dict]) -> str:
         diesel = {"fonte": anp.get("titulo", ANP_ID), "sha256": entry.get("sha256", "desconhecido"),
                   "obtido_em": entry.get("obtido_em", "desconhecido"), "ano": year,
                   "por_uf": {uf: years[year] for uf, years in prices.items()}}
-    return render(diesel, areas, manifest_by_id.get(ANTT_ID, {}))
+    return render(diesel, areas)
 
 
 # --------------------------------------------------------------------------- orquestração

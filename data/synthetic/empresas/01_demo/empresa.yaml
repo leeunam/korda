@@ -33,7 +33,6 @@ periodo:
 
 frota:
   origem: suposicao:equipe
-  conferir_com: calibracao:antt_rntrc_veiculos   # fonte indisponível em 22/11/2026
   veiculos:
     - {tipo: VUC,   quantidade: 4, capacidade_kg: 3000,  capacidade_m3: 16, consumo_km_l: 8.0}
     - {tipo: TOCO,  quantidade: 4, capacidade_kg: 6000,  capacidade_m3: 32, consumo_km_l: 5.0}

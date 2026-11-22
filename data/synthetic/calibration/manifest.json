@@ -150,18 +150,6 @@
         "caminho": "data/synthetic/reference/cte-xsd/PL_CTe_400/",
         "confere_com_sha256": true
       }
-    },
-    {
-      "id": "antt_rntrc_veiculos",
-      "titulo": "ANTT — RNTRC: veículos de transportadores ativos por tipo, carroceria, UF e ano",
-      "licenca": "Creative Commons Atribuição (conferir no portal de dados abertos da ANTT)",
-      "pagina": "https://dados.antt.gov.br/dataset/rntrc",
-      "modo": "manual",
-      "status": "pendente",
-      "arquivos": [],
-      "pendencias": [
-        "fonte manual ausente. Em 22/11/2026 dados.antt.gov.br aceitou a conexão TLS mas não respondeu (timeout). Baixe manualmente o CSV de veículos do RNTRC na página acima, salve em data/external/antt_rntrc_veiculos/ e rode calibrate.py --offline para registrar o checksum. O parser da frota só será escrito depois de conhecermos as colunas reais."
-      ]
     }
   ]
 }

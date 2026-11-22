@@ -52,18 +52,17 @@ O script faz três etapas:
 2. **Registrar:** grava `calibration/manifest.json` com URL, licença, data de obtenção, tamanho, sha256 e status de cada fonte. Também confere se as cópias em `reference/` batem com o checksum registrado.
 3. **Agregar:** grava `calibration/calibration.yaml`.
 
-A data de obtenção só muda quando o arquivo muda. Checksum divergente vira status `divergente` e precisa de revisão humana. O script termina com código 1 enquanto houver fonte pendente ou divergente; hoje a pendente é a ANTT (veja abaixo). Para uma fonte manual, coloque o arquivo em `data/external/<id>/` e rode com `--offline`.
+A data de obtenção só muda quando o arquivo muda. Checksum divergente vira status `divergente` e precisa de revisão humana. O script termina com código 1 enquanto houver fonte pendente ou divergente. Para uma fonte manual, coloque o arquivo em `data/external/<id>/` e rode com `--offline`.
 
 ## Fontes e licenças
 
-**Só estatísticas, nunca linhas.** As fontes públicas calibram parâmetros (preços, distâncias, composição da frota). Nenhuma linha bruta é copiada para os dados sintéticos. O dataset Olist **não** é usado, por causa da licença CC BY-NC-SA.
+**Só estatísticas, nunca linhas.** As fontes públicas calibram parâmetros (preço do diesel e distâncias). Nenhuma linha bruta é copiada para os dados sintéticos. O dataset Olist **não** é usado, por causa da licença CC BY-NC-SA.
 
 | Fonte | Uso | Licença | Situação em 22/11/2026 |
 | --- | --- | --- | --- |
 | ANP, Anuário 2026, tabela 3.21 | Diesel médio por UF (2025: SP R$ 6,0858/l) | Creative Commons Atribuição (reconferir) | Baixada; só o agregado é versionado |
 | kelvins/municipios-brasileiros | Coordenadas → distância em linha reta × fator de estrada | MIT | Versionada em `reference/` |
 | Portal Nacional do CT-e (SVRS) | XSD do CT-e 4.00 para gerar e validar XMLs | Documentação pública oficial | Versionada em `reference/` |
-| ANTT, RNTRC Veículos | Composição da frota por tipo e carroceria, para conferir a frota suposta | Creative Commons Atribuição (conferir) | **Pendente**: `dados.antt.gov.br` não respondeu; download manual |
 
 Os parâmetros sem fonte (capacidades, consumo, tabela de frete, prazos, taxas de anomalia) estão marcados como `suposicao:equipe` em `empresa.yaml` e devem ser revistos com P1 e com as entrevistas.
 
