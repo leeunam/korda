@@ -68,7 +68,7 @@
       "pagina": "https://dados.antt.gov.br/dataset/rntrc",
       "modo": "manual",
       "versionado": false,
-      "instrucoes": "Em 22/11/2026 dados.antt.gov.br aceitou a conexão TLS mas não respondeu (timeout). Baixe manualmente o CSV de veículos do RNTRC na página acima, salve em data/external/antt_rntrc_veiculos/ e rode download.py --manual para registrar o checksum. O parser da frota só será escrito depois de conhecermos as colunas reais.",
+      "instrucoes": "Em 22/11/2026 dados.antt.gov.br aceitou a conexão TLS mas não respondeu (timeout). Baixe manualmente o CSV de veículos do RNTRC na página acima, salve em data/external/antt_rntrc_veiculos/ e rode calibrate.py --offline para registrar o checksum. O parser da frota só será escrito depois de conhecermos as colunas reais.",
       "files": []
     }
   ]

@@ -1,12 +1,12 @@
-# Gerado por data/synthetic/calibration/build_calibration.py. Não editar à mão.
-# Só agregados de fontes públicas; procedência em sources.json e data/external/<id>/manifest.json.
+# Gerado por data/synthetic/calibration/calibrate.py. Não editar à mão.
+# Só agregados de fontes públicas; procedência completa em manifest.json.
 # RASCUNHO para K03: regras de KPI ainda dependem de K02.
 
 diesel_preco_medio_consumidor:
   fonte: "ANP — Anuário Estatístico 2026, tabela 3.21: preço médio do óleo diesel ao consumidor por UF, 2016–2025"
   arquivo: "anuario-2026-dados_abertos-tabela3-21.csv"
   sha256: "3c4699190ca5861dbace11315b5c5a349360cf6a5326d697531afd0c0416f04d"
-  obtido_em: "2026-11-22T19:41:23+00:00"
+  obtido_em: "2026-11-22T19:51:13+00:00"
   unidade: R$/litro (valores correntes, média ponderada por vendas das distribuidoras)
   ano: 2025
   uf_sede: SP
@@ -70,5 +70,5 @@ distancias_da_sede:
 
 frota_rntrc:
   status: pendente
-  motivo: "dados.antt.gov.br sem resposta em 22/11/2026; ver instrucoes em sources.json"
+  motivo: "parser só será escrito após conhecer as colunas reais; ver manifest.json"
   uso_previsto: "proporção por tipo/carroceria na UF sede para conferir a frota suposta em empresa.yaml"

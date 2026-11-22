@@ -7,7 +7,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 
-import build_calibration as bc  # noqa: E402
+import calibrate as bc  # noqa: E402
 
 FIXTURES = HERE / "fixtures"
 
@@ -62,3 +62,42 @@ class DistanceTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ObtainSourceTest(unittest.TestCase):
+    """Procedência: checksum divergente e fonte manual ausente não podem passar como 'ok'."""
+
+    def setUp(self):
+        import tempfile
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.original = bc.EXTERNAL
+        bc.EXTERNAL = Path(self.tmp.name)
+        self.addCleanup(setattr, bc, "EXTERNAL", self.original)
+
+    def _source(self, sha):
+        return {"id": "fake", "titulo": "t", "licenca": "l", "modo": "automatico",
+                "files": [{"url": "https://example.invalid/a.csv", "dest": "a.csv", "sha256": sha}]}
+
+    def test_matching_checksum_is_ok(self):
+        (bc.EXTERNAL / "fake").mkdir()
+        (bc.EXTERNAL / "fake" / "a.csv").write_bytes(b"abc")
+        # sha256("abc"), valor padrão de referência do algoritmo.
+        sha = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        entry = bc.obtain_source(self._source(sha), offline=True, previous={}, now="T")
+        self.assertEqual(entry["status"], "ok")
+
+    def test_different_checksum_is_divergent(self):
+        (bc.EXTERNAL / "fake").mkdir()
+        (bc.EXTERNAL / "fake" / "a.csv").write_bytes(b"abd")
+        sha = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        entry = bc.obtain_source(self._source(sha), offline=True, previous={}, now="T")
+        self.assertEqual(entry["status"], "divergente")
+
+    def test_manual_source_ignores_stale_manifest(self):
+        folder = bc.EXTERNAL / "manual"
+        folder.mkdir()
+        (folder / "manifest.json").write_text("{}")
+        source = {"id": "manual", "titulo": "t", "licenca": "l", "modo": "manual", "files": []}
+        entry = bc.obtain_source(source, offline=True, previous={}, now="T")
+        self.assertEqual(entry["status"], "pendente")

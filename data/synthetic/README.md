@@ -13,7 +13,7 @@
 | [`spec/dicionario.md`](spec/dicionario.md) | Esquemas "sujos" de ERP, TMS e CT-e e suas relações. |
 | [`spec/anomalias.md`](spec/anomalias.md) | Problemas plantados, KPI afetado e o teste que deve nascer de cada um. |
 | [`spec/cenarios.md`](spec/cenarios.md) | Cenários 01 (demo), 02 (variação) e 03 (reservado só para medir). |
-| [`calibration/`](calibration/sources.json) | `sources.json`, `download.py`, `build_calibration.py`, testes e o `calibration.yaml` gerado (só agregados). |
+| [`calibration/`](calibration/sources.json) | `sources.json` (fontes declaradas), `calibrate.py` (processo único), [`manifest.json`](calibration/manifest.json) (procedência obtida, versionada), `calibration.yaml` (só agregados) e testes. |
 | [`reference/municipios/`](reference/municipios/README.md) | Coordenadas dos municípios (MIT), versionadas. |
 | [`reference/cte-xsd/PL_CTe_400/`](reference/cte-xsd/PL_CTe_400/README.md) | XSD oficiais do CT-e 4.00, versionados para validação offline. |
 | `../external/` | Downloads brutos (ignorados pelo Git). |
@@ -23,12 +23,18 @@
 Só biblioteca padrão do Python (3.11+):
 
 ```bash
-python3 data/synthetic/calibration/download.py           # baixa para data/external/ e grava manifest.json
-python3 data/synthetic/calibration/build_calibration.py  # gera calibration/calibration.yaml
+python3 data/synthetic/calibration/calibrate.py            # obter -> registrar -> agregar
+python3 data/synthetic/calibration/calibrate.py --offline  # sem rede, com o que já está em data/external/
 python3 -m unittest discover -s data/synthetic/calibration/tests
 ```
 
-`download.py` termina com código 1 enquanto houver fonte pendente. Hoje a pendente é a ANTT (veja abaixo). `--manual` confere arquivos colocados à mão sem acessar a rede.
+O script faz três etapas:
+
+1. **Obter:** baixa as fontes de `sources.json` para `data/external/<id>/`.
+2. **Registrar:** grava `calibration/manifest.json` com URL, licença, data de obtenção, tamanho, sha256 e status de cada fonte. Também confere se as cópias em `reference/` batem com o checksum registrado.
+3. **Agregar:** grava `calibration/calibration.yaml`.
+
+A data de obtenção só muda quando o arquivo muda. Checksum divergente vira status `divergente` e precisa de revisão humana. O script termina com código 1 enquanto houver fonte pendente ou divergente; hoje a pendente é a ANTT (veja abaixo). Para uma fonte manual, coloque o arquivo em `data/external/<id>/` e rode com `--offline`.
 
 ## Fontes e licenças
 
