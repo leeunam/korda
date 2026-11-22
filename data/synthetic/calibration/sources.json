@@ -1,0 +1,75 @@
+{
+  "_comentario": "Fontes públicas usadas só para extrair estatísticas. Nenhuma linha bruta entra nos dados sintéticos. Downloads vão para data/external/<id>/ (ignorado pelo Git).",
+  "sources": [
+    {
+      "id": "anp_anuario_2026_t3_21",
+      "titulo": "ANP — Anuário Estatístico 2026, tabela 3.21: preço médio do óleo diesel ao consumidor por UF, 2016–2025",
+      "licenca": "Creative Commons Atribuição (política de dados abertos da ANP); reconferir antes da submissão",
+      "pagina": "https://www.gov.br/anp/pt-br/centrais-de-conteudo/dados-abertos/anuario-estatistico-brasileiro-do-petroleo-gas-natural-e-biocombustiveis",
+      "metadados": "https://www.gov.br/anp/pt-br/centrais-de-conteudo/dados-abertos/arquivos/anuario-estatistico-2026/secao-3/anuario-abertos-metadados-tabela3-21.pdf",
+      "modo": "automatico",
+      "versionado": false,
+      "files": [
+        {
+          "url": "https://www.gov.br/anp/pt-br/centrais-de-conteudo/dados-abertos/arquivos/anuario-estatistico-2026/secao-3/anuario-2026-dados_abertos-tabela3-21.csv",
+          "dest": "anuario-2026-dados_abertos-tabela3-21.csv",
+          "sha256": "3c4699190ca5861dbace11315b5c5a349360cf6a5326d697531afd0c0416f04d"
+        }
+      ]
+    },
+    {
+      "id": "kelvins_municipios",
+      "titulo": "Municípios Brasileiros (kelvins/municipios-brasileiros): código IBGE e coordenadas",
+      "licenca": "MIT",
+      "pagina": "https://github.com/kelvins/municipios-brasileiros",
+      "commit": "503e2f70bbf1b4b7ec0b1f68b09086ccc38fe861",
+      "modo": "automatico",
+      "versionado": true,
+      "copia_versionada": "data/synthetic/reference/municipios/",
+      "files": [
+        {
+          "url": "https://raw.githubusercontent.com/kelvins/municipios-brasileiros/503e2f70bbf1b4b7ec0b1f68b09086ccc38fe861/csv/municipios.csv",
+          "dest": "municipios.csv",
+          "sha256": "22bd03d004361329f69ddfa3f6c99cd53012aa53972a172e10b141288ad0b1fe"
+        },
+        {
+          "url": "https://raw.githubusercontent.com/kelvins/municipios-brasileiros/503e2f70bbf1b4b7ec0b1f68b09086ccc38fe861/csv/estados.csv",
+          "dest": "estados.csv",
+          "sha256": "395c7b797b85592d71c686a0b537ba05349dee36c19b26a4b0d89494ff71448a"
+        }
+      ]
+    },
+    {
+      "id": "svrs_cte_xsd_400",
+      "titulo": "Portal Nacional do CT-e (SVRS): schemas XSD do CT-e 4.00, modal rodoviário e evento de cancelamento",
+      "licenca": "Documentação técnica pública oficial",
+      "pagina": "https://dfe-portal.svrs.rs.gov.br/CTE/ConsultaSchema",
+      "modo": "automatico",
+      "versionado": true,
+      "copia_versionada": "data/synthetic/reference/cte-xsd/PL_CTe_400/",
+      "files": [
+        {"url": "https://dfe-portal.svrs.rs.gov.br/Schemas/PRCTE/cte_v4.00.xsd", "dest": "cte_v4.00.xsd", "sha256": "39d01ef5afad8a44102871561c92dfc58be9fdd761f320ceb1f8cb136ebff320"},
+        {"url": "https://dfe-portal.svrs.rs.gov.br/Schemas/PRCTE/cteTiposBasico_v4.00.xsd", "dest": "cteTiposBasico_v4.00.xsd", "sha256": "4b7dc4bea836bb5e9d8c6fac68f07748895f560e2a5d13d666c6ca2261c96014"},
+        {"url": "https://dfe-portal.svrs.rs.gov.br/Schemas/PRCTE/tiposGeralCTe_v4.00.xsd", "dest": "tiposGeralCTe_v4.00.xsd", "sha256": "c34c9e5a120f528c17153d2224e0452819c50c708d8d96b77dfc505c4f76c201"},
+        {"url": "https://dfe-portal.svrs.rs.gov.br/Schemas/PRCTE/DFeTiposBasicos_v1.00.xsd", "dest": "DFeTiposBasicos_v1.00.xsd", "sha256": "75327548d878e6f01584164a459c9709360f174637ff4c279b10f23fa16e0726"},
+        {"url": "https://dfe-portal.svrs.rs.gov.br/Schemas/PRCTE/xmldsig-core-schema_v1.01.xsd", "dest": "xmldsig-core-schema_v1.01.xsd", "sha256": "8ce2a385b593c85acf09cb03521f9e730dad2b2e6a5d02cc6f5b688ca94ce230"},
+        {"url": "https://dfe-portal.svrs.rs.gov.br/Schemas/PRCTE/cteModalRodoviario_v4.00.xsd", "dest": "cteModalRodoviario_v4.00.xsd", "sha256": "f7f80a8cbbeb62ceb785cc62ca4af9983b125b8f45e98e97c7a928e395647292"},
+        {"url": "https://dfe-portal.svrs.rs.gov.br/Schemas/PRCTE/procCTe_v4.00.xsd", "dest": "procCTe_v4.00.xsd", "sha256": "f8646422637971c40589d78a02e11aa23f5c472a77ad68955809c9ccea61fe5b"},
+        {"url": "https://dfe-portal.svrs.rs.gov.br/Schemas/PRCTE/eventoCTe_v4.00.xsd", "dest": "eventoCTe_v4.00.xsd", "sha256": "936aa018cf1b30cfbac4bebb226ea34cd1195512d156250b8eedf52196bcfd6c"},
+        {"url": "https://dfe-portal.svrs.rs.gov.br/Schemas/PRCTE/eventoCTeTiposBasico_v4.00.xsd", "dest": "eventoCTeTiposBasico_v4.00.xsd", "sha256": "bd42e4a63cfff5670f65a9aa4517c7a087ee2c42c39abd77e4c4c9a1a7ed4bae"},
+        {"url": "https://dfe-portal.svrs.rs.gov.br/Schemas/PRCTE/evCancCTe_v4.00.xsd", "dest": "evCancCTe_v4.00.xsd", "sha256": "ac4c0b6007944a112b9a061c656872d2c959e4ee9673a0c6673d84ab4c9fbb03"},
+        {"url": "https://dfe-portal.svrs.rs.gov.br/Schemas/PRCTE/procEventoCTe_v4.00.xsd", "dest": "procEventoCTe_v4.00.xsd", "sha256": "a8dba6b75c36234b019a98017b3da0122ab19739f992a742e9cb9ec8b6abef3f"}
+      ]
+    },
+    {
+      "id": "antt_rntrc_veiculos",
+      "titulo": "ANTT — RNTRC: veículos de transportadores ativos por tipo, carroceria, UF e ano",
+      "licenca": "Creative Commons Atribuição (conferir no portal de dados abertos da ANTT)",
+      "pagina": "https://dados.antt.gov.br/dataset/rntrc",
+      "modo": "manual",
+      "versionado": false,
+      "instrucoes": "Em 22/11/2026 dados.antt.gov.br aceitou a conexão TLS mas não respondeu (timeout). Baixe manualmente o CSV de veículos do RNTRC na página acima, salve em data/external/antt_rntrc_veiculos/ e rode download.py --manual para registrar o checksum. O parser da frota só será escrito depois de conhecermos as colunas reais.",
+      "files": []
+    }
+  ]
+}
