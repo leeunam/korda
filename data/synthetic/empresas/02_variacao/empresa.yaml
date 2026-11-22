@@ -1,0 +1,121 @@
+# Empresa 02_variacao: RASCUNHO para K03 (Refs #3).
+# Uso: AJUSTE do agente. Variação da 01: rateio por VOLUME, nomes de coluna
+# diferentes (conjunto B), CSV com outro separador e um fato de negócio que
+# fica FORA da entrevista (viagens de transferência).
+#
+# Mesmas convenções da 01: `origem` marca procedência; suposicao:equipe = sem fonte.
+# regras_referencia são PROPOSTA pendente de K02.
+
+versao: 0.2-rascunho
+empresa_id: 02_variacao
+uso: ajuste
+semente: 20261102
+
+empresa:
+  razao_social: "Rota Mogiana Cargas Ltda (fictícia)"
+  nome_curto: ROTAMOGIANA
+  cnpj_base: "22333444"          # DV do CNPJ propositalmente inválido
+  ie: "234567890123"
+  area_atendimento: area_atendimento.csv
+  fuso_horario: America/Sao_Paulo
+  origem: suposicao:equipe
+
+periodo:
+  inicio: 2026-10-05
+  dias_corridos: 15
+  dias_operacao: [0, 1, 2, 3, 4, 5]
+  fracao_frota_sabado: 0.4
+  origem: suposicao:equipe
+
+frota:
+  origem: suposicao:equipe
+  conferir_com: calibracao:antt_rntrc_veiculos
+  veiculos:
+    - {tipo: VUC,  quantidade: 2, capacidade_kg: 3000, capacidade_m3: 16, consumo_km_l: 8.0}
+    - {tipo: TOCO, quantidade: 3, capacidade_kg: 6000, capacidade_m3: 32, consumo_km_l: 5.0}
+
+clientes:
+  quantidade: 20
+  origem: suposicao:equipe
+
+viagens:
+  viagens_por_veiculo_dia: 1
+  entregas_por_viagem: {min: 10, max: 14}
+  ocupacao_alvo: {min: 0.55, max: 0.95}
+  origem: suposicao:equipe
+
+pedido:
+  densidade_kg_m3: {min: 60, max: 400}   # carga heterogênea: rateio por volume difere do por peso
+  itens: {min: 1, max: 12}
+  valor_mercadoria_r_por_kg: {min: 20, max: 90}
+  prazo_dias_uteis: {ate_100_km: 1, acima_100_km: 2}
+  folga_entrega_dias_uteis: {zero: 0.6, um: 0.4}
+  campo_prazo: data_prevista
+  origem: suposicao:equipe
+
+frete:
+  r_por_kg_por_faixa_km: [{ate_km: 50, r_kg: 0.38}, {ate_km: 100, r_kg: 0.55}, {ate_km: 9999, r_kg: 0.85}]
+  frete_minimo_r: 110.00
+  ad_valorem_pct: 0.25
+  fator_margem_km: 2.5
+  origem: suposicao:equipe
+
+custos_operacao:
+  diesel_r_por_litro: {fonte: calibration.yaml, chave: diesel_preco_medio_consumidor.por_uf, uf: sede, origem: calibracao:anp_anuario_2026_t3_21}
+  fator_estrada: {valor: 1.25, origem: suposicao:equipe}
+
+anomalias:
+  origem: suposicao:equipe
+  cte_duplicado_pct: {min: 2, max: 3}
+  cte_cancelado_pct: {min: 1, max: 2}
+  cte_multi_pedido_pct: {min: 5, max: 10}
+  entrega_atrasada_pct: {min: 8, max: 12}
+  entrega_incompleta_pct: {min: 3, max: 5}
+  entrega_sem_data_pct: {min: 2, max: 3}
+  data_formato_misto_pct: {min: 8, max: 12}
+  viagem_acima_capacidade_pct: {min: 1, max: 2}
+
+caso_explicavel: {ativo: false}
+
+transferencias:   # FATO FORA DA ENTREVISTA
+  ativo: true
+  viagens_pct: {min: 8, max: 12}
+  tipo_viagem: TRF                 # viagens normais usam DIST
+  pedidos_por_viagem: {min: 2, max: 4}
+  cliente: {razao: "Armazém Paulista de Apoio Ltda (fictícia)", municipio_ibge: 3516200}
+  status_entrega: TRANSFERIDO      # o TMS não registra dt_realizada para transferências
+  origem: suposicao:equipe
+
+fatos_fora_da_entrevista:   # existem nos dados, mas a entrevista simulada NÃO os menciona
+  - id: transferencias
+    descricao: "Viagens com tipo TRF levam mercadoria para a filial (um 'cliente' interno). Não são entregas a cliente final e não deveriam entrar em custo de frete por entrega nem em OTIF."
+    esperado_do_planejamento: "registrar como premissa explícita ou pergunta ao cliente; não decidir em silêncio"
+    origem: suposicao:equipe
+
+formato:
+  csv: {separador: ",", decimal: ".", encoding: utf-8}
+  data: "%d/%m/%Y"
+  data_hora_tms: "%d/%m/%Y %H:%M"
+  formatos_mistos: ["%Y-%m-%d %H:%M", "%d/%m/%y"]
+
+colunas:        # conjunto B
+  erp_clientes: {id: COD_CLIENTE, razao: NOME_CLI, cnpj: CNPJ_CLI, municipio_ibge: COD_IBGE, ativo: SIT}
+  erp_pedidos: {id: NUM_PEDIDO, cliente_id: COD_CLIENTE, dt_emissao: DATA_PED, dt_prevista: DATA_PROMET, prazo_dias: PRAZO, qt_itens: QTD_VOL, peso_kg: PESO, volume_m3: CUBAGEM_M3, valor_mercadoria: VLR_NF, chave_nfe: CHAVE_NF}
+  tms_veiculos: {id: COD_VEIC, placa: PLACA_VEIC, tipo: CATEGORIA, cap_kg: LOTACAO_KG, cap_m3: LOTACAO_M3}
+  tms_viagens: {id: NUM_ROMANEIO, veiculo_id: COD_VEIC, dt_saida: DATA_SAIDA, km: KM_TOTAL, tipo: TP_VIAG}
+  tms_entregas: {id: SEQ_ENTREGA, viagem_id: NUM_ROMANEIO, pedido_id: PEDIDO, seq: ORDEM, qt_entregue: QTD_ENTREG, dt_realizada: DATA_ENTR, status: SITUACAO}
+
+regras_referencia:    # PROPOSTA pendente de K02
+  status: proposta_pendente_k02
+  rateio_cte: volume
+  sem_data_realizada: falha
+  ocupacao_unidade: kg
+  prazo_conta_sabado: true
+  excluir_tipos_viagem: [TRF]
+  no_prazo: "data(dt_realizada) <= data prevista"
+  completo: "qt_entregue >= qt_itens"
+
+tolerancias:
+  custo_rel: 0.005
+  otif_pp: 0.5
+  ocupacao_pp: 0.5

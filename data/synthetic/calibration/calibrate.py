@@ -41,7 +41,8 @@ MANIFEST = HERE / "manifest.json"
 OUTPUT = HERE / "calibration.yaml"
 MUNICIPIOS = SYNTHETIC / "reference" / "municipios" / "municipios.csv"
 ESTADOS = SYNTHETIC / "reference" / "municipios" / "estados.csv"
-AREA = SYNTHETIC / "spec" / "area_atendimento.csv"
+EMPRESAS = SYNTHETIC / "empresas"
+AREA = EMPRESAS / "01_demo" / "area_atendimento.csv"   # padrão dos testes
 
 ANP_ID = "anp_anuario_2026_t3_21"
 ANP_FILE = "anuario-2026-dados_abertos-tabela3-21.csv"
@@ -212,7 +213,7 @@ def q(value: str) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
-def render(diesel: dict | None, distances: list[dict], sede: dict, antt: dict) -> str:
+def render(diesel: dict | None, areas: dict[str, tuple[dict, list[dict]]], antt: dict) -> str:
     lines = [
         "# Gerado por data/synthetic/calibration/calibrate.py. Não editar à mão.",
         "# Só agregados de fontes públicas; procedência completa em manifest.json.",
@@ -230,27 +231,29 @@ def render(diesel: dict | None, distances: list[dict], sede: dict, antt: dict) -
             f"  obtido_em: {q(diesel['obtido_em'])}",
             "  unidade: R$/litro (valores correntes, média ponderada por vendas das distribuidoras)",
             f"  ano: {diesel['ano']}",
-            f"  uf_sede: {sede['uf']}",
-            f"  valor_uf_sede: {diesel['por_uf'][sede['uf']]:.4f}",
             "  por_uf:",
         ]
         lines += [f"    {uf}: {price:.4f}" for uf, price in sorted(diesel["por_uf"].items())]
 
-    kms = [d["km_linha_reta"] for d in distances]
     lines += [
         "",
         "distancias_da_sede:",
-        "  fonte: \"kelvins/municipios-brasileiros (MIT), commit 503e2f7; área em spec/area_atendimento.csv\"",
+        "  fonte: \"kelvins/municipios-brasileiros (MIT), commit 503e2f7; área em empresas/<id>/area_atendimento.csv\"",
         "  metodo: \"haversine (raio 6371 km); distância de estrada = linha reta × fator_estrada de empresa.yaml\"",
-        f"  sede: {q(sede['municipio'] + '/' + sede['uf'])}",
-        f"  km_linha_reta_min: {min(kms):.1f}",
-        f"  km_linha_reta_mediana: {statistics.median(kms):.1f}",
-        f"  km_linha_reta_max: {max(kms):.1f}",
-        "  municipios:",
     ]
-    for d in sorted(distances, key=lambda d: d["km_linha_reta"]):
-        lines.append(f"    - {{codigo_ibge: {d['codigo_ibge']}, municipio: {q(d['municipio'])}, "
-                     f"uf: {d['uf']}, km_linha_reta: {d['km_linha_reta']:.1f}}}")
+    for empresa, (sede, distances) in sorted(areas.items()):
+        kms = [d["km_linha_reta"] for d in distances]
+        lines += [
+            f"  {empresa}:",
+            f"    sede: {q(sede['municipio'] + '/' + sede['uf'])}",
+            f"    km_linha_reta_min: {min(kms):.1f}",
+            f"    km_linha_reta_mediana: {statistics.median(kms):.1f}",
+            f"    km_linha_reta_max: {max(kms):.1f}",
+            "    municipios:",
+        ]
+        for d in sorted(distances, key=lambda d: (d["km_linha_reta"], d["codigo_ibge"])):
+            lines.append(f"      - {{codigo_ibge: {d['codigo_ibge']}, municipio: {q(d['municipio'])}, "
+                         f"uf: {d['uf']}, km_linha_reta: {d['km_linha_reta']:.1f}}}")
 
     antt_status = antt.get("status", "pendente")
     if antt_status == "ok":
@@ -262,9 +265,10 @@ def render(diesel: dict | None, distances: list[dict], sede: dict, antt: dict) -
 
 
 def aggregate(manifest_by_id: dict[str, dict]) -> str:
-    area = load_area()
-    sede = next(row for row in area if row["papel"] == "sede")
-    distances = distances_from_sede(area)
+    areas = {}
+    for path in sorted(EMPRESAS.glob("*/area_atendimento.csv")):
+        area = load_area(path)
+        areas[path.parent.name] = (next(r for r in area if r["papel"] == "sede"), distances_from_sede(area))
 
     diesel = None
     anp_path = EXTERNAL / ANP_ID / ANP_FILE
@@ -276,7 +280,7 @@ def aggregate(manifest_by_id: dict[str, dict]) -> str:
         diesel = {"fonte": anp.get("titulo", ANP_ID), "sha256": entry.get("sha256", "desconhecido"),
                   "obtido_em": entry.get("obtido_em", "desconhecido"), "ano": year,
                   "por_uf": {uf: years[year] for uf, years in prices.items()}}
-    return render(diesel, distances, sede, manifest_by_id.get(ANTT_ID, {}))
+    return render(diesel, areas, manifest_by_id.get(ANTT_ID, {}))
 
 
 # --------------------------------------------------------------------------- orquestração
