@@ -1,6 +1,6 @@
 # Anomalias plantadas (cenário 01): rascunho
 
-Cada anomalia é um **fato** que o gerador planta nas fontes. O tratamento correto (excluir, deduplicar, ratear, considerar incompleto) **não** está definido aqui: depende das regras aprovadas em [K02](https://github.com/leeunam/korda/issues/2) e do plano (K06). As taxas estão em [`empresa.yaml`](empresa.yaml) (`anomalias`) e são suposições da equipe.
+Cada anomalia é um **fato** que o gerador planta nas fontes. O tratamento correto (excluir, deduplicar, ratear, considerar incompleto) **não** está definido aqui: depende das regras aprovadas em [K02](https://github.com/leeunam/korda/issues/2) e do plano (K06). As faixas estão em `anomalias` de cada [`empresa.yaml`](../empresas/01_demo/empresa.yaml) e são suposições da equipe: CT-e duplicado 2–3%, cancelado 1–2% (sempre reemitido), CT-e com vários pedidos 5–10%, atraso 8–12%, incompleta 3–5%, sem data 2–3%, datas em formatos mistos 8–12% de `dt_realizada` e viagem acima da capacidade 1–2%. O valor efetivo é sorteado pela semente e registrado em `output/<empresa>/_gerador/contagens.json`.
 
 | # | Anomalia | Onde aparece | KPI afetado | Como se detecta | Teste que o plano deve derivar (proposta) |
 | --- | --- | --- | --- | --- | --- |
@@ -15,9 +15,18 @@ Cada anomalia é um **fato** que o gerador planta nas fontes. O tratamento corre
 | A9 | Carga acima da capacidade | Soma de `ps_bruto` da viagem > `cap_kg` | Ocupação | Comparar com o cadastro | Ocupação > 100% sinalizada, não truncada em silêncio |
 | A10 | Capacidade em duas unidades | `cap_kg` e `cap_m3` | Ocupação | Dicionário | O plano declara a unidade (peso ou volume). Regra pendente de K02 |
 
+## Caso explicável da 01_demo
+
+Fixo, fora do sorteio e definido em `caso_explicavel` da [01](../empresas/01_demo/empresa.yaml):
+
+- CT-e de R$ 400,00 cobrindo os pedidos 900001 (100 kg) e 900002 (300 kg); rateio por peso de R$ 100,00 + R$ 300,00. O XML chega **duplicado**.
+- Pedido 900003 com CT-e de R$ 150,00 **cancelado** e reemitido com o mesmo valor; o custo do pedido é R$ 150,00.
+
+O gabarito confere esses valores em `evaluation/golden/tests/test_golden.py`.
+
 ## Caso mínimo de referência (4 CT-e)
 
-O exemplo de 4 linhas do contexto do Gabriel (CT-e A1 duplicado, B2, C3 cancelado e rateio por peso; R$ 237,50 ingênuo contra R$ 166,67) cobre A1, A2 e A4. Ele deve virar uma **fixture independente**, conferida à mão, no gabarito ([K11](https://github.com/leeunam/korda/issues/11)), e não nascer deste gerador. O valor R$ 166,67 vale **só** se K02 aprovar deduplicar, excluir o cancelado e seus pedidos, ratear por peso e usar entregas válidas no denominador.
+O exemplo de 4 linhas do contexto do Gabriel (CT-e A1 duplicado, B2, C3 cancelado e rateio por peso; R$ 237,50 ingênuo contra R$ 166,67) cobre A1, A2 e A4. Ele já é uma **fixture independente**, montada à mão em `evaluation/golden/tests/test_golden.py` ([K11](https://github.com/leeunam/korda/issues/11)), e não nasce do gerador. O valor R$ 166,67 vale **só** se K02 aprovar deduplicar, excluir o cancelado e seus pedidos, ratear por peso e usar entregas válidas no denominador.
 
 ## Independência do gabarito
 

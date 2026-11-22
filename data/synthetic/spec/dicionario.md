@@ -1,6 +1,8 @@
 # Dicionário das fontes sintéticas (cenário 01): rascunho
 
-**Status:** rascunho para [K03](https://github.com/leeunam/korda/issues/3). O gerador ainda não existe, e os nomes e tipos podem mudar quando os contratos de K01 forem fechados.
+**Status:** rascunho para [K03](https://github.com/leeunam/korda/issues/3). Os nomes e tipos podem mudar quando os contratos de K01 forem fechados.
+
+Os nomes abaixo são os **lógicos** e o **conjunto A** (01_demo). Cada empresa define nomes físicos próprios em `colunas` do seu `empresa.yaml`: conjunto B na 02 (`NUM_PEDIDO`, `DATA_ENTR`…) e conjunto C na 03 (`pedidoId`, `dtEntregaReal`…). O formato também muda por empresa: separador, decimal e formatos de data em `formato`.
 
 As fontes imitam a exportação de um cliente real. Os nomes de coluna são curtos e pouco claros, os sistemas guardam formatos diferentes e as chaves não têm o mesmo nome entre eles. Entender isso é tarefa do perfilamento (P1/K05) e do plano (P2/K06).
 
@@ -14,7 +16,7 @@ Convenções da exportação: CSV em UTF-8, separador `;` e vírgula decimal (ER
 | `cd_cli` | inteiro | Código interno do cliente (chave). |
 | `ds_razao` | texto | Razão social fictícia. |
 | `nr_cnpj` | texto (14) | CNPJ fictício, com DV propositalmente inválido. |
-| `cd_mun_ibge` | inteiro | Município (de `spec/area_atendimento.csv`). |
+| `cd_mun_ibge` | inteiro | Município (de `empresas/<id>/area_atendimento.csv`). |
 | `fl_ativo` | `S`/`N` | Cadastro ativo. |
 
 ### `erp_pedidos.csv`
@@ -27,6 +29,8 @@ Convenções da exportação: CSV em UTF-8, separador `;` e vírgula decimal (ER
 | `qt_itens` | inteiro | Quantidade de volumes pedida. |
 | `ps_bruto` | decimal (kg) | Peso bruto. |
 | `vl_merc` | decimal (R$) | Valor da mercadoria. |
+| `vl_cubag` | decimal (m³) | Volume (cubagem). |
+| `qt_dias_prz` | inteiro | Prazo em dias úteis. Só na 03 (`prazoDU`), que não traz `dt_prev_ent`. |
 | `ch_nfe` | texto (44) | Chave da NF-e do pedido. É o elo com o CT-e (`infNFe/chave`). |
 
 ## TMS
@@ -46,8 +50,8 @@ Convenções da exportação: CSV em UTF-8, separador `;` e vírgula decimal (ER
 | `id_viag` | inteiro | Viagem (chave). |
 | `id_veic` | texto | → `tms_veiculos.id_veic`. |
 | `dt_saida` | data e hora | Saída da sede. |
-| `dt_retorno` | data e hora | Retorno (pode ser vazio). |
 | `km_rodado` | decimal | Hodômetro da viagem. |
+| `tp_viag` | texto | `DIST` (distribuição). Na 02 também `TRF` (transferência para a filial; fato fora da entrevista). |
 
 ### `tms_entregas.csv`
 | Coluna | Tipo | Descrição |
@@ -58,7 +62,7 @@ Convenções da exportação: CSV em UTF-8, separador `;` e vírgula decimal (ER
 | `seq_parada` | inteiro | Ordem na rota. |
 | `qt_entregue` | inteiro | Volumes entregues. |
 | `dt_baixa` | texto | Data e hora da entrega realizada. **Formatos mistos** e às vezes vazia (ver anomalias). |
-| `st_ent` | texto | `ENTREGUE`, `PARCIAL`, `DEVOLVIDA`. |
+| `st_ent` | texto | `ENTREGUE`, `PARCIAL`; na 02, `TRANSFERIDO` para viagens `TRF`. |
 
 ## CT-e (`cte/*.xml`)
 

@@ -1,11 +1,11 @@
-# Cenários sintéticos
+# Cenários sintéticos (empresas)
 
-O mesmo gerador parametrizado produz os três cenários. Só o **01** está especificado nesta etapa.
+O mesmo gerador ([`../generator/`](../generator/generate.py)) produz as três empresas. Cada uma tem sua própria [`empresa.yaml`](../empresas/01_demo/empresa.yaml) e semente fixa. Os dados gerados ficam em `data/synthetic/output/<empresa>/`, ignorado pelo Git e reproduzível.
 
-| Cenário | Uso | Pode ser usado para ajustar agente/prompts? | Estado |
+| Empresa | Uso | Pode ajustar agente/prompts/playbook? | O que muda |
 | --- | --- | --- | --- |
-| 01 · demo | Demonstração e desenvolvimento | Sim | Especificado em [`empresa.yaml`](empresa.yaml) (rascunho) |
-| 02 · variação | Desenvolvimento, com outra regra de rateio, outros nomes de coluna e uma informação faltando | Sim | A especificar |
-| 03 · reservado | **Só medição** (número honesto do pitch, K14) | **Não**: não abrir durante o desenvolvimento do agente | A especificar, com semente e parâmetros guardados fora do alcance do executor |
+| [01_demo](../empresas/01_demo/empresa.yaml) | Vídeo e ajuste | Sim | Campinas/SP, 30 dias, 10 veículos (VUC/TOCO/TRUCK), ~15 entregas por viagem, rateio por peso, colunas do conjunto A, **caso explicável** |
+| [02_variacao](../empresas/02_variacao/empresa.yaml) | Ajuste | Sim | Ribeirão Preto/SP, 15 dias, 5 veículos, **rateio por volume**, colunas do conjunto B, CSV com `,`, **fato fora da entrevista** (viagens de transferência `TRF`) |
+| [03_reservada](../empresas/03_reservada/empresa.yaml) | **Só medição** | **Não** ([README](../empresas/03_reservada/README.md)) | Curitiba/PR, 45 dias, 20 veículos, rateio por valor, ocupação em m³, entrega sem data fora do denominador, prazo em dias úteis **sem sábado**, colunas do conjunto C, CSV com `\|` |
 
-O cenário 03 só serve para medir se nunca foi usado para ajustar o agente. Quem preparar o 03 não deve compartilhar suas saídas com quem ajusta o planejamento ou a execução.
+As regras de cada empresa (`regras_referencia`) são uma **proposta pendente de K02**. Elas definem o gabarito em [`evaluation/golden/`](../../../evaluation/golden/README.md).

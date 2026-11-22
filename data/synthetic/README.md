@@ -2,23 +2,41 @@
 
 Área para geradores determinísticos e fixtures fictícias de ERP, TMS e CT-e.
 
-**Status (22/11/2026):** existem a **especificação** do cenário 01 e a **calibração** com dados públicos, ambas como rascunho para [K03](https://github.com/leeunam/korda/issues/3). **O gerador e os dados ainda não existem.** A K03 depende de K01 (contratos) e K02 (regras dos indicadores), que estão abertas. Nada aqui define regra de KPI.
+**Status (22/11/2026):** rascunho para [K03](https://github.com/leeunam/korda/issues/3). Existem três empresas fictícias, o gerador das fontes sujas (ERP/TMS em CSV e CT-e em XML validado contra o XSD), a calibração com dados públicos e o gabarito independente em [`evaluation/golden/`](../../evaluation/golden/README.md). A K03 depende de K01 (contratos) e K02 (regras dos indicadores), ainda abertas. As `regras_referencia` de cada empresa são **proposta**, não regra aprovada.
 
 ## Estrutura
 
 | Caminho | Conteúdo |
 | --- | --- |
-| [`spec/empresa.yaml`](spec/empresa.yaml) | Fatos da transportadora fictícia: frota, volumes, frete, prazos e taxas de anomalia. Cada parâmetro tem `origem`. Também servirá à persona da entrevista simulada (P1/K04). |
-| [`spec/area_atendimento.csv`](spec/area_atendimento.csv) | Sede (Campinas/SP) e os 19 municípios atendidos, com peso de demanda. |
+| [`empresas/<id>/empresa.yaml`](empresas/01_demo/empresa.yaml) | Uma por empresa (01_demo, 02_variacao, 03_reservada): fatos, faixas de anomalia, formato e nomes de coluna, `regras_referencia` e tolerâncias. Cada parâmetro tem `origem`. Também servirá à persona da entrevista simulada (P1/K04). |
+| `empresas/<id>/area_atendimento.csv` | Sede e municípios atendidos, com peso de demanda. |
+| [`generator/`](generator/generate.py) | Gerador determinístico (`generate.py`), XML de CT-e (`cte_xml.py`), validação XSD (`validate_xsd.py`) e testes. |
+| `output/<id>/` | Fontes geradas (**ignoradas pelo Git**): `erp/`, `tms/`, `cte/` e `_gerador/` (contagens e registro de anomalias, que o gabarito não lê). |
 | [`spec/dicionario.md`](spec/dicionario.md) | Esquemas "sujos" de ERP, TMS e CT-e e suas relações. |
 | [`spec/anomalias.md`](spec/anomalias.md) | Problemas plantados, KPI afetado e o teste que deve nascer de cada um. |
-| [`spec/cenarios.md`](spec/cenarios.md) | Cenários 01 (demo), 02 (variação) e 03 (reservado só para medir). |
+| [`spec/cenarios.md`](spec/cenarios.md) | As três empresas, uso e diferenças entre elas. |
 | [`calibration/`](calibration/sources.json) | `sources.json` (fontes declaradas), `calibrate.py` (processo único), [`manifest.json`](calibration/manifest.json) (procedência obtida, versionada), `calibration.yaml` (só agregados) e testes. |
 | [`reference/municipios/`](reference/municipios/README.md) | Coordenadas dos municípios (MIT), versionadas. |
 | [`reference/cte-xsd/PL_CTe_400/`](reference/cte-xsd/PL_CTe_400/README.md) | XSD oficiais do CT-e 4.00, versionados para validação offline. |
 | `../external/` | Downloads brutos (ignorados pelo Git). |
 
-## Como rodar
+## Gerar as fontes e o gabarito
+
+Requer Python 3.11+ e [`requirements-synthetic.txt`](../../requirements-synthetic.txt) (PyYAML e lxml):
+
+```bash
+python3 -m venv .venv && .venv/bin/pip install -r requirements-synthetic.txt
+.venv/bin/python data/synthetic/generator/generate.py --all        # ou --empresa 01_demo
+.venv/bin/python data/synthetic/generator/validate_xsd.py --all    # 100% dos XML contra o XSD
+.venv/bin/python evaluation/golden/compute_golden.py --all         # gabarito independente
+.venv/bin/python evaluation/golden/sensitivity.py --all            # cada correção move o KPI?
+.venv/bin/python -m unittest discover -s data/synthetic/generator/tests
+.venv/bin/python -m unittest discover -s evaluation/golden/tests
+```
+
+A mesma semente gera bytes idênticos; `evaluation/golden/<id>/fontes.sha256` prova a correspondência entre gabarito e fontes. Os XML são fictícios: `tpAmb=2` (homologação), CNPJs com DV inválido e assinatura só estrutural, sem valor criptográfico.
+
+## Calibração
 
 Só biblioteca padrão do Python (3.11+):
 
