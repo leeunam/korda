@@ -1,0 +1,87 @@
+{
+  "empresa_id": "01_demo",
+  "kpis_corretos": {
+    "custo_frete_por_entrega": 205.2613,
+    "otif_pct": 86.0321,
+    "ocupacao_pct": 66.4691
+  },
+  "checagens": [
+    {
+      "correcao": "deduplicar_cte",
+      "kpi": "custo_frete_por_entrega",
+      "ingenuo": "soma os XML duplicados",
+      "correto": 205.2613,
+      "sem_correcao": 210.164,
+      "diferenca": 0.023885,
+      "tolerancia": 0.005,
+      "tipo_diferenca": "relativa",
+      "passou": true
+    },
+    {
+      "correcao": "excluir_cancelados",
+      "kpi": "custo_frete_por_entrega",
+      "ingenuo": "soma o CT-e cancelado e o substituto",
+      "correto": 205.2613,
+      "sem_correcao": 209.0378,
+      "diferenca": 0.018398,
+      "tolerancia": 0.005,
+      "tipo_diferenca": "relativa",
+      "passou": true
+    },
+    {
+      "correcao": "ratear",
+      "kpi": "custo_frete_por_entrega",
+      "ingenuo": "cada pedido recebe o vTPrest inteiro do CT-e",
+      "correto": 205.2613,
+      "sem_correcao": 230.6323,
+      "diferenca": 0.123603,
+      "tolerancia": 0.005,
+      "tipo_diferenca": "relativa",
+      "passou": true
+    },
+    {
+      "correcao": "completude",
+      "kpi": "otif_pct",
+      "ingenuo": "ignora qt_entregue < qt_itens",
+      "correto": 86.0321,
+      "sem_correcao": 89.4678,
+      "diferenca": 3.4357,
+      "tolerancia": 0.5,
+      "tipo_diferenca": "p.p.",
+      "passou": true
+    },
+    {
+      "correcao": "pontualidade",
+      "kpi": "otif_pct",
+      "ingenuo": "ignora atraso",
+      "correto": 86.0321,
+      "sem_correcao": 94.227,
+      "diferenca": 8.1949,
+      "tolerancia": 0.5,
+      "tipo_diferenca": "p.p.",
+      "passou": true
+    },
+    {
+      "correcao": "sem_data",
+      "kpi": "otif_pct",
+      "ingenuo": "trata entrega sem data pela regra oposta à da empresa",
+      "correto": 86.0321,
+      "sem_correcao": 88.0911,
+      "diferenca": 2.059,
+      "tolerancia": 0.5,
+      "tipo_diferenca": "p.p.",
+      "passou": true
+    },
+    {
+      "correcao": "datas_mistas",
+      "kpi": "otif_pct",
+      "ingenuo": "só converte o formato principal; o resto conta como falha",
+      "correto": 86.0321,
+      "sem_correcao": 76.5418,
+      "diferenca": 9.4903,
+      "tolerancia": 0.5,
+      "tipo_diferenca": "p.p.",
+      "passou": true
+    }
+  ]
+}
