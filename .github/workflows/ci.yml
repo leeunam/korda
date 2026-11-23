@@ -33,6 +33,11 @@ jobs:
         run: |
           python3 -m pip install -r requirements-contracts.txt
           python3 -m unittest discover -s packages/contracts/context/v0.1.0/tests
+      - name: Validate discovery fixtures and semantic acceptance
+        run: |
+          python3 -m pip install -r requirements-discovery.txt
+          python3 data/synthetic/discovery/validate.py
+          python3 -m pytest evaluation/discovery/tests -q
 
   synthetic:
     name: Synthetic data and golden checks

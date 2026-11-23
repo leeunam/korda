@@ -11,6 +11,7 @@
 | [`empresas/<id>/empresa.yaml`](empresas/01_demo/empresa.yaml) | Uma por empresa (01_demo, 02_variacao, 03_reservada): fatos, faixas de anomalia, formato e nomes de coluna, `regras_referencia` e tolerâncias. Cada parâmetro tem `origem`. Também servirá à persona da entrevista simulada (P1/K04). |
 | `empresas/<id>/area_atendimento.csv` | Sede e municípios atendidos, com peso de demanda. |
 | [`generator/`](generator/generate.py) | Gerador determinístico (`generate.py`), XML de CT-e (`cte_xml.py`), validação XSD (`validate_xsd.py`) e testes. |
+| [`discovery/`](discovery/README.md) | Formulário, páginas fictícias de pesquisa e roteiro da 01 para o ensaio da descoberta; personas e aceite ficam separados das entradas dos agentes. |
 | `output/<id>/` | Fontes geradas (**ignoradas pelo Git**): `erp/`, `tms/`, `cte/` e `_gerador/` (contagens e registro de anomalias, que o gabarito não lê). |
 | [`spec/dicionario.md`](spec/dicionario.md) | Esquemas "sujos" de ERP, TMS e CT-e e suas relações. |
 | [`spec/anomalias.md`](spec/anomalias.md) | Problemas plantados, KPI afetado e o teste que deve nascer de cada um. |

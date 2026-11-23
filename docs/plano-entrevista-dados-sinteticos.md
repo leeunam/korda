@@ -4,6 +4,8 @@
 
 Preparar uma conversa fictícia que permita passar da descoberta ao planejamento usando as fontes já geradas por Gabriel no PR #18. A primeira rodada usa o custo de frete por entrega para revelar uma regra ausente. O mesmo caso cobre OTIF e ocupação. Marcus conduz a descoberta e usa o gerador como referência nas ambiguidades do desenho anterior. O [contrato local v0.1.0](../packages/contracts/context/v0.1.0/README.md) registra as definições e duas revisões JSON para testar o consumo pelo planejamento.
 
+**Materiais preparados em 23/11/2026.** O [conjunto da descoberta](../data/synthetic/discovery/README.md) contém o formulário, três páginas de pesquisa fictícias e as falas das duas rodadas. O [avaliador](../evaluation/discovery/README.md) contém estados manuais e critérios para ambiguidade, contradição, correção e retomada. São materiais verificáveis para implementar o fluxo; agentes, persistência, perfilamento e frontend continuam nas etapas seguintes.
+
 ## Arquitetura e tecnologias para o primeiro ensaio
 
 Antes de integrar as frentes, alinhar um fluxo local entre Marcus e Gabriel. A entrevista recebe texto e preserva os trechos que sustentam cada resposta. Um leitor separado inspeciona os CSVs e XMLs sintéticos em modo somente leitura. A descoberta reúne as duas fontes de evidência, registra o que falta e encaminha um arquivo de contexto ao planejamento. Gabriel valida a entrada usando um rascunho manual do plano ou um consumidor provisório.
