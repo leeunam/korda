@@ -1,0 +1,6 @@
+# Dependências da imagem da sandbox de execução (P3, K08).
+# Versões fixadas e publicadas há mais de duas semanas em 23/11/2026.
+# duckdb fica em 1.5.x: dbt-duckdb 1.11.1 ainda não foi verificado com duckdb 2.x.
+dbt-core==1.11.16
+dbt-duckdb==1.11.1
+duckdb==1.5.6
