@@ -54,8 +54,16 @@ body {
   animation: korda-blink 1s step-end infinite;
 }
 
+/* Nó focado pelo teclado. */
+.react-flow__node:focus-visible {
+  outline: 2px solid var(--color-ink-900);
+  outline-offset: 4px;
+  border-radius: 8px;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .cursor-blink {
+  .cursor-blink,
+  .react-flow__edge.animated path {
     animation: none;
   }
 }

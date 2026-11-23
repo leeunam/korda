@@ -64,7 +64,7 @@ export function RunApp() {
         </main>
         <aside
           aria-label="Inspeção"
-          className="max-h-[50vh] overflow-y-auto border-t border-ink-100 md:max-h-none md:w-[380px] md:border-l md:border-t-0"
+          className="max-h-[45vh] shrink-0 overflow-y-auto border-t border-ink-100 md:max-h-none md:w-[380px] md:border-l md:border-t-0"
         >
           <InspectPanel
             view={view}

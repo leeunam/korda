@@ -25,22 +25,34 @@ export function RunGraph({
   const nodes = useMemo(() => buildNodes(view, selected), [view, selected]);
   const edges = useMemo(() => buildEdges(view), [view]);
 
+  // Teclado: Enter ou Espaço num nó focado (Tab) seleciona o nó para inspeção.
+  const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    const id = (e.target as HTMLElement).closest<HTMLElement>(".react-flow__node")?.dataset.id;
+    if (id && isStep(id)) {
+      e.preventDefault();
+      onSelect(id);
+    }
+  };
+
   return (
-    <ReactFlow
-      nodes={nodes}
-      edges={edges}
-      nodeTypes={nodeTypes}
-      nodesDraggable={false}
-      nodesConnectable={false}
-      edgesFocusable={false}
-      onNodeClick={(_, node) => onSelect(isStep(node.id) ? node.id : null)}
-      onPaneClick={() => onSelect(null)}
-      fitView
-      fitViewOptions={{ padding: 0.15 }}
-      minZoom={0.3}
-    >
-      <Background gap={24} size={1} color="#E5E5E5" />
-      <Controls showInteractive={false} />
-    </ReactFlow>
+    <div className="h-full w-full" onKeyDown={onKeyDown}>
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        nodeTypes={nodeTypes}
+        nodesDraggable={false}
+        nodesConnectable={false}
+        edgesFocusable={false}
+        onNodeClick={(_, node) => onSelect(isStep(node.id) ? node.id : null)}
+        onPaneClick={() => onSelect(null)}
+        fitView
+        fitViewOptions={{ padding: 0.15 }}
+        minZoom={0.3}
+      >
+        <Background gap={24} size={1} color="#E5E5E5" />
+        <Controls showInteractive={false} />
+      </ReactFlow>
+    </div>
   );
 }
