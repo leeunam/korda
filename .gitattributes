@@ -3,3 +3,5 @@
 *.jpg binary
 *.jpeg binary
 *.pdf binary
+# Arquivos de fontes oficiais: preservar bytes exatos (sha256 em sources.json)
+data/synthetic/reference/** -text

@@ -1,0 +1,32 @@
+{
+  "empresa_id": "02_variacao",
+  "uso": "ajuste",
+  "status": "RASCUNHO: regras_referencia pendentes de K02",
+  "regras_referencia": {
+    "status": "proposta_pendente_k02",
+    "rateio_cte": "volume",
+    "sem_data_realizada": "falha",
+    "ocupacao_unidade": "kg",
+    "prazo_conta_sabado": true,
+    "excluir_tipos_viagem": [
+      "TRF"
+    ],
+    "no_prazo": "data(dt_realizada) <= data prevista",
+    "completo": "qt_entregue >= qt_itens"
+  },
+  "kpis": {
+    "custo_frete_por_entrega": 214.2288,
+    "otif_pct": 85.6509,
+    "ocupacao_pct": 72.46
+  },
+  "contagens": {
+    "entregas_elegiveis_custo": 676,
+    "frete_total_elegivel": 144818.7,
+    "pedidos_otif_denominador": 676,
+    "pedidos_otif": 579,
+    "viagens": 59,
+    "ctes_considerados": 638,
+    "ctes_cancelados": 10,
+    "arquivos_cte": 667
+  }
+}

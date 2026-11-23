@@ -1,0 +1,122 @@
+# Empresa 01_demo: RASCUNHO para K03 (Refs #3).
+# Uso: demonstração (vídeo) e AJUSTE do agente.
+#
+# Este arquivo descreve FATOS de negócio da transportadora fictícia e as
+# regras_referencia usadas pelo gabarito. As regras são uma PROPOSTA pendente
+# de K02; quando K02 for aprovada, ajuste-as aqui e recalcule o gabarito.
+#
+# Marcação de procedência (campo `origem`):
+#   calibracao:<id>   agregado de fonte pública (calibration/manifest.json)
+#   suposicao:equipe  escolha da equipe, SEM fonte; revisar com P1/entrevistas
+# Nenhuma pessoa ou empresa real deve ser identificável.
+
+versao: 0.2-rascunho
+empresa_id: 01_demo
+uso: ajuste            # ajuste | medicao
+semente: 20261101
+
+empresa:
+  razao_social: "TransKorda Logística Ltda (fictícia)"
+  nome_curto: TRANSKORDA
+  cnpj_base: "11222333"          # 8 dígitos; DV do CNPJ propositalmente inválido
+  ie: "123456789012"
+  area_atendimento: area_atendimento.csv   # sede = linha papel=sede
+  fuso_horario: America/Sao_Paulo
+  origem: suposicao:equipe
+
+periodo:
+  inicio: 2026-09-01
+  dias_corridos: 30
+  dias_operacao: [0, 1, 2, 3, 4, 5]    # 0=segunda ... 5=sábado
+  fracao_frota_sabado: 0.4
+  origem: suposicao:equipe
+
+frota:
+  origem: suposicao:equipe
+  veiculos:
+    - {tipo: VUC,   quantidade: 4, capacidade_kg: 3000,  capacidade_m3: 16, consumo_km_l: 8.0}
+    - {tipo: TOCO,  quantidade: 4, capacidade_kg: 6000,  capacidade_m3: 32, consumo_km_l: 5.0}
+    - {tipo: TRUCK, quantidade: 2, capacidade_kg: 12000, capacidade_m3: 50, consumo_km_l: 3.8}
+
+clientes:
+  quantidade: 40
+  origem: suposicao:equipe
+
+viagens:
+  viagens_por_veiculo_dia: 1
+  entregas_por_viagem: {min: 12, max: 18}
+  ocupacao_alvo: {min: 0.55, max: 0.95}   # na restrição que limitar primeiro (kg ou m³)
+  origem: suposicao:equipe
+
+pedido:
+  densidade_kg_m3: {min: 120, max: 260}
+  itens: {min: 1, max: 12}
+  valor_mercadoria_r_por_kg: {min: 20, max: 90}
+  prazo_dias_uteis: {ate_100_km: 1, acima_100_km: 2}
+  folga_entrega_dias_uteis: {zero: 0.6, um: 0.4}   # entrega normal: no dia do prazo ou 1 dia antes
+  campo_prazo: data_prevista      # data_prevista (ERP traz a data) | prazo_dias (ERP traz só o prazo)
+  origem: suposicao:equipe
+
+frete:
+  r_por_kg_por_faixa_km: [{ate_km: 50, r_kg: 0.35}, {ate_km: 100, r_kg: 0.50}, {ate_km: 9999, r_kg: 0.80}]
+  frete_minimo_r: 120.00
+  ad_valorem_pct: 0.30
+  fator_margem_km: 2.5        # componente R$/km = diesel / consumo × fator
+  origem: suposicao:equipe
+
+custos_operacao:
+  diesel_r_por_litro: {fonte: calibration.yaml, chave: diesel_preco_medio_consumidor.por_uf, uf: sede, origem: calibracao:anp_anuario_2026_t3_21}
+  fator_estrada: {valor: 1.25, origem: suposicao:equipe}
+
+anomalias:   # faixas em %; o valor efetivo é sorteado pela semente e registrado em _gerador/contagens.json
+  origem: suposicao:equipe
+  cte_duplicado_pct: {min: 2, max: 3}
+  cte_cancelado_pct: {min: 1, max: 2}          # sempre reemitido com nova chave
+  cte_multi_pedido_pct: {min: 5, max: 10}
+  entrega_atrasada_pct: {min: 8, max: 12}
+  entrega_incompleta_pct: {min: 3, max: 5}
+  entrega_sem_data_pct: {min: 2, max: 3}
+  data_formato_misto_pct: {min: 8, max: 12}
+  viagem_acima_capacidade_pct: {min: 1, max: 2}
+
+caso_explicavel:   # fixo, fora do sorteio; conferido à mão em evaluation/golden/tests
+  ativo: true
+  data: 2026-09-02
+  pedidos: [{id: 900001, peso_kg: 100, volume_m3: 0.5}, {id: 900002, peso_kg: 300, volume_m3: 1.5}, {id: 900003, peso_kg: 150, volume_m3: 0.75}]
+  cte_dois_pedidos: {pedidos: [900001, 900002], vTPrest: 400.00, duplicado: true}
+  cte_cancelado_reemitido: {pedido: 900003, vTPrest_cancelado: 150.00, vTPrest_reemitido: 150.00}
+  origem: suposicao:equipe
+
+transferencias: {ativo: false}
+
+fatos_fora_da_entrevista: []
+
+# ---------------------------------------------------------------- fontes sujas
+formato:
+  csv: {separador: ";", decimal: ",", encoding: utf-8}
+  data: "%Y-%m-%d"                       # datas do ERP
+  data_hora_tms: "%Y-%m-%d %H:%M"        # formato principal de dt_baixa
+  formatos_mistos: ["%d/%m/%Y %H:%M", "%d/%m/%y"]   # usados nas linhas com data_formato_misto
+
+colunas:        # nome lógico -> nome físico (conjunto A)
+  erp_clientes: {id: cd_cli, razao: ds_razao, cnpj: nr_cnpj, municipio_ibge: cd_mun_ibge, ativo: fl_ativo}
+  erp_pedidos: {id: cd_ped, cliente_id: cd_cli, dt_emissao: dt_emis, dt_prevista: dt_prev_ent, prazo_dias: qt_dias_prz, qt_itens: qt_itens, peso_kg: ps_bruto, volume_m3: vl_cubag, valor_mercadoria: vl_merc, chave_nfe: ch_nfe}
+  tms_veiculos: {id: id_veic, placa: placa, tipo: tp_veic, cap_kg: cap_kg, cap_m3: cap_m3}
+  tms_viagens: {id: id_viag, veiculo_id: id_veic, dt_saida: dt_saida, km: km_rodado, tipo: tp_viag}
+  tms_entregas: {id: id_ent, viagem_id: id_viag, pedido_id: nr_ped, seq: seq_parada, qt_entregue: qt_entregue, dt_realizada: dt_baixa, status: st_ent}
+
+# ---------------------------------------------------------------- gabarito
+regras_referencia:    # PROPOSTA pendente de K02
+  status: proposta_pendente_k02
+  rateio_cte: peso                 # peso | volume | valor
+  sem_data_realizada: falha        # falha (no denominador, não OTIF) | excluir (fora do denominador)
+  ocupacao_unidade: kg             # kg | m3
+  prazo_conta_sabado: true         # só usado se pedido.campo_prazo = prazo_dias
+  excluir_tipos_viagem: []         # tipos de viagem fora de custo por entrega e OTIF
+  no_prazo: "data(dt_realizada) <= data prevista"
+  completo: "qt_entregue >= qt_itens"
+
+tolerancias:    # diferença mínima que cada correção precisa produzir na checagem de sensibilidade
+  custo_rel: 0.005
+  otif_pp: 0.5
+  ocupacao_pp: 0.5

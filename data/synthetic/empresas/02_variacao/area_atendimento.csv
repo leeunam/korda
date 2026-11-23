@@ -1,0 +1,14 @@
+codigo_ibge,municipio,uf,papel,peso_demanda,origem
+3543402,Ribeirão Preto,SP,sede,0.30,suposicao:equipe
+3551702,Sertãozinho,SP,atendido,0.10,suposicao:equipe
+3525102,Jardinópolis,SP,atendido,0.05,suposicao:equipe
+3513108,Cravinhos,SP,atendido,0.05,suposicao:equipe
+3507803,Brodowski,SP,atendido,0.04,suposicao:equipe
+3505906,Batatais,SP,atendido,0.06,suposicao:equipe
+3516200,Franca,SP,atendido,0.10,suposicao:equipe
+3503208,Araraquara,SP,atendido,0.08,suposicao:equipe
+3548906,São Carlos,SP,atendido,0.07,suposicao:equipe
+3506102,Bebedouro,SP,atendido,0.04,suposicao:equipe
+3524303,Jaboticabal,SP,atendido,0.04,suposicao:equipe
+3534302,Orlândia,SP,atendido,0.03,suposicao:equipe
+3551504,Serrana,SP,atendido,0.04,suposicao:equipe

@@ -1,0 +1,19 @@
+codigo_ibge,municipio,uf,papel,peso_demanda,origem
+4106902,Curitiba,PR,sede,0.29,suposicao:equipe
+4125506,São José dos Pinhais,PR,atendido,0.09,suposicao:equipe
+4105805,Colombo,PR,atendido,0.06,suposicao:equipe
+4101804,Araucária,PR,atendido,0.06,suposicao:equipe
+4119152,Pinhais,PR,atendido,0.05,suposicao:equipe
+4107652,Fazenda Rio Grande,PR,atendido,0.04,suposicao:equipe
+4104204,Campo Largo,PR,atendido,0.05,suposicao:equipe
+4100400,Almirante Tamandaré,PR,atendido,0.03,suposicao:equipe
+4119509,Piraquara,PR,atendido,0.03,suposicao:equipe
+4119905,Ponta Grossa,PR,atendido,0.07,suposicao:equipe
+4118204,Paranaguá,PR,atendido,0.06,suposicao:equipe
+4113205,Lapa,PR,atendido,0.02,suposicao:equipe
+4122305,Rio Negro,PR,atendido,0.02,suposicao:equipe
+4104253,Campo Magro,PR,atendido,0.02,suposicao:equipe
+4120804,Quatro Barras,PR,atendido,0.02,suposicao:equipe
+4114302,Mandirituba,PR,atendido,0.02,suposicao:equipe
+4209102,Joinville,SC,atendido,0.05,suposicao:equipe
+4210100,Mafra,SC,atendido,0.02,suposicao:equipe

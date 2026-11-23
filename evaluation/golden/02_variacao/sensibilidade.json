@@ -1,0 +1,109 @@
+{
+  "empresa_id": "02_variacao",
+  "kpis_corretos": {
+    "custo_frete_por_entrega": 214.2288,
+    "otif_pct": 85.6509,
+    "ocupacao_pct": 72.46
+  },
+  "checagens": [
+    {
+      "correcao": "deduplicar_cte",
+      "kpi": "custo_frete_por_entrega",
+      "ingenuo": "soma os XML duplicados",
+      "correto": 214.2288,
+      "sem_correcao": 220.0279,
+      "diferenca": 0.02707,
+      "tolerancia": 0.005,
+      "tipo_diferenca": "relativa",
+      "passou": true
+    },
+    {
+      "correcao": "excluir_cancelados",
+      "kpi": "custo_frete_por_entrega",
+      "ingenuo": "soma o CT-e cancelado e o substituto",
+      "correto": 214.2288,
+      "sem_correcao": 217.2452,
+      "diferenca": 0.01408,
+      "tolerancia": 0.005,
+      "tipo_diferenca": "relativa",
+      "passou": true
+    },
+    {
+      "correcao": "ratear",
+      "kpi": "custo_frete_por_entrega",
+      "ingenuo": "cada pedido recebe o vTPrest inteiro do CT-e",
+      "correto": 214.2288,
+      "sem_correcao": 245.8812,
+      "diferenca": 0.14775,
+      "tolerancia": 0.005,
+      "tipo_diferenca": "relativa",
+      "passou": true
+    },
+    {
+      "correcao": "completude",
+      "kpi": "otif_pct",
+      "ingenuo": "ignora qt_entregue < qt_itens",
+      "correto": 85.6509,
+      "sem_correcao": 88.7574,
+      "diferenca": 3.1065,
+      "tolerancia": 0.5,
+      "tipo_diferenca": "p.p.",
+      "passou": true
+    },
+    {
+      "correcao": "pontualidade",
+      "kpi": "otif_pct",
+      "ingenuo": "ignora atraso",
+      "correto": 85.6509,
+      "sem_correcao": 94.0828,
+      "diferenca": 8.4319,
+      "tolerancia": 0.5,
+      "tipo_diferenca": "p.p.",
+      "passou": true
+    },
+    {
+      "correcao": "sem_data",
+      "kpi": "otif_pct",
+      "ingenuo": "trata entrega sem data pela regra oposta à da empresa",
+      "correto": 85.6509,
+      "sem_correcao": 88.1279,
+      "diferenca": 2.477,
+      "tolerancia": 0.5,
+      "tipo_diferenca": "p.p.",
+      "passou": true
+    },
+    {
+      "correcao": "datas_mistas",
+      "kpi": "otif_pct",
+      "ingenuo": "só converte o formato principal; o resto conta como falha",
+      "correto": 85.6509,
+      "sem_correcao": 77.3669,
+      "diferenca": 8.284,
+      "tolerancia": 0.5,
+      "tipo_diferenca": "p.p.",
+      "passou": true
+    },
+    {
+      "correcao": "excluir_tipos_viagem",
+      "kpi": "custo_frete_por_entrega",
+      "ingenuo": "inclui viagens de tipo excluído (ex.: TRF)",
+      "correto": 214.2288,
+      "sem_correcao": 222.6497,
+      "diferenca": 0.039308,
+      "tolerancia": 0.005,
+      "tipo_diferenca": "relativa",
+      "passou": true
+    },
+    {
+      "correcao": "excluir_tipos_viagem",
+      "kpi": "otif_pct",
+      "ingenuo": "inclui viagens de tipo excluído (ex.: TRF)",
+      "correto": 85.6509,
+      "sem_correcao": 84.4023,
+      "diferenca": 1.2486,
+      "tolerancia": 0.5,
+      "tipo_diferenca": "p.p.",
+      "passou": true
+    }
+  ]
+}
