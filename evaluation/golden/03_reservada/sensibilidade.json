@@ -1,0 +1,109 @@
+{
+  "empresa_id": "03_reservada",
+  "kpis_corretos": {
+    "custo_frete_por_entrega": 229.3508,
+    "otif_pct": 85.2973,
+    "ocupacao_pct": 74.7979
+  },
+  "checagens": [
+    {
+      "correcao": "deduplicar_cte",
+      "kpi": "custo_frete_por_entrega",
+      "ingenuo": "soma os XML duplicados",
+      "correto": 229.3508,
+      "sem_correcao": 234.768,
+      "diferenca": 0.02362,
+      "tolerancia": 0.005,
+      "tipo_diferenca": "relativa",
+      "passou": true
+    },
+    {
+      "correcao": "excluir_cancelados",
+      "kpi": "custo_frete_por_entrega",
+      "ingenuo": "soma o CT-e cancelado e o substituto",
+      "correto": 229.3508,
+      "sem_correcao": 231.705,
+      "diferenca": 0.010265,
+      "tolerancia": 0.005,
+      "tipo_diferenca": "relativa",
+      "passou": true
+    },
+    {
+      "correcao": "ratear",
+      "kpi": "custo_frete_por_entrega",
+      "ingenuo": "cada pedido recebe o vTPrest inteiro do CT-e",
+      "correto": 229.3508,
+      "sem_correcao": 252.9158,
+      "diferenca": 0.102747,
+      "tolerancia": 0.005,
+      "tipo_diferenca": "relativa",
+      "passou": true
+    },
+    {
+      "correcao": "completude",
+      "kpi": "otif_pct",
+      "ingenuo": "ignora qt_entregue < qt_itens",
+      "correto": 85.2973,
+      "sem_correcao": 88.4785,
+      "diferenca": 3.1812,
+      "tolerancia": 0.5,
+      "tipo_diferenca": "p.p.",
+      "passou": true
+    },
+    {
+      "correcao": "pontualidade",
+      "kpi": "otif_pct",
+      "ingenuo": "ignora atraso",
+      "correto": 85.2973,
+      "sem_correcao": 96.8188,
+      "diferenca": 11.5215,
+      "tolerancia": 0.5,
+      "tipo_diferenca": "p.p.",
+      "passou": true
+    },
+    {
+      "correcao": "sem_data",
+      "kpi": "otif_pct",
+      "ingenuo": "trata entrega sem data pela regra oposta à da empresa",
+      "correto": 85.2973,
+      "sem_correcao": 83.3702,
+      "diferenca": 1.9271,
+      "tolerancia": 0.5,
+      "tipo_diferenca": "p.p.",
+      "passou": true
+    },
+    {
+      "correcao": "datas_mistas",
+      "kpi": "otif_pct",
+      "ingenuo": "só converte o formato principal; o resto conta como falha",
+      "correto": 85.2973,
+      "sem_correcao": 75.003,
+      "diferenca": 10.2943,
+      "tolerancia": 0.5,
+      "tipo_diferenca": "p.p.",
+      "passou": true
+    },
+    {
+      "correcao": "unidade_ocupacao",
+      "kpi": "ocupacao_pct",
+      "ingenuo": "usa a outra unidade de capacidade (kg <-> m³)",
+      "correto": 74.7979,
+      "sem_correcao": 51.7235,
+      "diferenca": 23.0744,
+      "tolerancia": 0.5,
+      "tipo_diferenca": "p.p.",
+      "passou": true
+    },
+    {
+      "correcao": "sabado",
+      "kpi": "otif_pct",
+      "ingenuo": "conta o sábado como dia útil no prazo",
+      "correto": 85.2973,
+      "sem_correcao": 63.1479,
+      "diferenca": 22.1494,
+      "tolerancia": 0.5,
+      "tipo_diferenca": "p.p.",
+      "passou": true
+    }
+  ]
+}

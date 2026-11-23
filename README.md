@@ -34,7 +34,7 @@ Estrutura inicial e organização do trabalho. **O produto ainda será implement
 | `services/planning/` | Regras, plano e primeira aprovação |
 | `services/execution/` | Execução, testes e entrega autorizada |
 | `packages/contracts/` | Contratos compartilhados entre frentes |
-| `data/synthetic/` | Fontes fictícias reproduzíveis |
+| `data/synthetic/` | Fontes fictícias reproduzíveis: 3 empresas, gerador ERP/TMS/CT-e e calibração (rascunho para K03); [detalhes](data/synthetic/README.md) |
 | `evaluation/golden/` | Avaliação independente com respostas conhecidas |
 | `infra/` | Ambiente de execução e publicação |
 | `docs/` | Escopo, arquitetura, fluxo de trabalho e evento |

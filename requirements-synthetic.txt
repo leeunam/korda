@@ -1,0 +1,4 @@
+# Dependências do gerador sintético e do gabarito (data/synthetic, evaluation/golden).
+# A calibração (data/synthetic/calibration) usa só a biblioteca padrão.
+PyYAML==6.0.2
+lxml==5.3.0

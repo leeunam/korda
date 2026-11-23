@@ -1,0 +1,21 @@
+codigo_ibge,municipio,uf,papel,peso_demanda,origem
+3509502,Campinas,SP,sede,0.14,suposicao:equipe
+3525904,Jundiaí,SP,atendido,0.08,suposicao:equipe
+3552205,Sorocaba,SP,atendido,0.07,suposicao:equipe
+3538709,Piracicaba,SP,atendido,0.06,suposicao:equipe
+3526902,Limeira,SP,atendido,0.05,suposicao:equipe
+3501608,Americana,SP,atendido,0.05,suposicao:equipe
+3520509,Indaiatuba,SP,atendido,0.05,suposicao:equipe
+3552403,Sumaré,SP,atendido,0.05,suposicao:equipe
+3519071,Hortolândia,SP,atendido,0.04,suposicao:equipe
+3556206,Valinhos,SP,atendido,0.04,suposicao:equipe
+3556701,Vinhedo,SP,atendido,0.03,suposicao:equipe
+3523909,Itu,SP,atendido,0.03,suposicao:equipe
+3543907,Rio Claro,SP,atendido,0.03,suposicao:equipe
+3507605,Bragança Paulista,SP,atendido,0.03,suposicao:equipe
+3530706,Mogi Guaçu,SP,atendido,0.03,suposicao:equipe
+3550308,São Paulo,SP,atendido,0.10,suposicao:equipe
+3518800,Guarulhos,SP,atendido,0.04,suposicao:equipe
+3543402,Ribeirão Preto,SP,atendido,0.03,suposicao:equipe
+3549904,São José dos Campos,SP,atendido,0.03,suposicao:equipe
+3152501,Pouso Alegre,MG,atendido,0.02,suposicao:equipe

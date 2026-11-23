@@ -29,3 +29,34 @@ jobs:
           python-version: '3.11'
       - name: Validate scaffold
         run: python3 scripts/check_repo.py
+
+  synthetic:
+    name: Synthetic data and golden checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4, verified 2026-11-17
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5, verified 2026-11-17
+        with:
+          python-version: '3.11'
+      - name: Install pinned dependencies
+        run: python3 -m pip install -r requirements-synthetic.txt
+      - name: Unit tests (calibration, generator, golden)
+        run: |
+          python3 -m unittest discover -s data/synthetic/calibration/tests
+          python3 -m unittest discover -s data/synthetic/generator/tests
+          python3 -m unittest discover -s evaluation/golden/tests
+      - name: Generate all companies and validate every CT-e against the XSD
+        run: |
+          python3 data/synthetic/generator/generate.py --all
+          python3 data/synthetic/generator/validate_xsd.py --all
+      - name: Golden must match the regenerated sources
+        run: |
+          python3 evaluation/golden/compute_golden.py --all
+          git diff --exit-code -- evaluation/golden
+      - name: Each correction must move its KPI beyond tolerance
+        run: python3 evaluation/golden/sensitivity.py --all

@@ -1,0 +1,109 @@
+# Gerado por data/synthetic/calibration/calibrate.py. Não editar à mão.
+# Só agregados de fontes públicas; procedência completa em manifest.json.
+# RASCUNHO para K03: regras de KPI ainda dependem de K02.
+
+diesel_preco_medio_consumidor:
+  fonte: "ANP — Anuário Estatístico 2026, tabela 3.21: preço médio do óleo diesel ao consumidor por UF, 2016–2025"
+  arquivo: "anuario-2026-dados_abertos-tabela3-21.csv"
+  sha256: "3c4699190ca5861dbace11315b5c5a349360cf6a5326d697531afd0c0416f04d"
+  obtido_em: "2026-11-22T19:51:13+00:00"
+  unidade: R$/litro (valores correntes, média ponderada por vendas das distribuidoras)
+  ano: 2025
+  por_uf:
+    AC: 7.6550
+    AL: 6.1550
+    AM: 6.6075
+    AP: 6.4933
+    BA: 6.0633
+    CE: 6.2717
+    DF: 6.1442
+    ES: 6.0408
+    GO: 5.9942
+    MA: 6.0142
+    MG: 5.9325
+    MS: 6.0983
+    MT: 6.2758
+    PA: 6.5067
+    PB: 5.8633
+    PE: 6.1708
+    PI: 6.0175
+    PR: 5.9833
+    RJ: 6.1083
+    RN: 6.1658
+    RO: 6.5625
+    RR: 6.8808
+    RS: 6.1450
+    SC: 6.1700
+    SE: 5.7782
+    SP: 6.0858
+    TO: 6.0617
+
+distancias_da_sede:
+  fonte: "kelvins/municipios-brasileiros (MIT), commit 503e2f7; área em empresas/<id>/area_atendimento.csv"
+  metodo: "haversine (raio 6371 km); distância de estrada = linha reta × fator_estrada de empresa.yaml"
+  01_demo:
+    sede: "Campinas/SP"
+    km_linha_reta_min: 10.0
+    km_linha_reta_mediana: 53.9
+    km_linha_reta_max: 207.6
+    municipios:
+      - {codigo_ibge: 3556206, municipio: "Valinhos", uf: SP, km_linha_reta: 10.0}
+      - {codigo_ibge: 3519071, municipio: "Hortolândia", uf: SP, km_linha_reta: 16.3}
+      - {codigo_ibge: 3556701, municipio: "Vinhedo", uf: SP, km_linha_reta: 16.3}
+      - {codigo_ibge: 3552403, municipio: "Sumaré", uf: SP, km_linha_reta: 23.2}
+      - {codigo_ibge: 3520509, municipio: "Indaiatuba", uf: SP, km_linha_reta: 24.5}
+      - {codigo_ibge: 3501608, municipio: "Americana", uf: SP, km_linha_reta: 33.1}
+      - {codigo_ibge: 3525904, municipio: "Jundiaí", uf: SP, km_linha_reta: 35.6}
+      - {codigo_ibge: 3523909, municipio: "Itu", uf: SP, km_linha_reta: 45.2}
+      - {codigo_ibge: 3526902, municipio: "Limeira", uf: SP, km_linha_reta: 50.8}
+      - {codigo_ibge: 3507605, municipio: "Bragança Paulista", uf: SP, km_linha_reta: 53.9}
+      - {codigo_ibge: 3530706, municipio: "Mogi Guaçu", uf: SP, km_linha_reta: 61.1}
+      - {codigo_ibge: 3538709, municipio: "Piracicaba", uf: SP, km_linha_reta: 62.6}
+      - {codigo_ibge: 3543907, municipio: "Rio Claro", uf: SP, km_linha_reta: 75.4}
+      - {codigo_ibge: 3552205, municipio: "Sorocaba", uf: SP, km_linha_reta: 76.4}
+      - {codigo_ibge: 3518800, municipio: "Guarulhos", uf: SP, km_linha_reta: 81.8}
+      - {codigo_ibge: 3550308, municipio: "São Paulo", uf: SP, km_linha_reta: 82.3}
+      - {codigo_ibge: 3549904, municipio: "São José dos Campos", uf: SP, km_linha_reta: 125.0}
+      - {codigo_ibge: 3152501, municipio: "Pouso Alegre", uf: MG, km_linha_reta: 138.2}
+      - {codigo_ibge: 3543402, municipio: "Ribeirão Preto", uf: SP, km_linha_reta: 207.6}
+  02_variacao:
+    sede: "Ribeirão Preto/SP"
+    km_linha_reta_min: 17.7
+    km_linha_reta_mediana: 44.6
+    km_linha_reta_max: 94.6
+    municipios:
+      - {codigo_ibge: 3525102, municipio: "Jardinópolis", uf: SP, km_linha_reta: 17.7}
+      - {codigo_ibge: 3551702, municipio: "Sertãozinho", uf: SP, km_linha_reta: 18.9}
+      - {codigo_ibge: 3513108, municipio: "Cravinhos", uf: SP, km_linha_reta: 20.3}
+      - {codigo_ibge: 3551504, municipio: "Serrana", uf: SP, km_linha_reta: 22.6}
+      - {codigo_ibge: 3507803, municipio: "Brodowski", uf: SP, km_linha_reta: 26.0}
+      - {codigo_ibge: 3505906, municipio: "Batatais", uf: SP, km_linha_reta: 38.2}
+      - {codigo_ibge: 3534302, municipio: "Orlândia", uf: SP, km_linha_reta: 51.0}
+      - {codigo_ibge: 3524303, municipio: "Jaboticabal", uf: SP, km_linha_reta: 54.2}
+      - {codigo_ibge: 3506102, municipio: "Bebedouro", uf: SP, km_linha_reta: 73.7}
+      - {codigo_ibge: 3503208, municipio: "Araraquara", uf: SP, km_linha_reta: 78.2}
+      - {codigo_ibge: 3516200, municipio: "Franca", uf: SP, km_linha_reta: 82.2}
+      - {codigo_ibge: 3548906, municipio: "São Carlos", uf: SP, km_linha_reta: 94.6}
+  03_reservada:
+    sede: "Curitiba/PR"
+    km_linha_reta_min: 7.7
+    km_linha_reta_mediana: 26.8
+    km_linha_reta_max: 106.8
+    municipios:
+      - {codigo_ibge: 4119152, municipio: "Pinhais", uf: PR, km_linha_reta: 7.7}
+      - {codigo_ibge: 4100400, municipio: "Almirante Tamandaré", uf: PR, km_linha_reta: 11.9}
+      - {codigo_ibge: 4125506, municipio: "São José dos Pinhais", uf: PR, km_linha_reta: 13.9}
+      - {codigo_ibge: 4105805, municipio: "Colombo", uf: PR, km_linha_reta: 14.6}
+      - {codigo_ibge: 4104253, municipio: "Campo Magro", uf: PR, km_linha_reta: 19.5}
+      - {codigo_ibge: 4120804, municipio: "Quatro Barras", uf: PR, km_linha_reta: 19.8}
+      - {codigo_ibge: 4119509, municipio: "Piraquara", uf: PR, km_linha_reta: 20.5}
+      - {codigo_ibge: 4101804, municipio: "Araucária", uf: PR, km_linha_reta: 23.2}
+      - {codigo_ibge: 4104204, municipio: "Campo Largo", uf: PR, km_linha_reta: 26.8}
+      - {codigo_ibge: 4107652, municipio: "Fazenda Rio Grande", uf: PR, km_linha_reta: 27.3}
+      - {codigo_ibge: 4114302, municipio: "Mandirituba", uf: PR, km_linha_reta: 40.3}
+      - {codigo_ibge: 4113205, municipio: "Lapa", uf: PR, km_linha_reta: 59.6}
+      - {codigo_ibge: 4118204, municipio: "Paranaguá", uf: PR, km_linha_reta: 75.3}
+      - {codigo_ibge: 4122305, municipio: "Rio Negro", uf: PR, km_linha_reta: 92.2}
+      - {codigo_ibge: 4210100, municipio: "Mafra", uf: SC, km_linha_reta: 94.7}
+      - {codigo_ibge: 4119905, municipio: "Ponta Grossa", uf: PR, km_linha_reta: 97.8}
+      - {codigo_ibge: 4209102, municipio: "Joinville", uf: SC, km_linha_reta: 106.8}
