@@ -13,6 +13,8 @@ sys.path.insert(0, str(GEN))
 import config  # noqa: E402
 import cte_xml  # noqa: E402
 import generate  # noqa: E402
+from anomalies import build_ctes  # noqa: E402
+from model import simulate  # noqa: E402
 import validate_xsd  # noqa: E402
 from model import cnpj_ficticio  # noqa: E402
 
@@ -95,6 +97,33 @@ class GeracaoTest(unittest.TestCase):
         dados = json.loads((self.a / "02_variacao" / "_gerador" / "contagens.json").read_text(encoding="utf-8"))
         self.assertGreater(dados["anomalias"]["viagem_transferencia"], 0)
         self.assertGreater(dados["ctes"]["xml_evento_cancelamento"], 0)
+
+
+class TaxaZeroTest(unittest.TestCase):
+    def _ctes(self, caso_ativo):
+        ctx = config.load("01_demo")
+        ctx.cfg["caso_explicavel"]["ativo"] = caso_ativo
+        for faixa in ctx.cfg["anomalias"].values():
+            if isinstance(faixa, dict):
+                faixa.update(min=0, max=0)
+        mundo = simulate(ctx)
+        registro = []
+        return build_ctes(mundo, registro), registro
+
+    def test_zero_sem_caso_fixo_nao_planta_cancelamento_ou_duplicata(self):
+        ctes, registro = self._ctes(False)
+        self.assertTrue(ctes)
+        self.assertFalse(any(c.cancelado or c.duplicado for c in ctes))
+        self.assertFalse(any(r["tipo"] in ("cte_cancelado", "cte_duplicado") for r in registro))
+
+    def test_zero_preserva_apenas_as_anomalias_do_caso_fixo(self):
+        ctes, _ = self._ctes(True)
+        cancelados = [c for c in ctes if c.cancelado]
+        duplicados = [c for c in ctes if c.duplicado]
+        self.assertEqual(len(cancelados), 1)
+        self.assertEqual(len(duplicados), 1)
+        self.assertEqual(cancelados[0].caso_explicavel, "cancelado_reemitido")
+        self.assertEqual(duplicados[0].caso_explicavel, "dois_pedidos")
 
 
 if __name__ == "__main__":
