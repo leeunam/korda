@@ -29,6 +29,10 @@ jobs:
           python-version: '3.11'
       - name: Validate scaffold
         run: python3 scripts/check_repo.py
+      - name: Validate context contract and examples
+        run: |
+          python3 -m pip install -r requirements-contracts.txt
+          python3 -m unittest discover -s packages/contracts/context/v0.1.0/tests
 
   synthetic:
     name: Synthetic data and golden checks
@@ -57,6 +61,7 @@ jobs:
       - name: Golden must match the regenerated sources
         run: |
           python3 evaluation/golden/compute_golden.py --all
-          git diff --exit-code -- evaluation/golden
       - name: Each correction must move its KPI beyond tolerance
         run: python3 evaluation/golden/sensitivity.py --all
+      - name: All golden outputs must match (including sensitivity)
+        run: git diff --exit-code -- evaluation/golden
