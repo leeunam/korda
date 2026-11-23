@@ -26,13 +26,13 @@ def _normalizar(caminho: str) -> PurePosixPath:
         raise CaminhoRecusado("caminho vazio")
     if "\\" in caminho or "\x00" in caminho:
         raise CaminhoRecusado("caminho com caractere proibido")
-    p = PurePosixPath(caminho)
-    if p.is_absolute():
+    if caminho.startswith("/"):
         raise CaminhoRecusado("use caminho relativo ao projeto, como models/prata/x.sql")
-    for parte in p.parts:
+    # Valida a string original: PurePosixPath descartaria "." e "//" em silêncio.
+    for parte in caminho.split("/"):
         if parte in ("..", ".") or not _SEGMENTO.match(parte):
             raise CaminhoRecusado(f"segmento inválido no caminho: {parte!r}")
-    return p
+    return PurePosixPath(caminho)
 
 
 def caminho_modelo(caminho: str) -> str:
