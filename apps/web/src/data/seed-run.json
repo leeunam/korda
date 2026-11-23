@@ -1,0 +1,284 @@
+{
+  "run_id": "run_demo_0001",
+  "synthetic": true,
+  "client": "Transportadora Exemplo (fictícia)",
+  "note": "Execução sintética gerada por apps/web/scripts/seed.ts. Valores inventados; não são validação.",
+  "events": [
+    {
+      "run_id": "run_demo_0001",
+      "step": "plan",
+      "type": "task_started",
+      "message": "Montando o plano a partir da entrevista e das fontes ERP, TMS e CT-e",
+      "attempt": null,
+      "ts": "2026-11-20T17:00:00.000Z"
+    },
+    {
+      "run_id": "run_demo_0001",
+      "step": "plan",
+      "type": "file_written",
+      "message": "Plano v1 gravado: 3 indicadores, 9 regras, 3 testes de aceite",
+      "attempt": null,
+      "ts": "2026-11-20T17:00:03.000Z",
+      "data": {
+        "file": "plan/v1.yaml"
+      }
+    },
+    {
+      "run_id": "run_demo_0001",
+      "step": "approval_1",
+      "type": "approval_requested",
+      "message": "Plano v1 aguardando aprovação do consultor",
+      "attempt": null,
+      "ts": "2026-11-20T17:00:04.500Z"
+    },
+    {
+      "run_id": "run_demo_0001",
+      "step": "approval_1",
+      "type": "approval_granted",
+      "message": "Plano v1 aprovado pelo consultor",
+      "attempt": null,
+      "ts": "2026-11-20T17:00:12.000Z"
+    },
+    {
+      "run_id": "run_demo_0001",
+      "step": "agent",
+      "type": "task_started",
+      "message": "Executor iniciado com o plano v1",
+      "attempt": null,
+      "ts": "2026-11-20T17:00:13.000Z"
+    },
+    {
+      "run_id": "run_demo_0001",
+      "step": "agent",
+      "type": "file_written",
+      "message": "Camada bronze: entregas, fretes e viagens",
+      "attempt": null,
+      "ts": "2026-11-20T17:00:15.000Z",
+      "data": {
+        "file": "models/bronze/brz_entregas.sql"
+      }
+    },
+    {
+      "run_id": "run_demo_0001",
+      "step": "agent",
+      "type": "file_written",
+      "message": "Camada bronze: CT-e emitidos",
+      "attempt": null,
+      "ts": "2026-11-20T17:00:17.000Z",
+      "data": {
+        "file": "models/bronze/brz_cte.sql"
+      }
+    },
+    {
+      "run_id": "run_demo_0001",
+      "step": "agent",
+      "type": "file_written",
+      "message": "Camada prata: entregas elegíveis (sem canceladas)",
+      "attempt": null,
+      "ts": "2026-11-20T17:00:20.000Z",
+      "data": {
+        "file": "models/silver/slv_entregas_elegiveis.sql"
+      }
+    },
+    {
+      "run_id": "run_demo_0001",
+      "step": "agent",
+      "type": "file_written",
+      "message": "Camada prata: viagens com capacidade do veículo",
+      "attempt": null,
+      "ts": "2026-11-20T17:00:23.000Z",
+      "data": {
+        "file": "models/silver/slv_viagens.sql"
+      }
+    },
+    {
+      "run_id": "run_demo_0001",
+      "step": "agent",
+      "type": "file_written",
+      "message": "Ouro: custo de frete por entrega",
+      "attempt": null,
+      "ts": "2026-11-20T17:00:26.000Z",
+      "data": {
+        "file": "models/gold/custo_frete_entrega.sql",
+        "kpi": "custo_frete_entrega"
+      }
+    },
+    {
+      "run_id": "run_demo_0001",
+      "step": "agent",
+      "type": "file_written",
+      "message": "Ouro: OTIF (no prazo e completo)",
+      "attempt": null,
+      "ts": "2026-11-20T17:00:28.000Z",
+      "data": {
+        "file": "models/gold/otif.sql",
+        "kpi": "otif"
+      }
+    },
+    {
+      "run_id": "run_demo_0001",
+      "step": "agent",
+      "type": "file_written",
+      "message": "Ouro: ocupação dos veículos",
+      "attempt": null,
+      "ts": "2026-11-20T17:00:30.000Z",
+      "data": {
+        "file": "models/gold/ocupacao_veiculos.sql",
+        "kpi": "ocupacao_veiculos"
+      }
+    },
+    {
+      "run_id": "run_demo_0001",
+      "step": "run_dbt",
+      "type": "task_started",
+      "message": "dbt build + testes de aceite: custo_frete_entrega",
+      "attempt": 1,
+      "ts": "2026-11-20T17:00:31.000Z"
+    },
+    {
+      "run_id": "run_demo_0001",
+      "step": "run_dbt",
+      "type": "test_failed",
+      "message": "custo_frete_entrega: obtido 237,50, esperado 166,67. CT-e reemitidos contados em dobro (342 linhas para 240 entregas)",
+      "attempt": 1,
+      "ts": "2026-11-20T17:00:35.000Z",
+      "data": {
+        "test": "custo_frete_entrega",
+        "kpi": "custo_frete_entrega",
+        "actual": 237.5,
+        "expected": 166.67
+      }
+    },
+    {
+      "run_id": "run_demo_0001",
+      "step": "agent",
+      "type": "fix_applied",
+      "message": "Correção 1/3: deduplicar CT-e pela chave de acesso, mantendo a última emissão",
+      "attempt": 2,
+      "ts": "2026-11-20T17:00:38.000Z",
+      "data": {
+        "file": "models/silver/slv_cte_dedup.sql"
+      }
+    },
+    {
+      "run_id": "run_demo_0001",
+      "step": "write_hook",
+      "type": "write_blocked",
+      "message": "Escrita bloqueada: testes de aceite são somente leitura para o executor",
+      "attempt": null,
+      "ts": "2026-11-20T17:00:40.000Z",
+      "data": {
+        "file": "tests/acceptance/custo_frete_entrega.yml"
+      }
+    },
+    {
+      "run_id": "run_demo_0001",
+      "step": "agent",
+      "type": "file_written",
+      "message": "Ouro: custo de frete por entrega usa CT-e deduplicados",
+      "attempt": 2,
+      "ts": "2026-11-20T17:00:42.000Z",
+      "data": {
+        "file": "models/gold/custo_frete_entrega.sql"
+      }
+    },
+    {
+      "run_id": "run_demo_0001",
+      "step": "run_dbt",
+      "type": "task_started",
+      "message": "dbt build + testes de aceite: custo_frete_entrega",
+      "attempt": 2,
+      "ts": "2026-11-20T17:00:43.000Z"
+    },
+    {
+      "run_id": "run_demo_0001",
+      "step": "run_dbt",
+      "type": "test_passed",
+      "message": "custo_frete_entrega: obtido 166,67, esperado 166,67",
+      "attempt": 2,
+      "ts": "2026-11-20T17:00:47.000Z",
+      "data": {
+        "test": "custo_frete_entrega",
+        "kpi": "custo_frete_entrega",
+        "actual": 166.67,
+        "expected": 166.67
+      }
+    },
+    {
+      "run_id": "run_demo_0001",
+      "step": "run_dbt",
+      "type": "task_started",
+      "message": "Testes de aceite: otif",
+      "attempt": 1,
+      "ts": "2026-11-20T17:00:48.000Z"
+    },
+    {
+      "run_id": "run_demo_0001",
+      "step": "run_dbt",
+      "type": "test_passed",
+      "message": "otif: obtido 0,873, esperado 0,873 (no prazo e completo)",
+      "attempt": 1,
+      "ts": "2026-11-20T17:00:52.000Z",
+      "data": {
+        "test": "otif",
+        "kpi": "otif",
+        "actual": 0.873,
+        "expected": 0.873
+      }
+    },
+    {
+      "run_id": "run_demo_0001",
+      "step": "run_dbt",
+      "type": "task_started",
+      "message": "Testes de aceite: ocupacao_veiculos",
+      "attempt": 1,
+      "ts": "2026-11-20T17:00:53.000Z"
+    },
+    {
+      "run_id": "run_demo_0001",
+      "step": "run_dbt",
+      "type": "test_passed",
+      "message": "ocupacao_veiculos: obtido 0,712, esperado 0,712",
+      "attempt": 1,
+      "ts": "2026-11-20T17:00:57.000Z",
+      "data": {
+        "test": "ocupacao_veiculos",
+        "kpi": "ocupacao_veiculos",
+        "actual": 0.712,
+        "expected": 0.712
+      }
+    },
+    {
+      "run_id": "run_demo_0001",
+      "step": "approval_2",
+      "type": "approval_requested",
+      "message": "3 de 3 indicadores aprovados nos testes. Promoção aguardando autorização",
+      "attempt": null,
+      "ts": "2026-11-20T17:00:59.000Z"
+    },
+    {
+      "run_id": "run_demo_0001",
+      "step": "approval_2",
+      "type": "approval_granted",
+      "message": "Promoção autorizada pelo consultor",
+      "attempt": null,
+      "ts": "2026-11-20T17:01:09.000Z"
+    },
+    {
+      "run_id": "run_demo_0001",
+      "step": "deliver",
+      "type": "task_started",
+      "message": "Promovendo modelos para o destino definido no plano",
+      "attempt": null,
+      "ts": "2026-11-20T17:01:10.000Z"
+    },
+    {
+      "run_id": "run_demo_0001",
+      "step": "deliver",
+      "type": "run_completed",
+      "message": "Entrega promovida: 3 modelos ouro, relatório de testes e documentação",
+      "attempt": null,
+      "ts": "2026-11-20T17:01:14.000Z"
+    }
+  ]
+}
