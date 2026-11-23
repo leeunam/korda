@@ -132,6 +132,9 @@ class LocalDockerSandbox:
     def criar(self) -> None:
         if self.container_id:
             raise ErroSandbox("sandbox já criada")
+        if os.getuid() == 0:
+            # O contêiner herda o uid do worker; como root, ele também rodaria como root.
+            raise ErroSandbox("não rode o worker como root")
         if not (self.projeto / "dbt_project.yml").is_file():
             raise ErroSandbox(f"projeto dbt não encontrado em {self.projeto}")
         if not self.fontes.is_dir():
