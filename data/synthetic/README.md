@@ -12,6 +12,7 @@
 | `empresas/<id>/area_atendimento.csv` | Sede e municípios atendidos, com peso de demanda. |
 | [`generator/`](generator/generate.py) | Gerador determinístico (`generate.py`), XML de CT-e (`cte_xml.py`), validação XSD (`validate_xsd.py`) e testes. |
 | `output/<id>/` | Fontes geradas (**ignoradas pelo Git**): `erp/`, `tms/`, `cte/` e `_gerador/` (contagens e registro de anomalias, que o gabarito não lê). |
+| `landing/<id>/` | Landing zone em Parquet gerada pela [ingestão](../../infra/sandbox/korda_ingestao/README.md) a partir de `output/<id>/` (**ignorada pelo Git**). É o que a sandbox monta. A ingestão não lê `_gerador/` e não limpa nada. |
 | [`spec/dicionario.md`](spec/dicionario.md) | Esquemas "sujos" de ERP, TMS e CT-e e suas relações. |
 | [`spec/anomalias.md`](spec/anomalias.md) | Problemas plantados, KPI afetado e o teste que deve nascer de cada um. |
 | [`spec/cenarios.md`](spec/cenarios.md) | As três empresas, uso e diferenças entre elas. |
@@ -33,6 +34,15 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements-synthetic.txt
 .venv/bin/python -m unittest discover -s data/synthetic/generator/tests
 .venv/bin/python -m unittest discover -s evaluation/golden/tests
 ```
+
+Para a sandbox, ingira as fontes numa landing zone (exige Docker e a imagem `korda-sandbox:dev`; ver [`services/execution/README.md`](../../services/execution/README.md)):
+
+```bash
+cd services/execution && python3 -m korda_execution.ingestao \
+    --fontes ../../data/synthetic/output/01_demo --destino ../../data/synthetic/landing/01_demo
+```
+
+O gabarito continua lendo as fontes brutas (CSV e XML) com código próprio e não usa a landing.
 
 A mesma semente gera bytes idênticos; `evaluation/golden/<id>/fontes.sha256` prova a correspondência entre gabarito e fontes. Os XML são fictícios: `tpAmb=2` (homologação), CNPJs com DV inválido e assinatura só estrutural, sem valor criptográfico.
 
