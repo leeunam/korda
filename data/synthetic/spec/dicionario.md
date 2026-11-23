@@ -79,14 +79,16 @@ XML do **CT-e 4.00, modal rodoviário**, no formato `cteProc` (CT-e + protocolo)
 | `infCTeNorm/infCarga/vCarga`, `infQ` (peso) | Valor e peso da carga. |
 | `infCTeNorm/infDoc/infNFe/chave` (1..n) | NF-e transportadas, que levam a `erp_pedidos.ch_nfe`. Mais de uma NF-e no mesmo CT-e exige rateio. |
 | `protCTe/infProt/cStat` | `100` = autorizado. |
-| `procEventoCTe` com `tpEvento=110111` | Cancelamento homologado da chave. |
+| `procEventoCTe` com `tpEvento=110111` e retorno `cStat=135` | Cancelamento homologado da chave. `136` registra evento sem vínculo e não comprova cancelamento. |
 
-`Signature` é exigida pelo XSD. O gerador vai produzir uma assinatura **estruturalmente válida e sem valor criptográfico**, e isso será documentado.
+`Signature` é exigida pelo XSD. O gerador produz uma assinatura **estruturalmente válida e sem valor criptográfico**. O tratamento do cancelamento segue o [MOC 4.00, §6.2.2](https://www.cte.fazenda.gov.br/portal/exibirArquivo.aspx?conteudo=0eu1YksSGXM%3D).
 
 ## Relações
 
 ```text
 erp_clientes 1─n erp_pedidos ─(ch_nfe = infNFe/chave)─ n─1 CT-e
-erp_pedidos  1─n tms_entregas (cd_ped = nr_ped)
+erp_pedidos  1─1 tms_entregas (cd_ped = nr_ped)
 tms_viagens  1─n tms_entregas ; tms_veiculos 1─n tms_viagens
 ```
+
+O recorte gerado possui uma única entrega por pedido, que pode estar incompleta. `qt_itens` e `qt_entregue` contam volumes; não há tabela de itens nem acúmulo de reentregas. O gabarito rejeita pedidos com várias entregas para evitar repetir frete e denominador do OTIF. Dados com esse grão exigem outro cenário e definição explícita de regra antes do cálculo.
