@@ -42,7 +42,7 @@ function collectTests(events: RunEvent[]): TestResult[] {
   const byName = new Map<string, TestResult>();
   for (const e of events) {
     if (e.type !== "test_passed" && e.type !== "test_failed") continue;
-    const name = e.data?.test ?? "teste";
+    const name = e.data?.test ?? "test";
     const entry = byName.get(name) ?? { test: name, attempts: [], passed: false };
     const passed = e.type === "test_passed";
     entry.attempts.push({

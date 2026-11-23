@@ -88,7 +88,7 @@ describe("Player · simulação", () => {
     p.grantApproval("approval_1");
     const granted = store.list().filter((e) => e.type === "approval_granted");
     expect(granted).toHaveLength(1);
-    expect(granted[0].message).toBe("Aprovado pelo consultor");
+    expect(granted[0].message).toBe("Approved by the consultant");
     expect(p.status).toBe("playing");
 
     vi.advanceTimersByTime(1000);

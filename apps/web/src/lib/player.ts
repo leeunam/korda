@@ -2,7 +2,7 @@ import type { RunEvent } from "./events";
 import type { EventStore } from "./store";
 
 export type Mode = "simulation" | "replay";
-export type Speed = 1 | 2 | 4;
+export type Speed = 1 | 4;
 export type PlayerStatus = "idle" | "playing" | "paused" | "waiting_human" | "finished";
 export type ApprovalStep = "approval_1" | "approval_2";
 
@@ -132,7 +132,7 @@ export function createPlayer(opts: {
         run_id: source[0]?.run_id ?? "",
         step,
         type: "approval_granted",
-        message: "Aprovado pelo consultor",
+        message: "Approved by the consultant",
         attempt: null,
         ts: now().toISOString(),
       });

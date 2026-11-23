@@ -1,21 +1,23 @@
 import type { RunView } from "@/lib/derive";
 import type { ApprovalStep, Mode } from "@/lib/player";
+import { StateBadge } from "./nodes/StateBadge";
 
 const primary =
-  "h-9 rounded-[6px] bg-ink-900 px-3 text-[13px] font-semibold text-paper hover:bg-ink-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink-900 disabled:bg-ink-100 disabled:text-ink-500";
+  "h-7 shrink-0 cursor-pointer rounded-[7px] bg-ink px-2.5 text-[12px] font-semibold text-on-ink shadow-btn transition-opacity duration-100 hover:opacity-85 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
 
+/** Por que o botão não aparece. `null` quando a decisão cabe ao usuário agora. */
 function reasonFor(step: ApprovalStep, view: RunView, mode: Mode): string | null {
-  if (mode === "replay") return "Replay: aprovações gravadas, sem ação.";
   const gate = view.gates[step];
-  if (gate === "approved") return "Aprovado.";
+  if (gate === "approved") return null;
+  if (mode === "replay") return "Recorded run, no action.";
   if (step === "approval_1") {
-    return gate === "waiting" ? null : "Aguardando o plano ser enviado para aprovação.";
+    return gate === "waiting" ? null : "Plan not submitted yet.";
   }
   if (!view.allTestsPassed) {
     const passed = view.tests.filter((t) => t.passed).length;
-    return `Aguardando todos os testes passarem (${passed} de 3).`;
+    return `Needs all tests passing (${passed}/3).`;
   }
-  return view.canPromote ? null : "Aguardando o pedido de promoção.";
+  return view.canPromote ? null : "Promotion not requested yet.";
 }
 
 export function ApprovalActions({
@@ -29,31 +31,39 @@ export function ApprovalActions({
   onGrant: (step: ApprovalStep) => void;
   only?: ApprovalStep;
 }) {
-  const items: { step: ApprovalStep; label: string; title: string }[] = [
-    { step: "approval_1", label: "Aprovar plano", title: "Aprovação 1 · Plano v1" },
-    { step: "approval_2", label: "Promover", title: "Aprovação 2 · Promoção da entrega" },
+  const items: { step: ApprovalStep; n: number; label: string; title: string }[] = [
+    { step: "approval_1", n: 1, label: "Approve", title: "Plan v1" },
+    { step: "approval_2", n: 2, label: "Promote", title: "Delivery promotion" },
   ];
   return (
-    <div className="space-y-3">
+    <ol className="divide-y divide-rule">
       {items
         .filter((i) => !only || i.step === only)
-        .map(({ step, label, title }) => {
+        .map(({ step, n, label, title }) => {
+          const gate = view.gates[step];
           const reason = reasonFor(step, view, mode);
           const enabled =
             mode === "simulation" &&
-            (step === "approval_1" ? view.gates.approval_1 === "waiting" : view.canPromote);
+            (step === "approval_1" ? gate === "waiting" : view.canPromote);
           return (
-            <div key={step} className="flex items-center justify-between gap-3">
+            <li key={step} className="flex min-h-11 items-center justify-between gap-3 py-2 first:pt-0 last:pb-0">
               <div className="min-w-0">
-                <p className="text-[12px] font-semibold text-ink-900">{title}</p>
-                <p className="text-[12px] text-ink-500">{reason ?? "Sua decisão."}</p>
+                <p className="truncate text-[12.5px] font-medium text-ink">
+                  <span className="mr-1.5 font-mono text-faint">{n}</span>
+                  {title}
+                </p>
+                {reason ? <p className="mt-0.5 text-[11.5px] text-muted">{reason}</p> : null}
               </div>
-              <button className={primary} disabled={!enabled} onClick={() => onGrant(step)}>
-                {label}
-              </button>
-            </div>
+              {enabled ? (
+                <button className={primary} onClick={() => onGrant(step)}>
+                  {label}
+                </button>
+              ) : (
+                <StateBadge state="pending" gate={gate} />
+              )}
+            </li>
           );
         })}
-    </div>
+    </ol>
   );
 }

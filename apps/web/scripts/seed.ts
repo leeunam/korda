@@ -29,62 +29,62 @@ type Beat = [
 
 /** Roteiro: segundos desde o início, passo, tipo, mensagem. */
 const SCRIPT: Beat[] = [
-  [0, "plan", "task_started", "Montando o plano a partir da entrevista e das fontes ERP, TMS e CT-e"],
-  [3, "plan", "file_written", "Plano v1 gravado: 3 indicadores, 9 regras, 3 testes de aceite", { data: { file: "plan/v1.yaml" } }],
-  [4.5, "approval_1", "approval_requested", "Plano v1 aguardando aprovação do consultor"],
-  [12, "approval_1", "approval_granted", "Plano v1 aprovado pelo consultor"],
+  [0, "plan", "task_started", "Building the plan from the interview and the ERP, TMS and CT-e sources"],
+  [3, "plan", "file_written", "Plan v1 saved: 3 KPIs, 9 rules, 3 acceptance tests", { data: { file: "plan/v1.yaml" } }],
+  [4.5, "approval_1", "approval_requested", "Plan v1 waiting for consultant approval"],
+  [12, "approval_1", "approval_granted", "Plan v1 approved by the consultant"],
 
-  [13, "agent", "task_started", "Executor iniciado com o plano v1"],
-  [15, "agent", "file_written", "Camada bronze: entregas, fretes e viagens", { data: { file: "models/bronze/brz_entregas.sql" } }],
-  [17, "agent", "file_written", "Camada bronze: CT-e emitidos", { data: { file: "models/bronze/brz_cte.sql" } }],
-  [20, "agent", "file_written", "Camada prata: entregas elegíveis (sem canceladas)", { data: { file: "models/silver/slv_entregas_elegiveis.sql" } }],
-  [23, "agent", "file_written", "Camada prata: viagens com capacidade do veículo", { data: { file: "models/silver/slv_viagens.sql" } }],
-  [26, "agent", "file_written", "Ouro: custo de frete por entrega", { data: { file: "models/gold/custo_frete_entrega.sql", kpi: "custo_frete_entrega" } }],
-  [28, "agent", "file_written", "Ouro: OTIF (no prazo e completo)", { data: { file: "models/gold/otif.sql", kpi: "otif" } }],
-  [30, "agent", "file_written", "Ouro: ocupação dos veículos", { data: { file: "models/gold/ocupacao_veiculos.sql", kpi: "ocupacao_veiculos" } }],
+  [13, "agent", "task_started", "Executor started with plan v1"],
+  [15, "agent", "file_written", "Bronze layer: deliveries, freight and trips", { data: { file: "models/bronze/brz_entregas.sql" } }],
+  [17, "agent", "file_written", "Bronze layer: issued CT-e", { data: { file: "models/bronze/brz_cte.sql" } }],
+  [20, "agent", "file_written", "Silver layer: eligible deliveries (excluding cancelled)", { data: { file: "models/silver/slv_entregas_elegiveis.sql" } }],
+  [23, "agent", "file_written", "Silver layer: trips with vehicle capacity", { data: { file: "models/silver/slv_viagens.sql" } }],
+  [26, "agent", "file_written", "Gold: freight cost per delivery", { data: { file: "models/gold/custo_frete_entrega.sql", kpi: "custo_frete_entrega" } }],
+  [28, "agent", "file_written", "Gold: OTIF (on time and in full)", { data: { file: "models/gold/otif.sql", kpi: "otif" } }],
+  [30, "agent", "file_written", "Gold: vehicle utilization", { data: { file: "models/gold/ocupacao_veiculos.sql", kpi: "ocupacao_veiculos" } }],
 
-  [31, "run_dbt", "task_started", "dbt build + testes de aceite: custo_frete_entrega", { attempt: 1 }],
-  [35, "run_dbt", "test_failed", "custo_frete_entrega: obtido 237,50, esperado 166,67. CT-e reemitidos contados em dobro (342 linhas para 240 entregas)", {
+  [31, "run_dbt", "task_started", "dbt build + acceptance tests: custo_frete_entrega", { attempt: 1 }],
+  [35, "run_dbt", "test_failed", "custo_frete_entrega: got 237.50, expected 166.67. Reissued CT-e counted twice (342 rows for 240 deliveries)", {
     attempt: 1,
     data: { test: "custo_frete_entrega", kpi: "custo_frete_entrega", actual: 237.5, expected: 166.67 },
   }],
-  [38, "agent", "fix_applied", "Correção 1/3: deduplicar CT-e pela chave de acesso, mantendo a última emissão", {
+  [38, "agent", "fix_applied", "Fix 1/3: deduplicate CT-e by access key, keeping the latest issue", {
     attempt: 2,
     data: { file: "models/silver/slv_cte_dedup.sql" },
   }],
-  [40, "write_hook", "write_blocked", "Escrita bloqueada: testes de aceite são somente leitura para o executor", {
+  [40, "write_hook", "write_blocked", "Write blocked: acceptance tests are read-only for the executor", {
     data: { file: "tests/acceptance/custo_frete_entrega.yml" },
   }],
-  [42, "agent", "file_written", "Ouro: custo de frete por entrega usa CT-e deduplicados", { attempt: 2, data: { file: "models/gold/custo_frete_entrega.sql" } }],
-  [43, "run_dbt", "task_started", "dbt build + testes de aceite: custo_frete_entrega", { attempt: 2 }],
-  [47, "run_dbt", "test_passed", "custo_frete_entrega: obtido 166,67, esperado 166,67", {
+  [42, "agent", "file_written", "Gold: freight cost per delivery uses deduplicated CT-e", { attempt: 2, data: { file: "models/gold/custo_frete_entrega.sql" } }],
+  [43, "run_dbt", "task_started", "dbt build + acceptance tests: custo_frete_entrega", { attempt: 2 }],
+  [47, "run_dbt", "test_passed", "custo_frete_entrega: got 166.67, expected 166.67", {
     attempt: 2,
     data: { test: "custo_frete_entrega", kpi: "custo_frete_entrega", actual: 166.67, expected: 166.67 },
   }],
 
-  [48, "run_dbt", "task_started", "Testes de aceite: otif", { attempt: 1 }],
-  [52, "run_dbt", "test_passed", "otif: obtido 0,873, esperado 0,873 (no prazo e completo)", {
+  [48, "run_dbt", "task_started", "Acceptance tests: otif", { attempt: 1 }],
+  [52, "run_dbt", "test_passed", "otif: got 0.873, expected 0.873 (on time and in full)", {
     attempt: 1,
     data: { test: "otif", kpi: "otif", actual: 0.873, expected: 0.873 },
   }],
-  [53, "run_dbt", "task_started", "Testes de aceite: ocupacao_veiculos", { attempt: 1 }],
-  [57, "run_dbt", "test_passed", "ocupacao_veiculos: obtido 0,712, esperado 0,712", {
+  [53, "run_dbt", "task_started", "Acceptance tests: ocupacao_veiculos", { attempt: 1 }],
+  [57, "run_dbt", "test_passed", "ocupacao_veiculos: got 0.712, expected 0.712", {
     attempt: 1,
     data: { test: "ocupacao_veiculos", kpi: "ocupacao_veiculos", actual: 0.712, expected: 0.712 },
   }],
 
-  [59, "approval_2", "approval_requested", "3 de 3 indicadores aprovados nos testes. Promoção aguardando autorização"],
-  [69, "approval_2", "approval_granted", "Promoção autorizada pelo consultor"],
-  [70, "deliver", "task_started", "Promovendo modelos para o destino definido no plano"],
-  [74, "deliver", "run_completed", "Entrega promovida: 3 modelos ouro, relatório de testes e documentação"],
+  [59, "approval_2", "approval_requested", "3 of 3 KPIs passed their tests. Promotion waiting for authorization"],
+  [69, "approval_2", "approval_granted", "Promotion authorized by the consultant"],
+  [70, "deliver", "task_started", "Promoting models to the destination defined in the plan"],
+  [74, "deliver", "run_completed", "Delivery promoted: 3 gold models, test report and documentation"],
 ];
 
 export function buildSeedRun(): SeedRun {
   return {
     run_id: RUN_ID,
     synthetic: true,
-    client: "Transportadora Exemplo (fictícia)",
-    note: "Execução sintética gerada por apps/web/scripts/seed.ts. Valores inventados; não são validação.",
+    client: "Example Carrier (fictional)",
+    note: "Synthetic run generated by apps/web/scripts/seed.ts. Made-up values; not validation.",
     events: SCRIPT.map(([sec, step, type, message, extra]) => ({
       run_id: RUN_ID,
       step,

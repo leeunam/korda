@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="54" height="54" viewBox="0 0 54 54" fill="none">
+  <style>
+    path { fill: #141414; }
+    @media (prefers-color-scheme: dark) { path { fill: #ffffff; } }
+  </style>
+  <!-- A barra da marca Korda (design-system: korda-bar-*.svg), centrada num quadrado. -->
+  <path d="M32.5 0H21.5C19.843 0 18.5 1.343 18.5 3V51C18.5 52.657 19.843 54 21.5 54H32.5C34.157 54 35.5 52.657 35.5 51V3C35.5 1.343 34.157 0 32.5 0Z"/>
+</svg>

@@ -1,8 +1,7 @@
-const num = new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 3 });
-const time = new Intl.DateTimeFormat("pt-BR", {
+const num = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 3 });
+const time = new Intl.DateTimeFormat("en-US", {
   hour: "2-digit",
   minute: "2-digit",
-  second: "2-digit",
   timeZone: "America/Sao_Paulo",
 });
 

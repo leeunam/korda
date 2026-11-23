@@ -10,19 +10,16 @@ export type ToolData = {
   icon: Icon;
   title: string;
   description: string;
-  fields: Field[];
   footer: string;
 };
 export type AgentData = {
   state: NodeState;
   title: string;
   subtitle: string;
-  model: string;
-  instructions: string;
   output: string;
 };
 export type GateData = { state: NodeState; gate: GateState; title: string; subtitle: string };
-export type PillData = { state: NodeState; icon: Icon; label: string; side: "input" | "output" };
+export type PillData = { state: NodeState; icon: Icon; label: string; caption?: string; side: "input" | "output" };
 
 export type ToolNodeType = Node<ToolData, "tool">;
 export type AgentNodeType = Node<AgentData, "agent">;

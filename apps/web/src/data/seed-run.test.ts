@@ -13,7 +13,7 @@ describe("seed-run.json", () => {
 
   it("é identificado como sintético", () => {
     expect(run.synthetic).toBe(true);
-    expect(run.client).toMatch(/fictícia/);
+    expect(run.client).toMatch(/fictional/);
   });
 
   it("tem ts estritamente crescente, um único run_id e no máximo 3 tentativas", () => {
