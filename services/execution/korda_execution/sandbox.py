@@ -109,6 +109,9 @@ class LocalDockerSandbox:
     imagem: str = IMAGEM_PADRAO
     raiz_runs: Path = RAIZ_RUNS_PADRAO
     limites: Limites = field(default_factory=Limites)
+    # Subpastas das fontes que o executor não pode ver. `_gerador/` registra onde as
+    # anomalias foram plantadas: seria uma folha de respostas.
+    ocultar_nas_fontes: tuple[str, ...] = ("_gerador",)
     container_id: str | None = None
 
     def __post_init__(self) -> None:
@@ -164,8 +167,12 @@ class LocalDockerSandbox:
             "--mount", f"type=bind,src={projeto_run},dst={DIR_PROJETO},readonly",
             "--mount", f"type=bind,src={projeto_run / 'models'},dst={DIR_MODELS}",
             "--mount", f"type=bind,src={saida_run},dst={DIR_SAIDA}",
-            self.imagem,
         ]
+        for nome in self.ocultar_nas_fontes:
+            if (self.fontes / nome).exists():
+                # tmpfs vazio, de root e sem escrita, por cima da subpasta.
+                argv += ["--mount", f"type=tmpfs,dst={DIR_FONTES}/{nome},tmpfs-size=4k,tmpfs-mode=0555"]
+        argv.append(self.imagem)
         r = subprocess.run(argv, capture_output=True, text=True)
         if r.returncode != 0:
             shutil.rmtree(self.dir_run, ignore_errors=True)
