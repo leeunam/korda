@@ -20,6 +20,12 @@
   --radius-pill: 999px;
 }
 
+/* A interface é clara. O React Flow 13 usa light-dark(): fixamos o esquema claro. */
+:root,
+:root .react-flow {
+  color-scheme: light;
+}
+
 html,
 body {
   background: var(--color-paper);
