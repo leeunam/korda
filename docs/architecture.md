@@ -25,6 +25,8 @@ Python, DuckDB e dbt são a base para processamento local e modelos. O harness d
 
 A sandbox da demo pode começar com um worker controlado e um diretório por execução. Isso **não equivale a isolamento de produção**. Antes de executar código gerado, impor limites de tempo/memória, operações permitidas, diretórios montados e acesso de rede. Credenciais e respostas esperadas não entram no contexto do executor.
 
+Estado em 23/11/2026, rascunho da K08: existe uma sandbox local em Docker (sem rede, sem root, montagens somente leitura exceto `models/` e saída, limites de recursos e de tempo) e as ferramentas restritas do executor. Detalhes e limites em [`services/execution/README.md`](../services/execution/README.md). Harness com LLM e sandbox em nuvem ainda não existem.
+
 ## Contratos antes de implementação paralela
 
 Versionar em `packages/contracts/`: contexto/lacunas, plano, aprovação, evento, execução e manifesto de artefatos. Campos, enumerações, exemplos e transições são parte do aceite conjunto. Identificadores mínimos a avaliar: `project_id`, `run_id`, versão do plano e correlação do evento.
