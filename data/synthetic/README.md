@@ -50,9 +50,9 @@ O script faz três etapas:
 
 1. **Obter:** baixa as fontes de `sources.json` para `data/external/<id>/`.
 2. **Registrar:** grava `calibration/manifest.json` com URL, licença, data de obtenção, tamanho, sha256 e status de cada fonte. Também confere se as cópias em `reference/` batem com o checksum registrado.
-3. **Agregar:** grava `calibration/calibration.yaml`.
+3. **Agregar:** substitui `calibration/calibration.yaml` de forma atômica depois de conferir todas as fontes e calcular o agregado.
 
-A data de obtenção só muda quando o arquivo muda. Checksum divergente vira status `divergente` e precisa de revisão humana. O script termina com código 1 enquanto houver fonte pendente ou divergente. Para uma fonte manual, coloque o arquivo em `data/external/<id>/` e rode com `--offline`.
+A data de obtenção só muda quando o arquivo muda. Checksum divergente vira status `divergente` e precisa de revisão humana. O script termina com código 1 enquanto houver fonte pendente ou divergente, registra o problema no manifesto e preserva a última calibração válida. Falha de agregação também preserva o arquivo anterior. Para uma fonte manual, coloque o arquivo em `data/external/<id>/` e rode com `--offline`.
 
 ## Fontes e licenças
 
