@@ -15,6 +15,7 @@ from pathlib import Path
 
 from korda_execution.eventos import EmissorEventos
 from korda_execution.ferramentas import FerramentasRestritas
+from korda_execution.ingestao import ingerir
 from korda_execution.sandbox import (
     IMAGEM_PADRAO,
     ErroSandbox,
@@ -45,11 +46,26 @@ if not _PRONTO and os.environ.get("KORDA_EXIGIR_DOCKER") == "1":
 
 @unittest.skipUnless(_PRONTO, f"Docker ou imagem {IMAGEM_PADRAO} indisponível")
 class TestSandboxLocal(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        # Uma ingestão para a classe: fontes brutas (com uma _gerador/ falsa) -> landing em Parquet.
+        cls.tmp_classe = Path(tempfile.mkdtemp(prefix="korda-test-landing-"))
+        brutas = cls.tmp_classe / "brutas"
+        shutil.copytree(FONTES, brutas)
+        (brutas / "_gerador").mkdir()
+        (brutas / "_gerador" / "anomalias_plantadas.csv").write_text("segredo\n")
+        cls.landing = cls.tmp_classe / "landing"
+        ingerir(brutas, cls.landing)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp_classe, ignore_errors=True)
+
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="korda-test-"))
-        # Fontes copiadas para o tmp, com uma _gerador/ falsa para testar a ocultação.
+        # Landing copiada para o tmp, com outra _gerador/ falsa para testar a ocultação na sandbox.
         self.fontes = self.tmp / "fontes"
-        shutil.copytree(FONTES, self.fontes)
+        shutil.copytree(self.landing, self.fontes)
         (self.fontes / "_gerador").mkdir()
         (self.fontes / "_gerador" / "anomalias_plantadas.csv").write_text("segredo\n")
         self.run_id = f"teste-{uuid.uuid4().hex[:8]}"
@@ -96,7 +112,8 @@ class TestSandboxLocal(unittest.TestCase):
 
     def test_escrita_fora_de_models_e_recusada_pelo_sistema_de_arquivos(self):
         alvos = [
-            "/work/fontes/cte.csv",
+            "/work/fontes/cte.parquet",
+            "/work/fontes/manifesto.json",
             "/work/fontes/novo.csv",
             "/work/projeto/tests/sem_cte_cancelado.sql",
             "/work/projeto/definicoes/testes.yml",
@@ -111,7 +128,7 @@ class TestSandboxLocal(unittest.TestCase):
                 self.assertNotEqual(r.codigo, 0)
                 self.assertRegex(r.stderr, "Read-only file system|Permission denied")
         self.assertEqual((FONTES / "cte.csv").read_text().count("invadido"), 0)
-        self.assertEqual((self.fontes / "cte.csv").read_text().count("invadido"), 0)
+        self.assertEqual((self.fontes / "cte.parquet").read_bytes(), (self.landing / "cte.parquet").read_bytes())
 
     def test_enviar_arquivos_recusa_area_somente_leitura(self):
         with self.assertRaises(ErroSandbox):
@@ -139,7 +156,7 @@ class TestSandboxLocal(unittest.TestCase):
         perigosas = [
             "copy (select 1) to '/work/projeto/models/x.sql'",
             "copy (select 1) to '/work/saida/x.csv'",
-            "select * from read_csv('/work/fontes/cte.csv')",
+            "select * from read_parquet('/work/fontes/cte.parquet')",
             "create table t as select 1",
             "set enable_external_access = true",
             "attach '/work/saida/outro.duckdb'",
@@ -167,6 +184,10 @@ class TestSandboxLocal(unittest.TestCase):
         self.assertNotIn("golden", r.stdout)
         self.assertNotIn("anomalias_plantadas", r.stdout)
         self.assertEqual(self.rodar("ls", "-A", "/work/fontes/_gerador").stdout.strip(), "")
+        # A ingestão também não viu _gerador/: nenhuma tabela nem arquivo do manifesto vem de lá.
+        self.assertFalse(any("_gerador" in p.as_posix() for p in self.landing.rglob("*")))
+        manifesto = (self.landing / "manifesto.json").read_text(encoding="utf-8")
+        self.assertNotIn("_gerador", manifesto)
 
     def test_tempo_limite_mata_o_processo(self):
         r = self.rodar("sleep", "30", timeout_s=2)
@@ -192,8 +213,16 @@ class TestCriacao(unittest.TestCase):
 
     def test_imagem_inexistente(self):
         with tempfile.TemporaryDirectory() as t:
-            sb = LocalDockerSandbox("teste-img", PROJETO, FONTES, imagem="korda-nao-existe:0", raiz_runs=Path(t))
+            sb = LocalDockerSandbox("teste-img", PROJETO, FONTES, imagem="korda-nao-existe:0", raiz_runs=Path(t),
+                                    exigir_manifesto=False)
             with self.assertRaises(ErroSandbox):
+                sb.criar()
+            self.assertFalse(sb.dir_run.exists())
+
+    def test_fontes_brutas_sem_manifesto_sao_recusadas(self):
+        with tempfile.TemporaryDirectory() as t:
+            sb = LocalDockerSandbox("teste-bruto", PROJETO, FONTES, raiz_runs=Path(t))
+            with self.assertRaisesRegex(ErroSandbox, "landing"):
                 sb.criar()
             self.assertFalse(sb.dir_run.exists())
 
