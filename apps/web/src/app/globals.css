@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+/* Korda Design System — tokens em design-system/tokens.json */
+@theme {
+  --color-ink-900: #141414;
+  --color-ink-800: #2e2e2e;
+  --color-ink-500: #737373;
+  --color-ink-100: #e5e5e5;
+  --color-paper: #ffffff;
+
+  --color-status-done: #3cbb71;
+  --color-status-waiting: #e0a329;
+  --color-status-failed: #c74238;
+
+  --font-sans: var(--font-inter), system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+
+  --radius-bar: 3px;
+  --radius-tile: 8px;
+  --radius-pill: 999px;
+}
+
+html,
+body {
+  background: var(--color-paper);
+  color: var(--color-ink-900);
+}
+
+/* O cursor: a barra da marca, piscando enquanto a IA escreve. */
+@keyframes korda-blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
+.cursor-blink {
+  display: inline-block;
+  width: 3px;
+  height: 0.9em;
+  border-radius: var(--radius-bar);
+  background: var(--color-ink-900);
+  vertical-align: -0.1em;
+  animation: korda-blink 1s step-end infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cursor-blink {
+    animation: none;
+  }
+}

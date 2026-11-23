@@ -6,7 +6,7 @@ This system is set up for **slide decks at 1920 × 1080**. Sizes in the tokens a
 
 ## Principles
 
-- **Black, white, and four grays. Nothing else.** Color never carries meaning on its own; when a chart needs a "bad" value, use ink-500 against ink-900 and say it in words.
+- **Black, white, and four grays. Nothing else** — except the three status colors in the product UI (below). Color never carries meaning on its own; when a chart needs a "bad" value, use ink-500 against ink-900 and say it in words.
 - **One idea per slide.** If a slide needs two headlines, it is two slides.
 - **The bar is the only ornament.** No gradients, shadows, stock photos, or emoji. Icons label things; they never decorate.
 - **Big type, few words.** Titles do the talking; body text supports them.
@@ -31,6 +31,7 @@ Use the semantic tokens (`bg`, `surface`, `text`, `text-muted`, `mark`, `rule`) 
 
 - **Proportions across a deck:** about 70% white slides, 30% black. Black slides are for the cover, section dividers, statements, and the closing slide.
 - **Contrast:** `text` and `text-muted` pass 4.5:1 on `bg` in both themes. `ink-500` on `ink-900` is only 3.9:1, which is why `text-muted` switches to `ink-100` on dark slides.
+- **Status (product UI only):** `status-done` #3CBB71, `status-waiting` #E0A329, `status-failed` #C74238 mark the state of a step, test or approval. Always pair them with a text label (e.g. "falhou"); never use them on slides, in charts or as decoration. They are for dots, bars and borders, not for body text.
 
 ## Typography
 
