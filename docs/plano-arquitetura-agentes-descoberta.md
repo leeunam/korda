@@ -4,6 +4,8 @@
 
 A descoberta começa com informações fornecidas pelo cliente, passa por pesquisa e entrevista adaptativa e termina com uma versão do contexto que expõe evidências, conflitos e lacunas. O recorte usa a transportadora fictícia com ERP, TMS e CT-e sintéticos. O último passo deste plano é disponibilizar essa versão para a frente do Gabriel. [Escopo](scope.md) · [Arquitetura de referência](architecture.md) · [Caso sintético e roteiro](plano-entrevista-dados-sinteticos.md)
 
+**Alinhamento de 23/11/2026.** O PR #18 de Gabriel fornece as fontes de referência: uma entrega por pedido, quantidades em volumes e vínculo TMS → pedido ERP → NF-e → CT-e. Nas ambiguidades do desenho anterior, esse é o recorte adotado. O [contrato de contexto v0.1.0](../packages/contracts/context/v0.1.0/README.md) possui schema e exemplos de rateio pendente/confirmado. Os processos e integrações descritos abaixo ainda serão implementados.
+
 ## Arquitetura proposta
 
 **Um monorepositório, uma imagem Python e quatro processos com responsabilidades e limites próprios.** O processo único do rascunho anterior simplificava o primeiro ensaio. Para este desenho, a API recebe comandos e serve o estado, o worker de pesquisa faz trabalho de duração variável, o processo de entrevista ao vivo responde com prazo curto e o worker de contexto concentra as escritas canônicas. Duas etapas usam o mesmo organizador porque dependem das mesmas regras de evidência. O modo texto roda pela API e pelo worker de contexto. Os quatro processos podem ficar no mesmo host na demo e reiniciar separadamente.
@@ -115,7 +117,7 @@ Para o roteiro em português, recuperar pelo ID da lacuna, entidades relacionada
 | Medição | Logs estruturados com correlação de projeto, sessão, turno e job. Medir latência por modelo, espera de fila, término da fala até primeiro áudio p50/p95, tokens, minutos de mídia, atraso de revisão e taxa de retomada. Logs operacionais carregam IDs e estados. Trechos de fala ficam no armazenamento restrito de evidências. |
 | Testes | `pytest` para contratos, transições e integração com Postgres real via Compose. Playwright para a jornada web com respostas fixadas. Ensaio de voz separado com falas sintéticas, interrupções e troca de canal. [pytest](https://docs.pytest.org/en/stable/) · [Playwright](https://playwright.dev/docs/intro) |
 
-**Mapa no repo.** `services/context/` abriga os módulos de API, pesquisa, entrevista e organização, com pontos de entrada próprios para os quatro processos. `apps/web/` contém as telas da descoberta. `packages/contracts/` é o local sugerido para negociar com Gabriel o contrato versionado de leitura do contexto, com IDs, revisão, origens, lacunas e exemplos dos estados. `infra/` guarda Compose e configurações da demo. Os nomes de tabelas, estados e modelos deste plano são propostas. [Contratos](../packages/contracts/README.md) · [Estrutura do repositório](../README.md)
+**Mapa no repo.** `services/context/` receberá os módulos de API, pesquisa, entrevista e organização, com pontos de entrada próprios para os quatro processos. `apps/web/` receberá as telas da descoberta. `packages/contracts/` já contém a primeira versão local do contexto logístico; a integração com o consumidor do Gabriel ainda será testada. `infra/` receberá Compose e configurações da demo. Os nomes de tabelas e modelos deste plano continuam sendo propostas. [Contratos](../packages/contracts/README.md) · [Estrutura do repositório](../README.md)
 
 ## Ordem de implementação e aceite
 

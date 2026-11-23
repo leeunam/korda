@@ -1,8 +1,8 @@
 # Plano da entrevista e das fontes sintéticas da Korda
 
-**Proposta para revisão de Marcus e Gabriel · 19/11/2026**
+**Plano iniciado em 19/11/2026 · recorte técnico alinhado ao gerador de Gabriel em 23/11/2026**
 
-Preparar uma conversa fictícia e um conjunto pequeno de arquivos que permitam passar da descoberta ao planejamento. A primeira rodada usa o custo de frete por entrega para revelar uma regra ausente. A expansão do mesmo caso cobre OTIF e ocupação. Marcus conduz o rascunho de descoberta. Gabriel revisa o que o planejador precisa receber. A equipe ainda precisa confirmar quem responde pelas regras da transportadora fictícia e quem mantém as fixtures.
+Preparar uma conversa fictícia que permita passar da descoberta ao planejamento usando as fontes já geradas por Gabriel no PR #18. A primeira rodada usa o custo de frete por entrega para revelar uma regra ausente. O mesmo caso cobre OTIF e ocupação. Marcus conduz a descoberta e usa o gerador como referência nas ambiguidades do desenho anterior. O [contrato local v0.1.0](../packages/contracts/context/v0.1.0/README.md) registra as definições e duas revisões JSON para testar o consumo pelo planejamento.
 
 ## Arquitetura e tecnologias para o primeiro ensaio
 
@@ -12,7 +12,7 @@ Antes de integrar as frentes, alinhar um fluxo local entre Marcus e Gabriel. A e
 | --- | --- |
 | Execução local | Python para organizar o fluxo e ler XML. DuckDB para inspecionar os CSVs, conforme a base técnica proposta pelo projeto. |
 | Entrada e estado da entrevista | Diálogo em texto. Salvar as mensagens e o estado em arquivos locais distintos dos dados de origem para testar retomada entre as rodadas. |
-| Passagem para planejamento | JSON local provisório com evidências da conversa, achados das fontes e lacunas. Vincular evidências ao trecho ou ao registro de origem. Versionar o schema compartilhado depois que Gabriel testar o consumo. |
+| Passagem para planejamento | JSON conforme o [schema v0.1.0](../packages/contracts/context/v0.1.0/context.schema.json), com revisão, evidências, perfil, regras e lacunas. Dois exemplos mostram o rateio pendente e a confirmação posterior. O consumidor de planejamento será testado na integração. |
 | Integrações posteriores | dbt entra na construção dos indicadores. A escolha de modelo e harness, Tavus, interface, backend de eventos e cloud seguem em avaliação para suas respectivas etapas. |
 
 O ensaio termina quando os dois conseguem repetir localmente o fluxo com as mesmas fontes. Sem confirmação do rateio, o contexto deve carregar a lacuna e a etapa de planejamento deve preservar o bloqueio do frete. Com a confirmação, o planejador deve conseguir preparar a regra e indicar a evidência correspondente para revisão humana. O ensaio pode usar transcrições já preparadas e um planejador manual para validar a passagem de informação. [Arquitetura de referência](architecture.md) · [Contexto](../services/context/README.md)
@@ -29,37 +29,36 @@ O ensaio termina quando os dois conseguem repetir localmente o fluxo com as mesm
 | Pergunta ao gestor | Resposta ou evidência a preparar |
 | --- | --- |
 | Que decisão você quer tomar com esses números? | Comparar quanto custa uma entrega, localizar falhas de atendimento e verificar o uso da capacidade dos veículos. |
-| Mostre um pedido, da promessa ao recebimento. Onde cada etapa fica registrada? | O ERP guarda o pedido, os itens e o prazo prometido. O TMS guarda o recebimento, a quantidade aceita e a viagem. O vínculo para o CT-e consta do TMS neste cenário. |
-| Qual frete entra na conta? Uma entrega parcial conta? O que acontece se o CT-e for cancelado? | Propor o valor da prestação de CT-es elegíveis e uma contagem por entrega física elegível, inclusive a parcial. Validar com o responsável como tratar uma entrega realizada cujo único CT-e foi cancelado e se há substituto. O evento fiscal e o cancelamento operacional têm origens distintas. |
+| Mostre um pedido, da promessa ao recebimento. Onde cada etapa fica registrada? | O ERP guarda pedido, volumes, peso, cubagem, chave da NF-e e prazo. O TMS guarda a entrega única, volumes entregues e viagem. `nr_ped` liga ao pedido do ERP; `ch_nfe` do ERP liga ao `infNFe/chave` do CT-e. |
+| Qual frete entra na conta? Uma entrega parcial conta? O que acontece se o CT-e for cancelado? | Usar `vTPrest` autorizado, deduplicado por chave e sem cancelamento homologado. A entrega incompleta entra se coberta por CT-e válido. Sem CT-e válido, sai apenas do custo. Na 01, o cancelado do caso fixo é reemitido. |
 | Quando o mesmo CT-e cobre duas entregas, como vocês dividem o custo? | **Rodada 1:** o gestor diz que o caminhão lota por peso e pede confirmação ao financeiro. Registrar a lacuna de rateio como bloqueante para o frete. **Rodada 2:** o responsável fictício confirma o rateio pelo peso expedido de cada entrega. Manter os mesmos arquivos e registrar a nova evidência. |
-| O que significa chegar completo e no prazo? O que acontece com uma entrega em partes? | Propor prazo prometido inclusivo e quantidade aceita por item acumulada até esse prazo. Confirmar a janela do relatório, o evento de recebimento e quais pedidos cancelados saem da base. |
-| Em qual momento e unidade vocês medem a ocupação? | Propor peso carregado à saída dividido pela capacidade útil daquela configuração. Registrar se retorno vazio entra e como agregar viagens com capacidades diferentes. |
+| O que significa chegar completo e no prazo? O que acontece com uma entrega em partes? | Na 01, prazo prometido inclusivo e `qt_entregue >= qt_itens` em volumes. Sem data conta como falha. Há uma entrega por pedido, possivelmente incompleta; múltiplas entregas são sinalizadas como fora do recorte. |
+| Em qual momento e unidade vocês medem a ocupação? | Na 01, somar o peso dos pedidos por viagem e dividir pela soma das capacidades em kg de todas as viagens. Preservar ocorrências acima de 100%. O gerador não contém retorno vazio nem medição por trecho. |
 | Quem pode confirmar as regras e a origem dos dados? | Definir papéis fictícios de operação, financeiro e responsável pelos dados. Registrar o trecho de cada confirmação e o arquivo, registro e campo para observações das fontes. |
 
 Na rodada 1, a conversa pode avançar e o planejador pode rascunhar o restante. O custo por entrega fica bloqueado até a confirmação da regra afetada. Prever retomada da conversa e registrar a nova evidência na rodada 2.
 
-## Fontes a prototipar
+## Fontes já disponíveis
 
-Os nomes e campos são propostas para o exercício. Manter IDs estáveis, horários ISO 8601 com deslocamento explícito, unidades documentadas e moeda BRL com precisão decimal.
+Usar `01_demo` como caso principal e `02_variacao` como variação de desenvolvimento. A `03_reservada` permanece para medição, com isolamento no runtime. Os formatos reais estão no [dicionário](../data/synthetic/spec/dicionario.md). Datas dos CSVs não têm offset e usam `America/Sao_Paulo`; os formatos mistos são intencionais. Valores monetários são em BRL. O perfilamento recebe somente `erp/`, `tms/` e `cte/`.
 
-| Fonte e grão | Campos sugeridos | Função |
+| Fonte e grão | Campos da 01 | Função |
 | --- | --- | --- |
-| ERP, uma linha por pedido | `pedido_id`, `prazo_prometido_em`, `status_pedido` | Prazo e elegibilidade operacional. |
-| ERP, uma linha por item do pedido | `pedido_id`, `item_id`, `qtd_pedida`, `unidade` | Quantidade esperada do item. |
-| TMS, uma linha por entrega | `entrega_id`, `pedido_id`, `viagem_id`, `chave_cte`, `recebido_em`, `status_entrega`, `peso_rateio_kg` | Evento de entrega, ligação explícita ao frete e peso registrado uma vez por entrega. Várias entregas podem apontar para a mesma chave. |
-| TMS, uma linha por item recebido em cada entrega | `entrega_id`, `item_id`, `qtd_aceita`, `unidade` | Completude por item e soma de recebimentos de um pedido. |
-| TMS, uma linha por viagem | `viagem_id`, `saida_em`, `capacidade_util_kg`, `peso_carregado_kg`, `tipo_viagem` | Ocupação à saída e recorte de retornos. |
+| ERP, uma linha por pedido | `cd_ped`, `dt_prev_ent`, `qt_itens`, `ps_bruto`, `vl_cubag`, `vl_merc`, `ch_nfe` | Prazo, volumes totais, base de rateio e NF-e que liga ao CT-e. |
+| TMS, uma entrega por pedido | `id_ent`, `nr_ped`, `id_viag`, `qt_entregue`, `dt_baixa`, `st_ent` | Baixa única, possivelmente incompleta; vínculo ao pedido do ERP. |
+| TMS, uma linha por viagem | `id_viag`, `id_veic`, `dt_saida`, `tp_viag` | Agrupa os pedidos para calcular carga e buscar capacidade. |
+| TMS, uma linha por veículo | `id_veic`, `cap_kg`, `cap_m3` | Capacidade na unidade da regra confirmada. |
 | CT-e, XMLs de documentos e eventos | Chave do CT-e, valor `vTPrest` e evento sintético de cancelamento ligado pela mesma chave | Valor de prestação, duplicatas físicas e situação fiscal. Usar apenas identificadores fictícios. |
 
-**Caso principal sugerido.** A1 tem valor de R$ 300, aparece duas vezes com conteúdo idêntico e cobre as entregas de P1 e P2, com pesos de rateio de 100 e 200 kg. B2 tem valor de R$ 200 e cobre a entrega de P3. C3 tem valor de R$ 150 e um evento de cancelamento. Vincular C3 a uma entrega prevista que não ocorreu. P1 é completo no prazo, P2 é parcial no prazo e P3 é completo em atraso. A entrega parcial de P2 entra no frete se a regra proposta for confirmada. Para ocupação, prever duas viagens com capacidades distintas, por exemplo 300 de 500 kg e 200 de 400 kg.
+**Caso principal do gerador.** CT-e de R$ 400,00 cobrindo os pedidos 900001 (100 kg) e 900002 (300 kg), recebido em duplicata. O pedido 900003 tem CT-e cancelado de R$ 150,00 e reemissão do mesmo valor. São as fontes fixas para o ensaio em duas rodadas. Atraso, volumes incompletos e datas ausentes já são plantados no restante da empresa. O exemplo anterior de quatro linhas permanece como teste independente do avaliador, separado do roteiro da 01.
 
-**Casos de verificação separados.** Incluir uma mesma chave de CT-e com conteúdo divergente, peso de rateio ausente, complemento do pedido recebido após o prazo e capacidade desconhecida. Testar cancelamento do CT-e com pedido ainda ativo para detectar acoplamento entre os indicadores. Distinguir retorno vazio conhecido de peso ausente. Registrar quais casos pertencem à demonstração e quais ficam com o avaliador.
+**Limites.** CT-e com conteúdo divergente na mesma chave, peso ausente, reentregas e capacidade desconhecida exigem tratamento explícito antes de ampliar o cenário. Não afirmar que essas variantes já estão cobertas pelo gerador. Resultados esperados e registro de anomalias ficam fora do contexto dos agentes da descoberta e execução.
 
 ## Sequência de trabalho
 
-1. **Alinhar a arquitetura mínima e a passagem local.** Marcus e Gabriel combinam quem produz o contexto, onde o planejamento o recebe e como os dois verificam o fluxo. Em paralelo, Marcus prepara à mão o diálogo de duas rodadas e as tabelas do caso principal. Se houver acesso a um contato de logística, validar onde ficam o vínculo pedido–entrega–CT-e, a regra de rateio e a confirmação de recebimento. Usar dados fictícios no ensaio.
-2. **Rodar o ensaio e fechar as regras.** Gabriel rascunha o plano a partir do material recebido. Marquem o que veio da entrevista, o que as fontes comprovam e o que precisa voltar como pergunta. O responsável pelo cenário revisa elegibilidade, rateio, prazo, completude e ocupação. Anotar quem mantém as fixtures e quem revisa os resultados de forma independente.
-3. **Versionar o contrato e implementar o recorte.** Após revisar as duas rodadas, formalizar a passagem para o planejamento em `packages/contracts/`. Colocar o roteiro e os diálogos em `services/context/` e criar as fontes em `data/synthetic/` com configuração fixa, ordem estável e geração reproduzível. Documentar esquema, chaves, fuso, unidades e anomalias. Manter as referências de aceite em `evaluation/golden/`, acessível apenas ao avaliador no runtime. Registrar com cada resultado de referência a versão aprovada das regras. [Contratos](../packages/contracts/README.md) · [Fontes sintéticas](../data/synthetic/README.md) · [Avaliação](../evaluation/golden/README.md)
+1. **Base técnica disponível.** Correções da revisão do PR #18, semântica alinhada ao gerador e contrato local com dois JSONs. Schema e referências cruzadas são verificáveis sem modelos externos. O aceite conjunto de K01/K02 e a conferência humana das amostras continuam seguindo o fluxo da equipe.
+2. **Implementar e rodar o ensaio da descoberta.** Preparar as falas sintéticas usando a 01, alimentar o mesmo organizador antes/durante/depois e preservar a lacuna de rateio até a segunda rodada. Usar o contrato para testar a passagem ao planejador de Gabriel.
+3. **Integrar perfilamento e revisão.** Inspecionar as fontes em modo somente leitura, manter configuração e metadados do gerador fora do agente e vincular os achados a arquivos e registros. Resultados esperados continuam exclusivos do avaliador no runtime. [Contratos](../packages/contracts/README.md) · [Fontes sintéticas](../data/synthetic/README.md) · [Avaliação](../evaluation/golden/README.md)
 4. **Verificar o fluxo implementado e ampliar para os três indicadores.** A inspeção deve encontrar a duplicata e o evento fiscal. A primeira rodada deve preservar o bloqueio do frete. A segunda deve preparar um plano rastreável para revisão. O avaliador confere custo por entrega e média, OTIF por pedido e ocupação por viagem. Um rateio incorreto pode preservar a média e falhar nos valores individuais. As aprovações do produto seguem o fluxo definido. [Escopo](scope.md) · [Arquitetura](architecture.md)
 
-As issues [#1](https://github.com/leeunam/korda/issues/1), [#2](https://github.com/leeunam/korda/issues/2), [#3](https://github.com/leeunam/korda/issues/3), [#4](https://github.com/leeunam/korda/issues/4) e [#5](https://github.com/leeunam/korda/issues/5) ajudam a localizar o trabalho correspondente. O desenho das fontes e as regras acima permanecem como propostas para revisão.
+As issues [#1](https://github.com/leeunam/korda/issues/1), [#2](https://github.com/leeunam/korda/issues/2), [#3](https://github.com/leeunam/korda/issues/3), [#4](https://github.com/leeunam/korda/issues/4) e [#5](https://github.com/leeunam/korda/issues/5) ajudam a localizar o trabalho correspondente. O contrato local descreve o desenvolvimento da descoberta; as regras de negócio permanecem no estado de referência declarado por Gabriel em cada empresa.
