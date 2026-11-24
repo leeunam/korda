@@ -73,7 +73,8 @@ class AmbienteSimulado:
     sim_id: str = field(default_factory=lambda: uuid.uuid4().hex[:8])
     fontes: Path | None = None
     raiz_runs: Path = RAIZ_REPO / "runs"
-    dias_iniciais: int | None = None  # padrão: todos menos o último ("chega o dia N+1")
+    dias_iniciais: int | None = None  # padrão: todos menos os `dias_para_replay` finais
+    dias_para_replay: int = 1  # quantos dias finais ficam para avancar() ("chega o dia N+1")
     mudanca: str | None = "ultimo"  # dia da mudança de esquema; None desliga
     falhas: dict | None = None
     limite_rps: int = 20
@@ -125,7 +126,7 @@ class AmbienteSimulado:
             self._subir_erp()
             self._subir_tms()
             dias = self.catalogo["dias"]
-            n = len(dias) - 1 if self.dias_iniciais is None else self.dias_iniciais
+            n = len(dias) - self.dias_para_replay if self.dias_iniciais is None else self.dias_iniciais
             if not 1 <= n <= len(dias):
                 raise ErroSimulado(f"dias_iniciais fora de 1..{len(dias)}: {n}")
             for dia in dias[:n]:
