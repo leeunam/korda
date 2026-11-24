@@ -122,10 +122,13 @@ class TestTmsApi(_Base):
 
 class TestFalhas(_Base):
     def test_sequencia_de_500_e_timeout(self):
-        self.subir(limite_rps=0, falhas={"sequencia": {"1": "500", "2": "timeout"}, "atraso_timeout_s": 2})
+        self.subir(limite_rps=0, falhas={"sequencia": {"1": "500", "2": "timeout", "3": "429"},
+                                         "atraso_timeout_s": 2})
         self.assertEqual(self.get("/api/v1/entregas")[0], 500)
         with self.assertRaises(OSError):  # o cliente desiste antes da resposta
             self.get("/api/v1/entregas", timeout=0.5)
+        codigo, _, cabecalhos = self.get("/api/v1/entregas")
+        self.assertEqual((codigo, cabecalhos.get("Retry-After")), (429, "1"))
         self.assertEqual(self.get("/api/v1/entregas")[0], 200)
 
     def test_limite_de_taxa(self):

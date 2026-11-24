@@ -51,7 +51,7 @@ O ambiente sobe com todos os dias **menos o último** (`dias_para_replay=1`; ou 
 | Incremental | `atualizado_desde` (ISO 8601 com fuso; exclusivo) |
 | Autenticação | 401 sem token ou com token errado |
 | Limite de taxa | 429 com `Retry-After: 1` acima de `limite_rps` (padrão 20/s) |
-| Falhas | `falhas={"sequencia": {"3": "500", "7": "timeout"}, "taxa_500": 0.1, "taxa_timeout": 0.05, "semente": 1, "atraso_timeout_s": 30}`; o sorteio é determinístico pela semente |
+| Falhas | `falhas={"sequencia": {"3": "500", "5": "429", "7": "timeout"}, "taxa_500": 0.1, "taxa_timeout": 0.05, "semente": 1, "atraso_timeout_s": 30}`; o sorteio é determinístico pela semente |
 | Parâmetro inválido | 400 com o formato esperado |
 
 ## Como usar
