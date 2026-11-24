@@ -39,7 +39,7 @@ O preparo ([`preparar.py`](korda_simulados/preparar.py)) atribui um dia a cada r
 | CT-e | data de `dhEmi` |
 | evento de cancelamento | data de `dhEvento` |
 
-O ambiente sobe com todos os dias **menos o último** (configurável). `avancar()` libera o dia seguinte no ERP (`COPY`), na pasta de CT-e e, por último, no TMS.
+O ambiente sobe com todos os dias **menos o último** (`dias_para_replay=1`; ou `dias_iniciais` explícito). `avancar()` libera o dia seguinte no ERP (`COPY`), na pasta de CT-e e, por último, no TMS.
 
 **Mudança de esquema:** regra genérica, sem nada específico de empresa. A partir do último dia, o campo da data realizada de `entregas` sai como `<nome>_v2` (por exemplo, `dt_baixa_v2` ou `DATA_ENTR_v2`) em todos os registros, como numa nova versão da API. O dia e o novo nome são configuráveis (`--mudanca`, `--renomear`), e a mudança pode ser desligada.
 
