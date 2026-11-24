@@ -12,7 +12,7 @@ Comportamentos de um sistema real, configuráveis por variável de ambiente:
 - KORDA_SIM_TOKEN         token aceito (obrigatório; sem ele o servidor não sobe)
 - KORDA_SIM_LIMITE_RPS    requisições por segundo antes de 429 + Retry-After (padrão 20; 0 desliga)
 - KORDA_SIM_TAMANHO_MAX   tamanho máximo de página (padrão 500)
-- KORDA_SIM_FALHAS        JSON: {"sequencia": {"3": "500", "7": "timeout"}, "taxa_500": 0.0,
+- KORDA_SIM_FALHAS        JSON: {"sequencia": {"3": "500", "5": "429", "7": "timeout"}, "taxa_500": 0.0,
                           "taxa_timeout": 0.0, "semente": 1, "atraso_timeout_s": 30}
   A sequência usa o número da requisição de dados (1, 2, ...), contando só as autenticadas.
 - Mudança de esquema: do dia `a_partir_de` em diante, a coluna do catálogo sai com o novo nome.
@@ -155,6 +155,9 @@ def criar_handler(servico: Servico):
             if excedeu:
                 return self._json(429, {"erro": "limite de requisições excedido"}, {"Retry-After": "1"})
             falha = servico.falha_para(numero)
+            if falha == "429":
+                return self._json(429, {"erro": "limite de requisições simulado", "requisicao": numero},
+                                  {"Retry-After": "1"})
             if falha == "500":
                 return self._json(500, {"erro": "falha interna simulada", "requisicao": numero})
             if falha == "timeout":
