@@ -30,6 +30,7 @@
       "objects": [
         {
           "name": "erp_clientes",
+          "locator": "erp_clientes",
           "key": [
             "cd_cli"
           ],
@@ -53,6 +54,7 @@
         },
         {
           "name": "erp_pedidos",
+          "locator": "erp_pedidos",
           "key": [
             "cd_ped"
           ],
@@ -103,6 +105,7 @@
       "objects": [
         {
           "name": "tms_veiculos",
+          "locator": "/veiculos",
           "key": [
             "id_veic"
           ],
@@ -121,6 +124,7 @@
         },
         {
           "name": "tms_viagens",
+          "locator": "/viagens",
           "key": [
             "id_viag"
           ],
@@ -133,6 +137,7 @@
         },
         {
           "name": "tms_entregas",
+          "locator": "/entregas",
           "key": [
             "id_ent"
           ],
@@ -184,6 +189,7 @@
       "objects": [
         {
           "name": "cte",
+          "locator": "**/*.xml",
           "key": [],
           "expected_volume": {
             "per_day_min": 56,
@@ -220,6 +226,7 @@
         },
         {
           "name": "cte_evento",
+          "locator": "**/*.xml",
           "key": [],
           "expected_volume": {
             "per_day_min": 0,

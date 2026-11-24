@@ -12,7 +12,7 @@ Segue a convenção do contrato de contexto (`packages/contracts/context/v0.1.0`
 | `method` | `snapshot_completo`, `incremental_campo` (exige `incremental_key`) ou `novos_arquivos` |
 | `frequency`, `acceptable_latency` | frequência da carga e latência aceitável (duração ISO 8601) |
 | `credentials_env` | **nomes** de variáveis de ambiente (`KORDA_*`). O valor nunca entra no plano, no Git ou no contexto de um LLM |
-| `objects[]` | tabela ou recurso: chave, volume esperado por dia (`evidencia`, `perfil_das_fontes` ou `suposicao`), colunas sensíveis (LGPD) e tratamento |
+| `objects[]` | tabela ou recurso: `locator` (tabela, recurso da API como `/entregas` ou padrão de arquivo), chave, volume esperado por dia (`evidencia`, `perfil_das_fontes` ou `suposicao`), colunas sensíveis (LGPD) e tratamento |
 | `resilience` | tentativas, espera entre elas, em que falhas tentar de novo e tempo limite por chamada |
 | `on_schema_change` | sempre `escalar`: mudança de esquema para a carga e pede decisão humana |
 | `evidence_ids`, `gap_ids` | de onde vem cada decisão; o que a entrevista não cobre vira **lacuna**, não suposição |
