@@ -83,5 +83,17 @@
       "tipo_diferenca": "p.p.",
       "passou": true
     }
-  ]
+  ],
+  "rateio_por_pedido": {
+    "criterio_incorreto": "volume",
+    "pedido_maior_diferenca": "100852",
+    "diferenca_relativa_max": 0.576103,
+    "tolerancia": 0.005,
+    "passou": true
+  },
+  "conservacao_rateio": {
+    "frete_cte_valido": 728882.98,
+    "frete_rateado": 728882.98,
+    "passou": true
+  }
 }

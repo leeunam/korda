@@ -1,0 +1,183 @@
+{
+  "schema_version": "0.1.0",
+  "project_id": "demo-01",
+  "context_id": "ctx-demo-01",
+  "revision": 2,
+  "synthetic": true,
+  "state": "pronto_para_planejamento",
+  "last_processed_turn_id": "turno-2",
+  "sources": [
+    {
+      "id": "entrevista-operacao",
+      "kind": "entrevista",
+      "origin": "fornecida",
+      "scope": "empresa",
+      "version": "1",
+      "locator": "entrevista-sintetica/operacao"
+    },
+    {
+      "id": "descricao-fontes",
+      "kind": "arquivo",
+      "origin": "fornecida",
+      "scope": "empresa",
+      "version": "pr18",
+      "locator": "data/synthetic/spec/dicionario.md"
+    },
+    {
+      "id": "entrevista-financeiro",
+      "kind": "entrevista",
+      "origin": "fornecida",
+      "scope": "empresa",
+      "version": "1",
+      "locator": "entrevista-sintetica/financeiro"
+    }
+  ],
+  "evidence": [
+    {
+      "id": "ev-operacao",
+      "source_id": "entrevista-operacao",
+      "locator": "turno-1",
+      "excerpt": "Ensaio sintético: o caminhão lota por peso. Para frete, usamos o vTPrest autorizado, deduplicamos por chave e excluímos o cancelado homologado. Contamos entregas com CT-e válido, inclusive incompletas; a divisão de um CT-e compartilhado precisa ser confirmada pelo financeiro. Não excluímos tipos de viagem. OTIF compara a data realizada ao prazo prometido, de forma inclusiva, e volumes entregues >= pedidos; sem data conta como falha. O prazo considera sábado. Ocupação usa kg e todas as viagens."
+    },
+    {
+      "id": "ev-fontes",
+      "source_id": "descricao-fontes",
+      "locator": "secoes ERP, TMS e Relacoes",
+      "excerpt": "Especificação sintética: uma entrega por pedido; qt_itens e qt_entregue contam volumes. TMS.nr_ped liga ao ERP.cd_ped; ERP.ch_nfe liga ao CT-e.infNFe/chave. Datas sem offset em America/Sao_Paulo."
+    },
+    {
+      "id": "ev-financeiro",
+      "source_id": "entrevista-financeiro",
+      "locator": "turno-2",
+      "excerpt": "Ensaio sintético: confirmo que dividimos o vTPrest de cada CT-e válido pelo peso bruto de cada pedido. O campo é ps_bruto no ERP. O financeiro confirma esta regra do caso fictício."
+    }
+  ],
+  "source_profile": {
+    "grain": "uma_entrega_por_pedido",
+    "quantity_unit": "volumes",
+    "timezone": "America/Sao_Paulo",
+    "freight_link": "TMS.nr_ped = ERP.cd_ped; ERP.ch_nfe = CT-e.infNFe/chave",
+    "evidence_ids": [
+      "ev-fontes"
+    ]
+  },
+  "rules": {
+    "deduplicar_cte": {
+      "status": "confirmada",
+      "value": true,
+      "evidence_ids": [
+        "ev-operacao"
+      ],
+      "confirmed_by": {
+        "name": "Responsável fictício da operação",
+        "role": "operacao"
+      }
+    },
+    "excluir_cancelados": {
+      "status": "confirmada",
+      "value": true,
+      "evidence_ids": [
+        "ev-operacao"
+      ],
+      "confirmed_by": {
+        "name": "Responsável fictício da operação",
+        "role": "operacao"
+      }
+    },
+    "rateio_cte": {
+      "status": "confirmada",
+      "value": "peso",
+      "evidence_ids": [
+        "ev-operacao",
+        "ev-financeiro"
+      ],
+      "confirmed_by": {
+        "name": "Responsável fictício do financeiro",
+        "role": "financeiro"
+      }
+    },
+    "sem_data_realizada": {
+      "status": "confirmada",
+      "value": "falha",
+      "evidence_ids": [
+        "ev-operacao"
+      ],
+      "confirmed_by": {
+        "name": "Responsável fictício da operação",
+        "role": "operacao"
+      }
+    },
+    "ocupacao_unidade": {
+      "status": "confirmada",
+      "value": "kg",
+      "evidence_ids": [
+        "ev-operacao"
+      ],
+      "confirmed_by": {
+        "name": "Responsável fictício da operação",
+        "role": "operacao"
+      }
+    },
+    "prazo_conta_sabado": {
+      "status": "confirmada",
+      "value": true,
+      "evidence_ids": [
+        "ev-operacao"
+      ],
+      "confirmed_by": {
+        "name": "Responsável fictício da operação",
+        "role": "operacao"
+      }
+    },
+    "excluir_tipos_viagem": {
+      "status": "confirmada",
+      "value": [],
+      "evidence_ids": [
+        "ev-operacao"
+      ],
+      "confirmed_by": {
+        "name": "Responsável fictício da operação",
+        "role": "operacao"
+      }
+    },
+    "no_prazo": {
+      "status": "confirmada",
+      "value": "data(dt_realizada) <= data prevista",
+      "evidence_ids": [
+        "ev-operacao"
+      ],
+      "confirmed_by": {
+        "name": "Responsável fictício da operação",
+        "role": "operacao"
+      }
+    },
+    "completo": {
+      "status": "confirmada",
+      "value": "qt_entregue >= qt_itens",
+      "evidence_ids": [
+        "ev-operacao"
+      ],
+      "confirmed_by": {
+        "name": "Responsável fictício da operação",
+        "role": "operacao"
+      }
+    }
+  },
+  "gaps": [
+    {
+      "id": "gap-rateio",
+      "rule_key": "rateio_cte",
+      "state": "respondida",
+      "blocking": true,
+      "affected_metrics": [
+        "custo_frete_por_entrega"
+      ],
+      "question": "Como o financeiro divide o vTPrest de um CT-e que cobre vários pedidos?",
+      "responsible_role": "financeiro",
+      "evidence_ids": [
+        "ev-operacao",
+        "ev-financeiro"
+      ]
+    }
+  ]
+}

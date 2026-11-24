@@ -24,6 +24,8 @@ Fixo, fora do sorteio e definido em `caso_explicavel` da [01](../empresas/01_dem
 
 O gabarito confere esses valores em `evaluation/golden/tests/test_golden.py`.
 
+Taxas aleatórias de duplicata e cancelamento em `0–0%` geram zero ocorrências aleatórias. O caso explicável, quando ativo, preserva suas ocorrências fixas independentemente dessas taxas.
+
 ## Caso mínimo de referência (4 CT-e)
 
 O exemplo de 4 linhas do contexto do Gabriel (CT-e A1 duplicado, B2, C3 cancelado e rateio por peso; R$ 237,50 ingênuo contra R$ 166,67) cobre A1, A2 e A4. Ele já é uma **fixture independente**, montada à mão em `evaluation/golden/tests/test_golden.py` ([K11](https://github.com/leeunam/korda/issues/11)), e não nasce do gerador. O valor R$ 166,67 vale **só** se K02 aprovar deduplicar, excluir o cancelado e seus pedidos, ratear por peso e usar entregas válidas no denominador.

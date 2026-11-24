@@ -11,6 +11,7 @@
 | [`empresas/<id>/empresa.yaml`](empresas/01_demo/empresa.yaml) | Uma por empresa (01_demo, 02_variacao, 03_reservada): fatos, faixas de anomalia, formato e nomes de coluna, `regras_referencia` e tolerâncias. Cada parâmetro tem `origem`. Também servirá à persona da entrevista simulada (P1/K04). |
 | `empresas/<id>/area_atendimento.csv` | Sede e municípios atendidos, com peso de demanda. |
 | [`generator/`](generator/generate.py) | Gerador determinístico (`generate.py`), XML de CT-e (`cte_xml.py`), validação XSD (`validate_xsd.py`) e testes. |
+| [`discovery/`](discovery/README.md) | Formulário, páginas fictícias de pesquisa e roteiro da 01 para o ensaio da descoberta; personas e aceite ficam separados das entradas dos agentes. |
 | `output/<id>/` | Fontes geradas (**ignoradas pelo Git**): `erp/`, `tms/`, `cte/` e `_gerador/` (contagens e registro de anomalias, que o gabarito não lê). |
 | [`spec/dicionario.md`](spec/dicionario.md) | Esquemas "sujos" de ERP, TMS e CT-e e suas relações. |
 | [`spec/anomalias.md`](spec/anomalias.md) | Problemas plantados, KPI afetado e o teste que deve nascer de cada um. |
@@ -50,9 +51,9 @@ O script faz três etapas:
 
 1. **Obter:** baixa as fontes de `sources.json` para `data/external/<id>/`.
 2. **Registrar:** grava `calibration/manifest.json` com URL, licença, data de obtenção, tamanho, sha256 e status de cada fonte. Também confere se as cópias em `reference/` batem com o checksum registrado.
-3. **Agregar:** grava `calibration/calibration.yaml`.
+3. **Agregar:** substitui `calibration/calibration.yaml` de forma atômica depois de conferir todas as fontes e calcular o agregado.
 
-A data de obtenção só muda quando o arquivo muda. Checksum divergente vira status `divergente` e precisa de revisão humana. O script termina com código 1 enquanto houver fonte pendente ou divergente. Para uma fonte manual, coloque o arquivo em `data/external/<id>/` e rode com `--offline`.
+A data de obtenção só muda quando o arquivo muda. Checksum divergente vira status `divergente` e precisa de revisão humana. O script termina com código 1 enquanto houver fonte pendente ou divergente, registra o problema no manifesto e preserva a última calibração válida. Falha de agregação também preserva o arquivo anterior. Para uma fonte manual, coloque o arquivo em `data/external/<id>/` e rode com `--offline`.
 
 ## Fontes e licenças
 
