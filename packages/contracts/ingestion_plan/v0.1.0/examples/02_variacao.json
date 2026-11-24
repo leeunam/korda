@@ -1,0 +1,332 @@
+{
+  "schema_version": "ingestion_plan/0.1.0",
+  "synthetic": true,
+  "project_id": "demo-02",
+  "company_id": "02_variacao",
+  "state": "rascunho",
+  "context_ref": null,
+  "landing": {
+    "format": "korda.landing/v0"
+  },
+  "sources": [
+    {
+      "id": "erp",
+      "system": "erp",
+      "kind": "postgres",
+      "method": "snapshot_completo",
+      "frequency": "diaria",
+      "incremental_key": null,
+      "acceptable_latency": "PT24H",
+      "credentials_env": [
+        "KORDA_ERP_HOST",
+        "KORDA_ERP_PORTA",
+        "KORDA_ERP_BANCO",
+        "KORDA_ERP_USUARIO",
+        "KORDA_ERP_SENHA"
+      ],
+      "objects": [
+        {
+          "name": "erp_clientes",
+          "locator": "erp_clientes",
+          "key": [
+            "COD_CLIENTE"
+          ],
+          "expected_volume": {
+            "per_day_min": 0,
+            "per_day_max": 21,
+            "basis": "perfil_das_fontes"
+          },
+          "sensitive_columns": [
+            {
+              "column": "NOME_CLI",
+              "category": "nome",
+              "treatment": "mascarar_na_prata"
+            },
+            {
+              "column": "CNPJ_CLI",
+              "category": "cnpj",
+              "treatment": "mascarar_na_prata"
+            }
+          ]
+        },
+        {
+          "name": "erp_pedidos",
+          "locator": "erp_pedidos",
+          "key": [
+            "NUM_PEDIDO"
+          ],
+          "expected_volume": {
+            "per_day_min": 9,
+            "per_day_max": 69,
+            "basis": "perfil_das_fontes"
+          },
+          "sensitive_columns": []
+        }
+      ],
+      "resilience": {
+        "max_retries": 3,
+        "backoff_seconds": [
+          1,
+          2,
+          4
+        ],
+        "retry_on": [
+          "conexao",
+          "timeout"
+        ],
+        "timeout_seconds": 30
+      },
+      "on_schema_change": "escalar",
+      "evidence_ids": [],
+      "gap_ids": [
+        "lac-erp-atualizacao"
+      ]
+    },
+    {
+      "id": "tms",
+      "system": "tms",
+      "kind": "api_http",
+      "method": "incremental_campo",
+      "frequency": "diaria",
+      "incremental_key": {
+        "field": "atualizado_em",
+        "comparison": "maior_que"
+      },
+      "acceptable_latency": "PT24H",
+      "credentials_env": [
+        "KORDA_TMS_URL",
+        "KORDA_TMS_TOKEN"
+      ],
+      "objects": [
+        {
+          "name": "tms_veiculos",
+          "locator": "/veiculos",
+          "key": [
+            "COD_VEIC"
+          ],
+          "expected_volume": {
+            "per_day_min": 0,
+            "per_day_max": 5,
+            "basis": "perfil_das_fontes"
+          },
+          "sensitive_columns": [
+            {
+              "column": "PLACA_VEIC",
+              "category": "placa",
+              "treatment": "manter_justificado"
+            }
+          ]
+        },
+        {
+          "name": "tms_viagens",
+          "locator": "/viagens",
+          "key": [
+            "NUM_ROMANEIO"
+          ],
+          "expected_volume": {
+            "per_day_min": 2,
+            "per_day_max": 5,
+            "basis": "perfil_das_fontes"
+          },
+          "sensitive_columns": []
+        },
+        {
+          "name": "tms_entregas",
+          "locator": "/entregas",
+          "key": [
+            "SEQ_ENTREGA"
+          ],
+          "expected_volume": {
+            "per_day_min": 24,
+            "per_day_max": 66,
+            "basis": "perfil_das_fontes"
+          },
+          "sensitive_columns": []
+        }
+      ],
+      "resilience": {
+        "max_retries": 5,
+        "backoff_seconds": [
+          1,
+          2,
+          4,
+          8,
+          16
+        ],
+        "retry_on": [
+          "429",
+          "500",
+          "502",
+          "503",
+          "504",
+          "timeout",
+          "conexao"
+        ],
+        "timeout_seconds": 10
+      },
+      "on_schema_change": "escalar",
+      "evidence_ids": [],
+      "gap_ids": [
+        "lac-tms-frequencia",
+        "lac-tms-viagens-trf"
+      ]
+    },
+    {
+      "id": "cte",
+      "system": "cte",
+      "kind": "pasta_entrega",
+      "method": "novos_arquivos",
+      "frequency": "diaria",
+      "incremental_key": null,
+      "acceptable_latency": "PT24H",
+      "credentials_env": [],
+      "objects": [
+        {
+          "name": "cte",
+          "locator": "**/*.xml",
+          "key": [],
+          "expected_volume": {
+            "per_day_min": 19,
+            "per_day_max": 67,
+            "basis": "perfil_das_fontes"
+          },
+          "sensitive_columns": [
+            {
+              "column": "rem_CNPJ",
+              "category": "cnpj",
+              "treatment": "mascarar_na_prata"
+            },
+            {
+              "column": "rem_xNome",
+              "category": "nome",
+              "treatment": "mascarar_na_prata"
+            },
+            {
+              "column": "dest_CNPJ",
+              "category": "cnpj",
+              "treatment": "mascarar_na_prata"
+            },
+            {
+              "column": "dest_CPF",
+              "category": "cpf",
+              "treatment": "mascarar_na_prata"
+            },
+            {
+              "column": "dest_xNome",
+              "category": "nome",
+              "treatment": "mascarar_na_prata"
+            }
+          ]
+        },
+        {
+          "name": "cte_evento",
+          "locator": "**/*.xml",
+          "key": [],
+          "expected_volume": {
+            "per_day_min": 0,
+            "per_day_max": 67,
+            "basis": "perfil_das_fontes"
+          },
+          "sensitive_columns": []
+        }
+      ],
+      "resilience": {
+        "max_retries": 0,
+        "backoff_seconds": [],
+        "retry_on": [],
+        "timeout_seconds": 60
+      },
+      "on_schema_change": "escalar",
+      "evidence_ids": [],
+      "gap_ids": [
+        "lac-cte-entrega"
+      ]
+    }
+  ],
+  "gaps": [
+    {
+      "id": "lac-erp-atualizacao",
+      "source_id": "erp",
+      "question": "O ERP tem coluna de data de atualização ou log de alterações nos pedidos? Sem isso, a ingestão faz snapshot completo diário.",
+      "blocking": false,
+      "state": "aberta",
+      "responsible_role": "dados"
+    },
+    {
+      "id": "lac-tms-frequencia",
+      "source_id": "tms",
+      "question": "Com que atraso o indicador pode refletir a operação (latência aceitável) e em que horário o TMS fecha o dia?",
+      "blocking": false,
+      "state": "aberta",
+      "responsible_role": "operacao"
+    },
+    {
+      "id": "lac-cte-entrega",
+      "source_id": "cte",
+      "question": "Os XML de CT-e chegam todos os dias na pasta de entrega? Eventos de cancelamento chegam na mesma pasta?",
+      "blocking": false,
+      "state": "aberta",
+      "responsible_role": "financeiro"
+    },
+    {
+      "id": "lac-tms-viagens-trf",
+      "source_id": "tms",
+      "question": "O TMS tem viagens de transferência (TRF) que não apareceram na entrevista. A ingestão as traz como estão; elas entram nos indicadores?",
+      "blocking": false,
+      "state": "aberta",
+      "responsible_role": "operacao"
+    }
+  ],
+  "acceptance_tests": [
+    {
+      "id": "at-completude",
+      "kind": "completude",
+      "source_ids": [
+        "erp",
+        "tms",
+        "cte"
+      ],
+      "criterion": "Contagens por objeto na landing iguais às servidas pelo sistema no dia corrente; CT-e por arquivo, inclusive duplicatas e eventos."
+    },
+    {
+      "id": "at-idempotencia",
+      "kind": "idempotencia",
+      "source_ids": [
+        "erp",
+        "tms",
+        "cte"
+      ],
+      "criterion": "Rodar de novo sem dado novo não altera nenhuma tabela da landing."
+    },
+    {
+      "id": "at-incremental",
+      "kind": "incremental",
+      "source_ids": [
+        "tms",
+        "cte"
+      ],
+      "criterion": "Depois que chega o dia N+1, a nova carga traz só os registros e arquivos do dia novo."
+    },
+    {
+      "id": "at-resiliencia",
+      "kind": "resiliencia",
+      "source_ids": [
+        "erp",
+        "tms"
+      ],
+      "criterion": "Falhas 429, 500 e tempo esgotado são superadas com novas tentativas dentro do limite; esgotado o limite, a execução falha sem gravar carga parcial."
+    },
+    {
+      "id": "at-mudanca-esquema",
+      "kind": "mudanca_esquema",
+      "source_ids": [
+        "erp",
+        "tms"
+      ],
+      "criterion": "Coluna renomeada, nova ou ausente interrompe a carga e gera escalonamento ao humano; nada é gravado nem corrigido em silêncio."
+    }
+  ],
+  "limits": {
+    "max_correction_attempts": 3
+  }
+}
