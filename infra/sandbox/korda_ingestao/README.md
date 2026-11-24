@@ -2,6 +2,8 @@
 
 **Estado (23/11/2026):** rascunho para [K09](https://github.com/leeunam/korda/issues/9) e [K08](https://github.com/leeunam/korda/issues/8). Trabalha só com **dados sintéticos**, numa **exportação de arquivos simulada**: não é conector real nem execução ao vivo. A ingestão por sistemas simulados (nível 1) ainda não existe.
 
+A ingestão de nível 1 (sistemas simulados, ver [`services/execution/referencia/`](../../../services/execution/referencia/README.md)) grava a **mesma** landing, com cargas incrementais e o mesmo parser de CT-e.
+
 Transforma `data/synthetic/output/<empresa>/{erp,tms,cte}` numa landing zone em Parquet, que a sandbox monta como `/work/fontes`. O objetivo é que o DuckDB e o dbt leiam também os CT-e em XML.
 
 ## A ingestão não limpa
