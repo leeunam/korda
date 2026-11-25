@@ -21,9 +21,13 @@ A UI deve distinguir execução concluída, aguardando aprovação e entrega pro
 
 ## Base técnica proposta
 
-Python, DuckDB e dbt são a base para processamento local e modelos. O harness do agente, o armazenamento de eventos e o framework da interface precisam ser fechados pela equipe. Tavus é uma opção de entrevista, com alternativa de texto; Convex é uma opção para eventos. Nenhuma dessas integrações está pronta nesta estrutura.
+Python, DuckDB e dbt são a base para processamento local e modelos. O [plano técnico da descoberta](plano-arquitetura-agentes-descoberta.md), atualizado em 24/11/2026, propõe FastAPI, PostgreSQL e Procrastinate para o backend de Marcus, com pesquisa, entrevista, perfilamento e contexto versionado. LiveKit e Tavus são candidatos para a entrevista ao vivo, com retomada por texto. Essas integrações ainda serão implementadas e testadas.
+
+O frontend está em desenvolvimento por outro integrante. Sua conexão ao backend ocorrerá depois, com contratos OpenAPI, exemplos de respostas e alinhamento da autenticação. A stack e a hospedagem da interface pertencem àquela frente.
 
 A sandbox da demo pode começar com um worker controlado e um diretório por execução. Isso **não equivale a isolamento de produção**. Antes de executar código gerado, impor limites de tempo/memória, operações permitidas, diretórios montados e acesso de rede. Credenciais e respostas esperadas não entram no contexto do executor.
+
+Estado em 23/11/2026, rascunho da K08: existe uma sandbox local em Docker (sem rede, sem root, montagens somente leitura exceto `models/` e saída, limites de recursos e de tempo) e as ferramentas restritas do executor. Detalhes e limites em [`services/execution/README.md`](../services/execution/README.md). Harness com LLM e sandbox em nuvem ainda não existem.
 
 ## Contratos antes de implementação paralela
 

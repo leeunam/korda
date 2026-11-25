@@ -1,6 +1,6 @@
 # Contratos compartilhados
 
-Definir aqui os formatos e exemplos antes de integrar as frentes. Ainda não existem schemas implementados.
+Definir aqui os formatos e exemplos antes de integrar as frentes. O [contexto logístico sintético v0.1.0](context/v0.1.0/README.md) possui JSON Schema, validador e exemplos de rateio pendente/confirmado para o desenvolvimento local de P1/P2. Os demais contratos e o aceite conjunto das quatro frentes continuam pendentes.
 
 | Contrato | Conteúdo necessário |
 | --- | --- |
@@ -15,3 +15,5 @@ Revisar conjuntamente enumerações, obrigatoriedade, erros e compatibilidade. A
 ## Rascunhos
 
 - [events.schema.json](events.schema.json): evento de execução usado pela UI do grafo (K12). Acrescenta `write_blocked`, `approval_granted` e o campo opcional `data`. **Rascunho** até K01 fechar o contrato; o worker deve emitir este formato.
+
+Proposta em andamento: [seção de ingestão do plano v0.1.0](ingestion_plan/v0.1.0/README.md), com schema, validador e exemplos sintéticos. Ainda sem revisão conjunta das frentes.

@@ -1,0 +1,7 @@
+korda:
+  target: sandbox
+  outputs:
+    sandbox:
+      type: duckdb
+      path: /work/saida/korda.duckdb
+      threads: 1
