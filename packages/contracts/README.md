@@ -1,6 +1,6 @@
 # Contratos compartilhados
 
-Definir aqui os formatos e exemplos antes de integrar as frentes. Ainda não existem schemas implementados.
+Definir aqui os formatos e exemplos antes de integrar as frentes. O [contexto logístico sintético v0.1.0](context/v0.1.0/README.md) possui JSON Schema, validador e exemplos de rateio pendente/confirmado para o desenvolvimento local de P1/P2. Os demais contratos e o aceite conjunto das quatro frentes continuam pendentes.
 
 | Contrato | Conteúdo necessário |
 | --- | --- |

@@ -1,0 +1,555 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Korda — contexto logístico sintético v0.1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "project_id",
+    "context_id",
+    "revision",
+    "synthetic",
+    "state",
+    "last_processed_turn_id",
+    "sources",
+    "evidence",
+    "source_profile",
+    "rules",
+    "gaps"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "0.1.0"
+    },
+    "project_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "context_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "synthetic": {
+      "const": true
+    },
+    "state": {
+      "enum": [
+        "rascunho",
+        "pronto_para_planejamento"
+      ]
+    },
+    "last_processed_turn_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sources": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "kind",
+          "origin",
+          "scope",
+          "version",
+          "locator"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "kind": {
+            "enum": [
+              "formulario",
+              "pesquisa",
+              "entrevista",
+              "arquivo"
+            ]
+          },
+          "origin": {
+            "enum": [
+              "fornecida",
+              "descoberta"
+            ]
+          },
+          "scope": {
+            "enum": [
+              "empresa",
+              "setor"
+            ]
+          },
+          "version": {
+            "type": "string",
+            "minLength": 1
+          },
+          "locator": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "source_id",
+          "locator",
+          "excerpt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "locator": {
+            "type": "string",
+            "minLength": 1
+          },
+          "excerpt": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "source_profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "grain",
+        "quantity_unit",
+        "timezone",
+        "freight_link",
+        "evidence_ids"
+      ],
+      "properties": {
+        "grain": {
+          "const": "uma_entrega_por_pedido"
+        },
+        "quantity_unit": {
+          "const": "volumes"
+        },
+        "timezone": {
+          "const": "America/Sao_Paulo"
+        },
+        "freight_link": {
+          "const": "TMS.nr_ped = ERP.cd_ped; ERP.ch_nfe = CT-e.infNFe/chave"
+        },
+        "evidence_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true,
+          "minItems": 1
+        }
+      }
+    },
+    "rules": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "deduplicar_cte",
+        "excluir_cancelados",
+        "rateio_cte",
+        "sem_data_realizada",
+        "ocupacao_unidade",
+        "prazo_conta_sabado",
+        "excluir_tipos_viagem",
+        "no_prazo",
+        "completo"
+      ],
+      "properties": {
+        "deduplicar_cte": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/rule"
+            },
+            {
+              "properties": {
+                "value": {
+                  "anyOf": [
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "excluir_cancelados": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/rule"
+            },
+            {
+              "properties": {
+                "value": {
+                  "anyOf": [
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "rateio_cte": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/rule"
+            },
+            {
+              "properties": {
+                "value": {
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "peso",
+                        "volume",
+                        "valor"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "sem_data_realizada": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/rule"
+            },
+            {
+              "properties": {
+                "value": {
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "falha",
+                        "excluir"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "ocupacao_unidade": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/rule"
+            },
+            {
+              "properties": {
+                "value": {
+                  "anyOf": [
+                    {
+                      "enum": [
+                        "kg",
+                        "m3"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "prazo_conta_sabado": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/rule"
+            },
+            {
+              "properties": {
+                "value": {
+                  "anyOf": [
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "excluir_tipos_viagem": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/rule"
+            },
+            {
+              "properties": {
+                "value": {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "uniqueItems": true
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "no_prazo": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/rule"
+            },
+            {
+              "properties": {
+                "value": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "completo": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/rule"
+            },
+            {
+              "properties": {
+                "value": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "gaps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "rule_key",
+          "state",
+          "blocking",
+          "affected_metrics",
+          "question",
+          "responsible_role",
+          "evidence_ids"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "rule_key": {
+            "enum": [
+              "deduplicar_cte",
+              "excluir_cancelados",
+              "rateio_cte",
+              "sem_data_realizada",
+              "ocupacao_unidade",
+              "prazo_conta_sabado",
+              "excluir_tipos_viagem",
+              "no_prazo",
+              "completo"
+            ]
+          },
+          "state": {
+            "enum": [
+              "aberta",
+              "a_confirmar",
+              "respondida",
+              "em_conflito"
+            ]
+          },
+          "blocking": {
+            "type": "boolean"
+          },
+          "affected_metrics": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "custo_frete_por_entrega",
+                "otif_pct",
+                "ocupacao_pct"
+              ]
+            }
+          },
+          "question": {
+            "type": "string",
+            "minLength": 1
+          },
+          "responsible_role": {
+            "type": "string",
+            "minLength": 1
+          },
+          "evidence_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "uniqueItems": true
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "value",
+        "evidence_ids",
+        "confirmed_by"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "a_confirmar",
+            "confirmada",
+            "em_conflito"
+          ]
+        },
+        "value": {},
+        "evidence_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "confirmed_by": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "name",
+                "role"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "role": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "confirmada"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "not": {
+                  "type": "null"
+                }
+              },
+              "evidence_ids": {
+                "minItems": 1
+              },
+              "confirmed_by": {
+                "type": "object"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "value": {
+                "type": "null"
+              },
+              "confirmed_by": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

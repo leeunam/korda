@@ -17,6 +17,12 @@ Gabarito dos três KPIs para as empresas sintéticas, calculado por código **se
 | OTIF | Pedidos no prazo **e** completos ÷ pedidos elegíveis. Entrega sem data: falha (01, 02) ou fora do denominador (03). Prazo: data do ERP (01, 02) ou emissão + dias úteis sem sábado (03). |
 | Ocupação | Σ carga ÷ Σ capacidade de todas as viagens, em kg (01, 02) ou m³ (03). Acima de 100% é sinalizado, não truncado. |
 
+O grão atual é uma entrega por pedido, inclusive a incompleta; múltiplas entregas do mesmo pedido são rejeitadas. A completude compara volumes totais, conforme o [dicionário](../../data/synthetic/spec/dicionario.md). As regras específicas de cada empresa permanecem as de Gabriel em `regras_referencia`.
+
+Valores de frete são calculados com `Decimal`. O rateio proporcional distribui centavos pelos maiores restos fracionários, com desempate pelo ID textual do pedido em ordem crescente. Assim, R$ 100,00 em três partes iguais resulta em R$ 33,34 / R$ 33,33 / R$ 33,33. A soma por CT-e conserva `vTPrest`; esta é uma convenção técnica de arredondamento da demo.
+
+Em `por_viagem.csv`, `n_entregas` continua sendo a contagem operacional usada para descrever a viagem. O custo usa `n_entregas_elegiveis_custo` e o mesmo recorte do agregado: tipos permitidos e cobertura por CT-e válido. Uma viagem excluída tem custo elegível zero e média vazia. Denominadores vazios produzem `null` no JSON (campo vazio no CSV). A ocupação continua incluindo todas as viagens do cenário.
+
 ## Saídas por empresa (`<id>/`)
 
 | Arquivo | Conteúdo |
@@ -29,7 +35,7 @@ Gabarito dos três KPIs para as empresas sintéticas, calculado por código **se
 
 ## Checagem de sensibilidade
 
-[`sensitivity.py`](sensitivity.py) recalcula cada KPI com uma correção desligada e falha se a diferença ficar abaixo da tolerância do `empresa.yaml` (custo 0,5% relativo; OTIF e ocupação 0,5 p.p.). As correções são deduplicar, excluir cancelados, ratear, completude, pontualidade, entrega sem data, datas mistas, tipos de viagem excluídos (02), unidade de ocupação (03) e sábado no prazo (03). Uma correção que não move o KPI indica uma anomalia fraca demais para testar o agente.
+[`sensitivity.py`](sensitivity.py) recalcula cada KPI com uma correção desligada e falha se a diferença ficar abaixo da tolerância do `empresa.yaml` (custo 0,5% relativo; OTIF e ocupação 0,5 p.p.). As correções são deduplicar, excluir cancelados, ratear, completude, pontualidade, entrega sem data, datas mistas, tipos de viagem excluídos (02), unidade de ocupação (03) e sábado no prazo (03). Também troca o critério proporcional do rateio, verifica a maior diferença relativa por pedido e confere conservação exata do frete válido. Isso detecta um rateio incorreto mesmo quando a média permanece igual. O CI compara todos os arquivos versionados depois de regenerar também a sensibilidade.
 
 ## Isolamento
 
