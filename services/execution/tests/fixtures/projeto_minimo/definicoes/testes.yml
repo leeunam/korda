@@ -1,0 +1,10 @@
+version: 2
+
+# Testes de aceite derivados do plano (proposta K02). O agente não pode alterá-los.
+models:
+  - name: prata_cte
+    columns:
+      - name: chave_cte
+        data_tests:
+          - unique
+          - not_null

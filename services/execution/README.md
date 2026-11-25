@@ -1,9 +1,74 @@
 # P3 · Execução
 
-Área reservada à construção e teste; implementação pendente.
-
-Recebe plano aprovado e fontes sintéticas. Produz modelos bronze/prata/ouro, indicadores, relatório de testes, documentação e linhagem. Proposta inicial: Python, DuckDB e dbt.
-
-Ferramentas previstas: ler plano, perfilar fonte, escrever modelos autorizados, executar dbt, consultar dados em modo leitura, solicitar aprovação e emitir eventos. São interfaces a implementar, não ferramentas disponíveis neste diretório.
+Recebe plano aprovado e fontes sintéticas. Produz modelos bronze/prata/ouro, indicadores, relatório de testes, documentação e linhagem. Base: Python, DuckDB e dbt.
 
 O executor não modifica fontes, testes ou gabaritos. Até três correções por etapa é o limite inicial proposto. Falha persistente, mudança de regra ou lacuna crítica devem interromper o trecho afetado. Somente a aprovação 2 permite promover a entrega para destino definido.
+
+## Estado (23/11/2026)
+
+**Rascunho para [K08](https://github.com/leeunam/korda/issues/8).** Existem a sandbox local em Docker e as ferramentas restritas, com testes. **Ainda não existem:** o agente (harness com LLM, K10), o ciclo de correção com limite, os modelos dos três indicadores (K09), as aprovações (K07) e a sandbox em nuvem. Os tipos de evento são provisórios até a [K01](https://github.com/leeunam/korda/issues/1).
+
+| Caminho | Conteúdo |
+| --- | --- |
+| [`../../infra/sandbox/`](../../infra/sandbox/Dockerfile) | Imagem da sandbox: dbt-core, dbt-duckdb e duckdb fixados, usuário sem root, `consulta.py` (SQL somente leitura). |
+| [`korda_execution/sandbox.py`](korda_execution/sandbox.py) | Interface `Sandbox` (`criar`, `enviar_arquivos`, `rodar_comando`, `destruir`) e `LocalDockerSandbox`. |
+| [`korda_execution/ferramentas.py`](korda_execution/ferramentas.py) | Ferramentas que o harness vai expor ao agente. |
+| [`korda_execution/caminhos.py`](korda_execution/caminhos.py) | Política de caminhos e lista branca do dbt. |
+| [`korda_execution/eventos.py`](korda_execution/eventos.py) | `emit_event` provisório (JSONL por execução). |
+| [`korda_execution/smoke.py`](korda_execution/smoke.py) | Teste de fumaça com as fontes do gerador. |
+| [`tests/`](tests/fixtures/README.md) | Testes unitários e de integração; fixture dbt com dados sintéticos. |
+
+O worker (processo Python no host) usa só a biblioteca padrão e o CLI do Docker. As dependências ficam na imagem.
+
+## Como rodar
+
+Requer Docker e Python 3.11+.
+
+```bash
+docker build -t korda-sandbox:dev infra/sandbox
+python3 -m unittest discover -s services/execution/tests -t services/execution
+
+# Com as fontes do gerador (ver data/synthetic/README.md):
+python3 data/synthetic/generator/generate.py --empresa 01_demo
+cd services/execution && python3 -m korda_execution.smoke --fontes ../../data/synthetic/output/01_demo
+```
+
+Sem Docker ou sem a imagem, os testes de integração são **pulados** (o resumo do unittest mostra `skipped`). Com `KORDA_EXIGIR_DOCKER=1`, isso vira falha, como no CI. A imagem pode ser trocada por `KORDA_SANDBOX_IMAGE`.
+
+## Como funciona
+
+Cada execução cria `runs/<run_id>/` (ignorado pelo Git) com uma cópia do projeto dbt e uma pasta `saida/`, e sobe um contêiner com:
+
+| Dentro do contêiner | Origem | Acesso |
+| --- | --- | --- |
+| `/work/fontes` | pasta de fontes informada; `_gerador/` coberta por um tmpfs vazio | somente leitura |
+| `/work/projeto` | cópia do projeto (`dbt_project.yml`, `profiles.yml`, `definicoes/`, `tests/`) | somente leitura |
+| `/work/projeto/models` | `runs/<run_id>/projeto/models` | escrita |
+| `/work/saida` | `runs/<run_id>/saida` (`korda.duckdb`, `target/`, `logs/`) | escrita |
+| `/tmp` | tmpfs de 256 MB, `noexec` | escrita |
+| resto do sistema | imagem | somente leitura (`--read-only`) |
+
+Opções do contêiner: `--network none`, `--cap-drop ALL`, `no-new-privileges`, usuário do host (o worker se recusa a rodar como root), 2 GB de memória sem swap, 1 CPU, 256 processos. Cada comando roda com `timeout -s KILL` dentro do contêiner.
+
+O projeto dbt precisa declarar `model-paths: ["models", "definicoes"]`. Fontes e testes de esquema ficam em `definicoes/` (protegida), e os modelos materializam como tabela, porque a consulta somente leitura não acessa arquivos.
+
+### Ferramentas do agente
+
+| Ferramenta | Permite | Recusa |
+| --- | --- | --- |
+| `escrever_modelo(caminho, conteudo)` | `models/**/*.sql` | YAML, Python, `..`, `.`, caminho absoluto, fora de `models/` |
+| `ler_arquivo(caminho)` | arquivos do projeto dbt | caminhos fora de `/work/projeto` |
+| `rodar_dbt(subcomando, selecao)` | `build`, `run`, `test`, `compile`, `ls`, `debug` | `deps`, `seed`, `run-operation`, opções na seleção |
+| `consultar_sql(sql)` | `SELECT` no `korda.duckdb` (até 200 linhas) | escrita, `COPY`, `read_csv`, `ATTACH`, mudar configuração |
+
+Há duas barreiras. A política em `caminhos.py` recusa cedo e explica o motivo ao agente. A barreira real são as montagens: escritas e leituras passam **por dentro do contêiner**, então o kernel recusa o que estiver fora de `models/` e `saida/`, mesmo via symlink. `rodar_comando` é interno do worker e não é exposto ao agente.
+
+## Limites conhecidos
+
+- **Não é isolamento de produção.** O contêiner compartilha o kernel do host. Para dados de clientes seriam necessários microVM (gVisor, Firecracker) ou sandbox gerenciada, além de revisão de segurança.
+- O worker precisa de acesso ao Docker (grupo `docker`, equivalente a root no host). O agente nunca recebe esse acesso nem o socket.
+- Código do agente roda dentro da sandbox: um modelo Python do dbt ou um hook SQL executa com as permissões do contêiner. Ele pode escrever em `models/` e `saida/`, mas não em fontes nem em testes.
+- `_gerador/` é ocultada por nome. Outra pasta de respostas dentro das fontes precisaria ser adicionada em `ocultar_nas_fontes`. Os gabaritos (`evaluation/`) não são montados.
+- A imagem não tem git nem rede: `dbt deps` não funciona, e `dbt debug` só com `--connection`.
+- As dependências transitivas da imagem não estão fixadas, só as três principais.
+- Os eventos vão para um JSONL local; o backend (P4) não está escolhido.
