@@ -191,20 +191,19 @@ body {
 }
 
 /*
- * Nós e arestas somem suavemente num retângulo arredondado no canto superior esquerdo do canvas,
- * onde fica a logo. A máscara fica no renderer (fora do viewport transformado), então não se move
- * com o zoom; os pontos do fundo e os controles não são afetados.
- * Camada 1: SVG com um retângulo desfocado, borda em x=151 e y=80, arredondado só no canto inferior
- * direito (rx 128, limitado pelo SVG a 95.5×60, metade da largura e da altura);
- * o desfoque (σ 10) dá ~40px de degradê, totalmente transparente até ~x 131 e ~y 60.
- * Camada 2: preto sólido. "exclude" subtrai a camada 1 da 2: o conteúdo some onde o retângulo está.
+ * Nós e arestas somem suavemente só atrás da logo (top-6 left-6, h-5 ≈ 69×20px, em x 24–93 e y 24–44).
+ * A máscara fica no renderer (fora do viewport transformado), então não se move com o zoom;
+ * os pontos do fundo e os controles não são afetados.
+ * Camada 1: SVG com um retângulo arredondado desfocado em volta da logo (até x 140 e y 84, rx 24), que passa bem das bordas de cima e da esquerda para o canto ficar totalmente coberto;
+ * o desfoque (σ 15) dá ~60px de degradê. Camada 2: preto sólido. "exclude" subtrai a camada 1 da 2:
+ * o conteúdo some só onde o retângulo está.
  */
 .logo-fade .react-flow__renderer {
-  --logo-fade: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='211' height='140'%3E%3Cfilter id='b' filterUnits='userSpaceOnUse' x='-100' y='-100' width='400' height='340'%3E%3CfeGaussianBlur stdDeviation='10'/%3E%3C/filter%3E%3Cpath d='M-40-40H151V20A95.5 60 0 0 1 55.5 80H-40Z' filter='url(%23b)'/%3E%3C/svg%3E"), linear-gradient(#000, #000);
+  --logo-fade: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='140'%3E%3Cfilter id='b' filterUnits='userSpaceOnUse' x='-100' y='-100' width='340' height='280'%3E%3CfeGaussianBlur stdDeviation='15'/%3E%3C/filter%3E%3Crect x='-60' y='-60' width='200' height='144' rx='24' filter='url(%23b)'/%3E%3C/svg%3E"), linear-gradient(#000, #000);
   -webkit-mask-image: var(--logo-fade);
   mask-image: var(--logo-fade);
-  -webkit-mask-size: 211px 140px, 100% 100%;
-  mask-size: 211px 140px, 100% 100%;
+  -webkit-mask-size: 200px 140px, 100% 100%;
+  mask-size: 200px 140px, 100% 100%;
   -webkit-mask-repeat: no-repeat;
   mask-repeat: no-repeat;
   -webkit-mask-position: 0 0;
