@@ -7,12 +7,15 @@ Para cada correção aplicável, recalcula os KPIs com ela DESLIGADA (comportame
 ingênuo explícito em compute_golden.compute) e compara com o gabarito correto.
 Falha (código 1) se |diferença| < tolerância do empresa.yaml. Uma correção que não
 muda o resultado indica que a anomalia plantada é fraca demais para testar o agente.
+O rateio também é comparado por pedido contra outro critério proporcional (mesmo total).
 Grava evaluation/golden/<empresa>/sensibilidade.json.
 """
 
 from __future__ import annotations
 
 import argparse
+from copy import deepcopy
+from decimal import Decimal
 import json
 import sys
 from pathlib import Path
@@ -55,10 +58,18 @@ def diferenca(kpi: str, correto: float, ingenuo: float, tol: dict) -> tuple[floa
     return abs(ingenuo - correto), limite, "p.p."
 
 
+def diferenca_rateio(correto: dict, ingenuo: dict) -> tuple[float, str]:
+    esperado = {r["pedido_id"]: r["custo_frete_rateado"] for r in correto["por_pedido"]}
+    obtido = {r["pedido_id"]: r["custo_frete_rateado"] for r in ingenuo["por_pedido"]}
+    diferencas = [(abs(obtido[pid] - valor) / max(abs(valor), 0.01), pid) for pid, valor in esperado.items()]
+    return max(diferencas, key=lambda par: par[0])
+
+
 def check(empresa: str, fontes_dir: Path = cg.FONTES) -> tuple[bool, dict]:
     cfg = cg.load_cfg(empresa)
     fontes = cg.load_fontes(cfg, fontes_dir / empresa)
-    correto = cg.compute(cfg, fontes)["kpis"]
+    res_correto = cg.compute(cfg, fontes)
+    correto = res_correto["kpis"]
     resultados, ok = [], True
     for nome, (kpi, descricao) in CHECKS.items():
         if not aplicavel(nome, cfg):
@@ -71,7 +82,21 @@ def check(empresa: str, fontes_dir: Path = cg.FONTES) -> tuple[bool, dict]:
         resultados.append({"correcao": correcao, "kpi": kpi, "ingenuo": descricao, "correto": correto[kpi],
                            "sem_correcao": ingenuo[kpi], "diferenca": round(delta, 6), "tolerancia": limite,
                            "tipo_diferenca": tipo, "passou": passou})
-    return ok, {"empresa_id": empresa, "kpis_corretos": correto, "checagens": resultados}
+
+    cfg_errada = deepcopy(cfg)
+    criterio_errado = "volume" if cfg["regras_referencia"]["rateio_cte"] == "peso" else "peso"
+    cfg_errada["regras_referencia"]["rateio_cte"] = criterio_errado
+    delta, pedido = diferenca_rateio(res_correto, cg.compute(cfg_errada, fontes))
+    limite = cfg["tolerancias"]["custo_rel"]
+    rateio = {"criterio_incorreto": criterio_errado, "pedido_maior_diferenca": pedido,
+              "diferenca_relativa_max": round(delta, 6), "tolerancia": limite, "passou": delta >= limite}
+    unicos = {c["chave"]: c for c in fontes.ctes if c["autorizado"] and c["chave"] not in fontes.cancelados}
+    frete = sum((Decimal(str(c["vTPrest"])) for c in unicos.values()), Decimal("0.00"))
+    rateado = sum((Decimal(str(r["custo_frete_rateado"])) for r in res_correto["por_pedido"]), Decimal("0.00"))
+    conservacao = {"frete_cte_valido": float(frete), "frete_rateado": float(rateado), "passou": frete == rateado}
+    return ok and rateio["passou"] and conservacao["passou"], {
+        "empresa_id": empresa, "kpis_corretos": correto, "checagens": resultados,
+        "rateio_por_pedido": rateio, "conservacao_rateio": conservacao}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -93,6 +118,8 @@ def main(argv: list[str] | None = None) -> int:
             marca = "ok " if c["passou"] else "XX "
             print(f"  {marca}{c['correcao']:<22} {c['kpi']:<24} {c['correto']:>10.4f} -> {c['sem_correcao']:>10.4f}"
                   f"  Δ={c['diferenca']:.4f} ({c['tipo_diferenca']}, tol {c['tolerancia']})")
+        print(f"  rateio por pedido: {rel['rateio_por_pedido']}")
+        print(f"  conservação do frete: {rel['conservacao_rateio']}")
         falhou = falhou or not ok
     return 1 if falhou else 0
 

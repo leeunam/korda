@@ -13,7 +13,8 @@ Etapas:
   3. Agregar: grava calibration.yaml só com agregados (diesel por UF e distâncias da sede).
      Nenhuma linha bruta das fontes entra nos dados sintéticos.
 
-Sai com código 1 se alguma fonte estiver pendente ou divergente (as saídas são gravadas mesmo assim).
+Sai com código 1 se alguma fonte estiver pendente ou divergente. O manifesto registra a falha;
+a última calibration.yaml válida é preservada até uma agregação completa e verificada.
 Só biblioteca padrão; o YAML é escrito à mão em formato simples.
 """
 
@@ -27,6 +28,7 @@ import json
 import math
 import statistics
 import sys
+import tempfile
 import unicodedata
 import urllib.error
 import urllib.request
@@ -301,17 +303,29 @@ def main(argv: list[str] | None = None) -> int:
     MANIFEST.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(f"  gravado {MANIFEST.relative_to(ROOT)}")
 
-    print("3/3 Agregar")
-    OUTPUT.write_text(aggregate({e["id"]: e for e in entries}), encoding="utf-8")
-    print(f"  gravado {OUTPUT.relative_to(ROOT)}")
-
     pending = [e for e in entries if e["status"] != "ok"]
     if pending:
         print("\nPendências:")
         for e in pending:
             for p in e.get("pendencias", []):
                 print(f"- {e['id']}: {p}")
+        print("  calibration.yaml anterior preservada")
         return 1
+
+    print("3/3 Agregar")
+    try:
+        agregado = aggregate({e["id"]: e for e in entries})
+    except (ValueError, KeyError, OSError) as exc:
+        print(f"  agregação falhou: {exc}; calibration.yaml anterior preservada")
+        return 1
+    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=OUTPUT.parent, delete=False) as handle:
+        temporario = Path(handle.name)
+        handle.write(agregado)
+    try:
+        temporario.replace(OUTPUT)
+    finally:
+        temporario.unlink(missing_ok=True)
+    print(f"  gravado {OUTPUT.relative_to(ROOT)}")
     return 0
 
 

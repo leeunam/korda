@@ -1,0 +1,208 @@
+{
+  "schema_version": "0.1.0",
+  "project_id": "discovery-01",
+  "context_id": "ctx-discovery-01",
+  "revision": 1,
+  "synthetic": true,
+  "state": "rascunho",
+  "last_processed_turn_id": "operacao-rateio",
+  "sources": [
+    {
+      "id": "entrevista-rodada-1",
+      "kind": "entrevista",
+      "origin": "fornecida",
+      "scope": "empresa",
+      "version": "1",
+      "locator": "data/synthetic/discovery/01_demo/personas/roteiro.json#rodada-1"
+    },
+    {
+      "id": "site-fornecido",
+      "kind": "pesquisa",
+      "origin": "fornecida",
+      "scope": "empresa",
+      "version": "1",
+      "locator": "data/synthetic/discovery/01_demo/inputs/pesquisa/empresa.md"
+    },
+    {
+      "id": "referencia-setorial",
+      "kind": "pesquisa",
+      "origin": "descoberta",
+      "scope": "setor",
+      "version": "1",
+      "locator": "data/synthetic/discovery/01_demo/inputs/pesquisa/setor.md"
+    }
+  ],
+  "evidence": [
+    {
+      "id": "ev-operacao-objetivo",
+      "source_id": "entrevista-rodada-1",
+      "locator": "operacao-objetivo",
+      "excerpt": "Ensaio sintético: quero comparar quanto custa uma entrega, onde falhamos no atendimento e quanto da capacidade da frota usamos. Não tenho uma meta de economia comprovada."
+    },
+    {
+      "id": "ev-dados-processo",
+      "source_id": "entrevista-rodada-1",
+      "locator": "dados-processo",
+      "excerpt": "Ensaio sintético: o ERP guarda um pedido por linha; o TMS tem uma entrega por pedido, que pode estar incompleta. qt_itens e qt_entregue contam volumes. TMS.nr_ped liga ao ERP.cd_ped; ERP.ch_nfe liga ao CT-e.infNFe/chave. As datas estão sem offset, em America/Sao_Paulo. O ERP tem a data prometida em dt_prev_ent."
+    },
+    {
+      "id": "ev-operacao-frete",
+      "source_id": "entrevista-rodada-1",
+      "locator": "operacao-frete",
+      "excerpt": "Ensaio sintético: usamos o valor total vTPrest do CT-e autorizado, cStat 100. Contamos a chave uma vez e excluímos o cancelamento homologado, evento 110111 com retorno 135. Entrega incompleta entra se tem CT-e válido. Sem CT-e válido, fica fora apenas do custo. Não excluímos tipos de viagem."
+    },
+    {
+      "id": "ev-operacao-otif",
+      "source_id": "entrevista-rodada-1",
+      "locator": "operacao-otif",
+      "excerpt": "Ensaio sintético: comparamos a data realizada com a data prometida do ERP, incluindo o próprio dia do prazo. Completo exige qt_entregue >= qt_itens em volumes. Sem data realizada conta como falha. O prazo considera sábado. Aqui há uma entrega por pedido; não estamos somando reentregas."
+    },
+    {
+      "id": "ev-operacao-ocupacao",
+      "source_id": "entrevista-rodada-1",
+      "locator": "operacao-ocupacao",
+      "excerpt": "Ensaio sintético: o caminhão lota por peso. A ocupação usa kg na saída: soma dos pesos dos pedidos dividida pela soma das capacidades de todas as viagens. Mantemos valores acima de 100% para investigar. Não temos retorno vazio nem medição por trecho neste recorte."
+    },
+    {
+      "id": "ev-operacao-rateio",
+      "source_id": "entrevista-rodada-1",
+      "locator": "operacao-rateio",
+      "excerpt": "Ensaio sintético: não consigo confirmar como dividimos o valor de um CT-e compartilhado. Eu falei de ocupação; a regra do frete precisa ser confirmada pelo financeiro. Podemos retomar quando essa pessoa entrar."
+    },
+    {
+      "id": "ev-site",
+      "source_id": "site-fornecido",
+      "locator": "## Sistemas declarados",
+      "excerpt": "A empresa informa que utiliza ERP, TMS e documentos XML de CT-e."
+    },
+    {
+      "id": "ev-setor",
+      "source_id": "referencia-setorial",
+      "locator": "## Alternativas de medição",
+      "excerpt": "Para distribuir um frete compartilhado, peso, volume e valor da mercadoria são alternativas que precisam de confirmação da empresa."
+    }
+  ],
+  "source_profile": {
+    "grain": "uma_entrega_por_pedido",
+    "quantity_unit": "volumes",
+    "timezone": "America/Sao_Paulo",
+    "freight_link": "TMS.nr_ped = ERP.cd_ped; ERP.ch_nfe = CT-e.infNFe/chave",
+    "evidence_ids": [
+      "ev-dados-processo"
+    ]
+  },
+  "rules": {
+    "deduplicar_cte": {
+      "status": "confirmada",
+      "value": true,
+      "evidence_ids": [
+        "ev-operacao-frete"
+      ],
+      "confirmed_by": {
+        "name": "Pessoa fictícia da operação",
+        "role": "operacao"
+      }
+    },
+    "excluir_cancelados": {
+      "status": "confirmada",
+      "value": true,
+      "evidence_ids": [
+        "ev-operacao-frete"
+      ],
+      "confirmed_by": {
+        "name": "Pessoa fictícia da operação",
+        "role": "operacao"
+      }
+    },
+    "rateio_cte": {
+      "status": "a_confirmar",
+      "value": null,
+      "evidence_ids": [
+        "ev-operacao-rateio"
+      ],
+      "confirmed_by": null
+    },
+    "sem_data_realizada": {
+      "status": "confirmada",
+      "value": "falha",
+      "evidence_ids": [
+        "ev-operacao-otif"
+      ],
+      "confirmed_by": {
+        "name": "Pessoa fictícia da operação",
+        "role": "operacao"
+      }
+    },
+    "ocupacao_unidade": {
+      "status": "confirmada",
+      "value": "kg",
+      "evidence_ids": [
+        "ev-operacao-ocupacao"
+      ],
+      "confirmed_by": {
+        "name": "Pessoa fictícia da operação",
+        "role": "operacao"
+      }
+    },
+    "prazo_conta_sabado": {
+      "status": "confirmada",
+      "value": true,
+      "evidence_ids": [
+        "ev-operacao-otif"
+      ],
+      "confirmed_by": {
+        "name": "Pessoa fictícia da operação",
+        "role": "operacao"
+      }
+    },
+    "excluir_tipos_viagem": {
+      "status": "confirmada",
+      "value": [],
+      "evidence_ids": [
+        "ev-operacao-frete"
+      ],
+      "confirmed_by": {
+        "name": "Pessoa fictícia da operação",
+        "role": "operacao"
+      }
+    },
+    "no_prazo": {
+      "status": "confirmada",
+      "value": "data(dt_realizada) <= data prevista",
+      "evidence_ids": [
+        "ev-operacao-otif"
+      ],
+      "confirmed_by": {
+        "name": "Pessoa fictícia da operação",
+        "role": "operacao"
+      }
+    },
+    "completo": {
+      "status": "confirmada",
+      "value": "qt_entregue >= qt_itens",
+      "evidence_ids": [
+        "ev-operacao-otif"
+      ],
+      "confirmed_by": {
+        "name": "Pessoa fictícia da operação",
+        "role": "operacao"
+      }
+    }
+  },
+  "gaps": [
+    {
+      "id": "gap-rateio",
+      "rule_key": "rateio_cte",
+      "state": "a_confirmar",
+      "blocking": true,
+      "affected_metrics": [
+        "custo_frete_por_entrega"
+      ],
+      "question": "Como o financeiro divide o vTPrest de um CT-e que cobre vários pedidos?",
+      "responsible_role": "financeiro",
+      "evidence_ids": [
+        "ev-operacao-rateio"
+      ]
+    }
+  ]
+}
