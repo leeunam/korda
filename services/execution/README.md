@@ -1,74 +1,67 @@
-# P3 · Execução
+# Worker de execução da Korda
 
-Recebe plano aprovado e fontes sintéticas. Produz modelos bronze/prata/ouro, indicadores, relatório de testes, documentação e linhagem. Base: Python, DuckDB e dbt.
+O worker processa o **lote sintético 01_demo**. Lê a versão de plano aprovada pelo operador, constrói frete por entrega, OTIF e ocupação com DuckDB/dbt e entrega os resultados a um avaliador independente. Uma segunda decisão humana autoriza a cópia para uma pasta local. O [planejamento da integração](../../docs/plano-integracao-worker.md) situa essa entrega nas 17 issues do projeto.
 
-O executor não modifica fontes, testes ou gabaritos. Até três correções por etapa é o limite inicial proposto. Falha persistente, mudança de regra ou lacuna crítica devem interromper o trecho afetado. Somente a aprovação 2 permite promover a entrega para destino definido.
+## Preparar o lote e o plano
 
-## Estado (23/11/2026)
-
-**Rascunho para [K08](https://github.com/leeunam/korda/issues/8).** Existem a sandbox local em Docker e as ferramentas restritas, com testes. **Ainda não existem:** o agente (harness com LLM, K10), o ciclo de correção com limite, os modelos dos três indicadores (K09), as aprovações (K07) e a sandbox em nuvem. Os tipos de evento são provisórios até a [K01](https://github.com/leeunam/korda/issues/1).
-
-| Caminho | Conteúdo |
-| --- | --- |
-| [`../../infra/sandbox/`](../../infra/sandbox/Dockerfile) | Imagem da sandbox: dbt-core, dbt-duckdb e duckdb fixados, usuário sem root, `consulta.py` (SQL somente leitura). |
-| [`korda_execution/sandbox.py`](korda_execution/sandbox.py) | Interface `Sandbox` (`criar`, `enviar_arquivos`, `rodar_comando`, `destruir`) e `LocalDockerSandbox`. |
-| [`korda_execution/ferramentas.py`](korda_execution/ferramentas.py) | Ferramentas que o harness vai expor ao agente. |
-| [`korda_execution/caminhos.py`](korda_execution/caminhos.py) | Política de caminhos e lista branca do dbt. |
-| [`korda_execution/eventos.py`](korda_execution/eventos.py) | `emit_event` provisório (JSONL por execução). |
-| [`korda_execution/smoke.py`](korda_execution/smoke.py) | Teste de fumaça com as fontes do gerador. |
-| [`tests/`](tests/fixtures/README.md) | Testes unitários e de integração; fixture dbt com dados sintéticos. |
-
-O worker (processo Python no host) usa só a biblioteca padrão e o CLI do Docker. As dependências ficam na imagem.
-
-## Como rodar
-
-Requer Docker e Python 3.11+.
+Na raiz do repositório, use Python 3.11 ou superior, uma instalação local do Docker e um usuário sem root com permissão de usar o daemon. O host executa o operador e o gerador. A imagem contém as versões de dbt e DuckDB usadas pelo pipeline.
 
 ```bash
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install -r requirements-contracts.txt -r requirements-synthetic.txt
 docker build -t korda-sandbox:dev infra/sandbox
-python3 -m unittest discover -s services/execution/tests -t services/execution
-
-# Com as fontes do gerador (ver data/synthetic/README.md):
-python3 data/synthetic/generator/generate.py --empresa 01_demo
-cd services/execution && python3 -m korda_execution.smoke --fontes ../../data/synthetic/output/01_demo
+python data/synthetic/generator/generate.py --empresa 01_demo
+mkdir -p runs/preparo
+python -m services.planning.korda_planning \
+  packages/contracts/context/v0.1.0/examples/02_rateio_confirmado.json \
+  --destino revisao-logistica --custo-estimado-centavos 0 > runs/preparo/plano.json
+python -m services.execution.korda_execution registrar runs/preparo/plano.json
 ```
 
-Sem Docker ou sem a imagem, os testes de integração são **pulados** (o resumo do unittest mostra `skipped`). Com `KORDA_EXIGIR_DOCKER=1`, isso vira falha, como no CI. A imagem pode ser trocada por `KORDA_SANDBOX_IMAGE`.
+O valor zero exemplifica a estimativa do operador para um ensaio local sem chamada a provedor. O custo de infraestrutura depende do ambiente. Para demonstrar uma lacuna, use a revisão `01_rateio_pendente.json`. Nela, o custo fica bloqueado até a confirmação do financeiro. Uma alteração de regras, destino ou estimativa muda o identificador da versão. [Contrato do plano](../../packages/contracts/plan/v0.1.0/README.md)
 
-## Como funciona
+## Operar as duas aprovações
 
-Cada execução cria `runs/<run_id>/` (ignorado pelo Git) com uma cópia do projeto dbt e uma pasta `saida/`, e sobe um contêiner com:
+O comando `registrar` exibe projeto e versão. A pessoa responsável confere o plano e usa o identificador integral em `VERSAO`. Os comandos de decisão aceitam `aprovar` ou `rejeitar` e registram pessoa e instante UTC. A identificação é declarada pelo operador com acesso ao host. A integração da autenticação com a interface continua pendente.
 
-| Dentro do contêiner | Origem | Acesso |
-| --- | --- | --- |
-| `/work/fontes` | pasta de fontes informada; `_gerador/` coberta por um tmpfs vazio | somente leitura |
-| `/work/projeto` | cópia do projeto (`dbt_project.yml`, `profiles.yml`, `definicoes/`, `tests/`) | somente leitura |
-| `/work/projeto/models` | `runs/<run_id>/projeto/models` | escrita |
-| `/work/saida` | `runs/<run_id>/saida` (`korda.duckdb`, `target/`, `logs/`) | escrita |
-| `/tmp` | tmpfs de 256 MB, `noexec` | escrita |
-| resto do sistema | imagem | somente leitura (`--read-only`) |
+```bash
+python -m services.execution.korda_execution decidir-plano demo-01 "$VERSAO" aprovar --pessoa "$REVISOR"
+python -m services.execution.korda_execution executar runs/preparo/plano.json --run-id demo-001
+python -m services.execution.korda_execution consultar demo-001
+```
 
-Opções do contêiner: `--network none`, `--cap-drop ALL`, `no-new-privileges`, usuário do host (o worker se recusa a rodar como root), 2 GB de memória sem swap, 1 CPU, 256 processos. Cada comando roda com `timeout -s KILL` dentro do contêiner.
+O operador revisa o laudo e os resultados em `runs/worker/revisao/demo-001/`. Após conferir o destino e os três arquivos do manifesto, pode registrar a segunda decisão e promover a entrega.
 
-O projeto dbt precisa declarar `model-paths: ["models", "definicoes"]`. Fontes e testes de esquema ficam em `definicoes/` (protegida), e os modelos materializam como tabela, porque a consulta somente leitura não acessa arquivos.
+```bash
+python -m services.execution.korda_execution decidir-entrega demo-001 aprovar --pessoa "$REVISOR"
+python -m services.execution.korda_execution promover demo-001 revisao-logistica
+```
 
-### Ferramentas do agente
+Os três arquivos aparecem juntos em `runs/worker/entregas/revisao-logistica/demo-001/`. O identificador da execução é de uso único. O operador pode escolher uma raiz privada alternativa com a opção global `--raiz` antes do subcomando. O banco SQLite guarda o histórico inclusive após reinício. Uma versão substituída ou rejeitada invalida as autorizações pendentes.
 
-| Ferramenta | Permite | Recusa |
-| --- | --- | --- |
-| `escrever_modelo(caminho, conteudo)` | `models/**/*.sql` | YAML, Python, `..`, `.`, caminho absoluto, fora de `models/` |
-| `ler_arquivo(caminho)` | arquivos do projeto dbt | caminhos fora de `/work/projeto` |
-| `rodar_dbt(subcomando, selecao)` | `build`, `run`, `test`, `compile`, `ls`, `debug` | `deps`, `seed`, `run-operation`, opções na seleção |
-| `consultar_sql(sql)` | `SELECT` no `korda.duckdb` (até 200 linhas) | escrita, `COPY`, `read_csv`, `ATTACH`, mudar configuração |
+## Controles e diagnóstico
 
-Há duas barreiras. A política em `caminhos.py` recusa cedo e explica o motivo ao agente. A barreira real são as montagens: escritas e leituras passam **por dentro do contêiner**, então o kernel recusa o que estiver fora de `models/` e `saida/`, mesmo via symlink. `rodar_comando` é interno do worker e não é exposto ao agente.
+| Recurso | Comportamento na execução do plano |
+| --- | --- |
+| Fontes | O host prepara uma cópia limitada dos cinco CSVs conhecidos e dos XML de CT-e. A sandbox os recebe em leitura. Perfis de ERP, TMS e XML usam amostras limitadas. O host mantém o perfil em `fontes.json`. |
+| Projeto dbt | Configuração, testes, macros e modelos de referência são protegidos. O plano deste cenário autoriza a escrita somente em `models/prata_ctes.sql`. O diretório de trabalho para o DuckDB, logs e resultados tem escrita. |
+| Execução | Contêiner sem rede, com usuário sem root, filesystem raiz de leitura, CPU, memória, processos e duração de comandos limitados. Compartilha o kernel do host. O processo de controle tem acesso ao daemon local. |
+| Ferramentas | Leitura do plano projetado, perfilamento por identificador, escrita de SQL autorizado, comandos dbt em lista permitida, consultas em modo leitura e emissão de eventos. O provedor de LLM e uma sandbox em nuvem ficam fora desta versão da demo. |
+| Correção | Uma falha do teste protegido de unicidade dos CT-e permite restaurar o modelo de deduplicação revisado e repetir o build. O limite é de três correções por etapa. Falhas sem reparo aplicável pedem intervenção. Ações e custo informado ficam em `eventos.jsonl`. |
+| Avaliação | O contêiner para antes da captura. O host verifica tipo, tamanho e hash dos arquivos e compara fontes, regras, três KPIs, pedidos e viagens com a referência protegida. O laudo completo fica em `avaliacao.json`. |
+| Entrega | A aprovação da entrega vincula a execução, o destino e o manifesto. A promoção copia `kpis.json`, `por_pedido.csv` e `por_viagem.csv` para a pasta autorizada. Modelos e documentação técnica estão no repositório. A embalagem completa para o cliente e a interface são itens de integração da K13. |
 
-## Limites conhecidos
+A sandbox avulsa da fixture do Gabriel permite criar modelos dentro de `models/`. O comando de produto usa a lista exata do plano. A evidência de cálculo, as premissas fiscais da demo e o percurso de um resultado até a fonte estão no [pipeline logístico](pipeline/README.md). O [avaliador](../../evaluation/worker/README.md) documenta as tolerâncias e a comparação por entidade.
 
-- **Não é isolamento de produção.** O contêiner compartilha o kernel do host. Para dados de clientes seriam necessários microVM (gVisor, Firecracker) ou sandbox gerenciada, além de revisão de segurança.
-- O worker precisa de acesso ao Docker (grupo `docker`, equivalente a root no host). O agente nunca recebe esse acesso nem o socket.
-- Código do agente roda dentro da sandbox: um modelo Python do dbt ou um hook SQL executa com as permissões do contêiner. Ele pode escrever em `models/` e `saida/`, mas não em fontes nem em testes.
-- `_gerador/` é ocultada por nome. Outra pasta de respostas dentro das fontes precisaria ser adicionada em `ocultar_nas_fontes`. Os gabaritos (`evaluation/`) não são montados.
-- A imagem não tem git nem rede: `dbt deps` não funciona, e `dbt debug` só com `--connection`.
-- As dependências transitivas da imagem não estão fixadas, só as três principais.
-- Os eventos vão para um JSONL local; o backend (P4) não está escolhido.
+## Verificação
+
+```bash
+python scripts/check_repo.py
+python -m unittest discover -s services/planning/tests
+python -m unittest discover -s services/execution/pipeline/tests
+python -m unittest discover -s evaluation/worker/tests
+KORDA_EXIGIR_DOCKER=1 python -m unittest discover -s services/execution/tests -t services/execution -v
+```
+
+O [teste integrado](tests/test_worker_docker.py) usa o gerador da 01, introduz um defeito na cópia do modelo, exige a falha de unicidade, verifica a correção no segundo build e confere que o resultado testado ainda aguarda a segunda aprovação. O job de execução da [CI](../../.github/workflows/ci.yml) exige acesso ao Docker e a imagem construída. Sem a variável de exigência, o unittest identifica os casos Docker pulados. [Planejamento e evidências desta entrega](../../docs/plano-integracao-worker.md)

@@ -1,6 +1,6 @@
 # Arquitetura de referência
 
-**Status:** desenho inicial, não implementação verificada. Um monorepositório facilita contratos e integração de uma equipe de quatro pessoas; os diretórios não obrigam microsserviços ou deploys separados.
+**Estado desta branch:** o planejamento e a execução da demo logística têm implementação local e testes. Um monorepositório facilita contratos e integração de uma equipe de quatro pessoas; os diretórios não obrigam microsserviços ou deploys separados.
 
 ## Responsabilidades
 
@@ -17,7 +17,7 @@ Não há atribuição nominal das frentes neste arquivo. Os responsáveis devem 
 
 O contexto pode avançar como rascunho com lacunas. Lacunas críticas bloqueiam a parte afetada do plano. A primeira aprovação registra versão, aprovador e horário. O executor recebe essa versão, cria as camadas bronze, prata e ouro e roda os testes. Falhas geram correções limitadas ou solicitação humana. Passar nos testes não autoriza publicar: a segunda aprovação libera a promoção em destino compatível.
 
-A UI deve distinguir execução concluída, aguardando aprovação e entrega promovida. Se o plano mudar, uma aprovação anterior não vale para a nova versão. A máquina de estados, as validações e a persistência ainda serão implementadas.
+A UI deve distinguir execução concluída, aguardando aprovação e entrega promovida. Se o plano mudar, uma aprovação anterior não vale para a nova versão. O registro SQLite do operador persiste estados e decisões. A conexão da interface com esses estados é uma entrega da K12.
 
 ## Base técnica proposta
 
@@ -25,9 +25,9 @@ Python, DuckDB e dbt são a base para processamento local e modelos. O [plano t�
 
 O frontend está em desenvolvimento por outro integrante. Sua conexão ao backend ocorrerá depois, com contratos OpenAPI, exemplos de respostas e alinhamento da autenticação. A stack e a hospedagem da interface pertencem àquela frente.
 
-A sandbox da demo pode começar com um worker controlado e um diretório por execução. Isso **não equivale a isolamento de produção**. Antes de executar código gerado, impor limites de tempo/memória, operações permitidas, diretórios montados e acesso de rede. Credenciais e respostas esperadas não entram no contexto do executor.
+A sandbox local usa um processo de controle no host e um contêiner por execução. O contêiner recebe as fontes do lote, a cópia do projeto e limites de tempo, memória e CPU. O avaliador e o registro das duas decisões ficam no host.
 
-Estado em 23/11/2026, rascunho da K08: existe uma sandbox local em Docker (sem rede, sem root, montagens somente leitura exceto `models/` e saída, limites de recursos e de tempo) e as ferramentas restritas do executor. Detalhes e limites em [`services/execution/README.md`](../services/execution/README.md). Harness com LLM e sandbox em nuvem ainda não existem.
+O [guia de execução](../services/execution/README.md) descreve a lista de modelos graváveis do plano, o ciclo de correção da deduplicação, a validação externa e a promoção local do manifesto. O [plano de integração](plano-integracao-worker.md) acompanha as frentes pendentes.
 
 ## Contratos antes de implementação paralela
 
