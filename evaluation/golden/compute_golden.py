@@ -26,6 +26,7 @@ import json
 import sys
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
+from decimal import Decimal, ROUND_FLOOR, ROUND_HALF_UP
 from pathlib import Path
 
 import yaml
@@ -101,13 +102,14 @@ def load_fontes(cfg: dict, pasta: Path) -> Fontes:
                 "arquivo": path.name,
                 "chave": root.findtext("c:protCTe/c:infProt/c:chCTe", namespaces=NS),
                 "autorizado": stat == "100",
-                "vTPrest": float(root.findtext(".//c:vPrest/c:vTPrest", namespaces=NS)),
+                "vTPrest": Decimal(root.findtext(".//c:vPrest/c:vTPrest", namespaces=NS)),
                 "nfes": [e.text for e in root.findall(".//c:infDoc/c:infNFe/c:chave", namespaces=NS)],
             })
         elif tag == "procEventoCTe":
             tipo = root.findtext("c:eventoCTe/c:infEvento/c:tpEvento", namespaces=NS)
             stat = root.findtext("c:retEventoCTe/c:infEvento/c:cStat", namespaces=NS)
-            if tipo == "110111" and stat in ("135", "136"):
+            # MOC 4.00, 6.2.2: 135 homologa o cancelamento; 136 não vincula o evento ao CT-e.
+            if tipo == "110111" and stat == "135":
                 cancelados.add(root.findtext("c:eventoCTe/c:infEvento/c:chCTe", namespaces=NS))
         else:
             raise ValueError(f"{path.name}: raiz inesperada {tag}")
@@ -145,11 +147,33 @@ def somar_dias_uteis(d: dt.date, n: int, sabado: bool) -> dt.date:
     return d
 
 
+def ratear_centavos(valor: Decimal, bases: dict[str, Decimal]) -> dict[str, Decimal]:
+    """Rateio proporcional com centavos residuais nos maiores restos; empate pelo ID textual."""
+    total = sum(bases.values())
+    if valor < 0 or total <= 0 or any(base < 0 for base in bases.values()):
+        raise ValueError("rateio exige frete não negativo e bases não negativas com soma positiva")
+    exatas = {pid: valor * base / total for pid, base in bases.items()}
+    partes = {pid: parte.quantize(Decimal("0.01"), rounding=ROUND_FLOOR) for pid, parte in exatas.items()}
+    residuo = int((valor - sum(partes.values())) * 100)
+    ordem = sorted(bases, key=lambda pid: (-(exatas[pid] - partes[pid]), pid))
+    for pid in ordem[:residuo]:
+        partes[pid] += Decimal("0.01")
+    return partes
+
+
 def compute(cfg: dict, f: Fontes, desligar: frozenset[str] = frozenset()) -> dict:
     """Calcula KPIs e detalhamentos. `desligar` lista correções substituídas pelo comportamento ingênuo."""
     on = lambda nome: nome not in desligar  # noqa: E731
     regras = cfg["regras_referencia"]
     fmt = cfg["formato"]
+
+    # O gerador representa uma baixa (possivelmente parcial) por pedido, sem reentregas.
+    vistos = set()
+    for entrega in f.entregas:
+        pid = entrega["pedido_id"]
+        if pid in vistos:
+            raise ValueError(f"gabarito suporta uma entrega por pedido; pedido repetido: {pid}")
+        vistos.add(pid)
 
     excluir_tipos = set(regras["excluir_tipos_viagem"]) if on("excluir_tipos_viagem") else set()
     sem_data = regras["sem_data_realizada"]
@@ -175,19 +199,20 @@ def compute(cfg: dict, f: Fontes, desligar: frozenset[str] = frozenset()) -> dic
         ctes = [c for c in ctes if c["chave"] not in f.cancelados]
 
     pedido_por_nfe = {p["chave_nfe"]: pid for pid, p in f.pedidos.items()}
-    custo = {pid: 0.0 for pid in f.pedidos}
+    custo = {pid: Decimal("0.00") for pid in f.pedidos}
     ctes_do_pedido: dict[str, list[str]] = {pid: [] for pid in f.pedidos}
     for c in ctes:
         pids = [pedido_por_nfe[n] for n in c["nfes"]]
-        base = sum(f.pedidos[p][criterio] for p in pids)
+        valor = Decimal(str(c["vTPrest"])).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        bases = {p: Decimal(str(f.pedidos[p][criterio])) for p in pids}
+        partes = ratear_centavos(valor, bases) if on("ratear") else dict.fromkeys(pids, valor)
         for p in pids:
-            parte = c["vTPrest"] * f.pedidos[p][criterio] / base if on("ratear") else c["vTPrest"]
-            custo[p] += parte
+            custo[p] += partes[p]
             ctes_do_pedido[p].append(c["chave"])
 
     # --- entregas
     por_pedido, por_viagem = [], {}
-    custo_total = n_custo = 0
+    custo_total, n_custo = Decimal("0.00"), 0
     otif_num = otif_den = 0
     for e in f.entregas:
         viagem = f.viagens[e["viagem_id"]]
@@ -222,17 +247,20 @@ def compute(cfg: dict, f: Fontes, desligar: frozenset[str] = frozenset()) -> dic
             custo_total += custo[p["id"]]
             n_custo += 1
         por_pedido.append({"pedido_id": p["id"], "viagem_id": viagem["id"], "tipo_viagem": viagem["tipo"],
-                           "elegivel_custo": int(elegivel_custo), "custo_frete_rateado": round(custo[p["id"]], 2),
+                           "elegivel_custo": int(elegivel_custo), "custo_frete_rateado": float(custo[p["id"]]),
                            "ctes": "+".join(ctes_do_pedido[p["id"]]), "data_prevista": prevista.isoformat(),
                            "data_realizada": realizada.date().isoformat() if realizada else "",
                            "elegivel_otif": int(conta_otif), "no_prazo": int(no_prazo), "completo": int(completo),
                            "otif": int(otif)})
         v = por_viagem.setdefault(viagem["id"], {"viagem_id": viagem["id"], "veiculo_id": viagem["veiculo_id"],
-                                                 "tipo_viagem": viagem["tipo"], "n_entregas": 0, "carga": 0.0,
-                                                 "custo_frete_total": 0.0})
+                                                 "tipo_viagem": viagem["tipo"], "n_entregas": 0,
+                                                 "n_entregas_elegiveis_custo": 0, "carga": 0.0,
+                                                 "custo_frete_total": Decimal("0.00")})
         v["n_entregas"] += 1
         v["carga"] += p["peso_kg"] if unidade == "kg" else p["volume_m3"]
-        v["custo_frete_total"] += custo[p["id"]]
+        if elegivel_custo:
+            v["n_entregas_elegiveis_custo"] += 1
+            v["custo_frete_total"] += custo[p["id"]]
 
     carga_total = cap_total = 0.0
     for v in por_viagem.values():
@@ -241,19 +269,20 @@ def compute(cfg: dict, f: Fontes, desligar: frozenset[str] = frozenset()) -> dic
         v["unidade"] = unidade
         v["ocupacao"] = round(v["carga"] / v["capacidade"], 4)
         v["acima_capacidade"] = int(v["carga"] > v["capacidade"])
-        v["custo_por_entrega"] = round(v["custo_frete_total"] / v["n_entregas"], 2)
+        n = v["n_entregas_elegiveis_custo"]
+        v["custo_por_entrega"] = float(round(v["custo_frete_total"] / n, 2)) if n else None
         v["carga"] = round(v["carga"], 3)
-        v["custo_frete_total"] = round(v["custo_frete_total"], 2)
+        v["custo_frete_total"] = float(v["custo_frete_total"])
         carga_total += v["carga"]
         cap_total += v["capacidade"]
 
     return {
         "kpis": {
-            "custo_frete_por_entrega": round(custo_total / n_custo, 4),
-            "otif_pct": round(100 * otif_num / otif_den, 4),
-            "ocupacao_pct": round(100 * carga_total / cap_total, 4),
+            "custo_frete_por_entrega": float(round(custo_total / n_custo, 4)) if n_custo else None,
+            "otif_pct": round(100 * otif_num / otif_den, 4) if otif_den else None,
+            "ocupacao_pct": round(100 * carga_total / cap_total, 4) if cap_total else None,
         },
-        "contagens": {"entregas_elegiveis_custo": n_custo, "frete_total_elegivel": round(custo_total, 2),
+        "contagens": {"entregas_elegiveis_custo": n_custo, "frete_total_elegivel": float(custo_total),
                       "pedidos_otif_denominador": otif_den, "pedidos_otif": otif_num,
                       "viagens": len(por_viagem), "ctes_considerados": len(ctes),
                       "ctes_cancelados": len(f.cancelados), "arquivos_cte": len(f.ctes)},
@@ -307,8 +336,10 @@ def main(argv: list[str] | None = None) -> int:
         res = compute(cfg, fontes)
         write_outputs(empresa, cfg, fontes, res, pasta)
         k = res["kpis"]
-        print(f"[ok] {empresa}: custo/entrega R$ {k['custo_frete_por_entrega']:.2f} | "
-              f"OTIF {k['otif_pct']:.2f}% | ocupação {k['ocupacao_pct']:.2f}%")
+        custo = f"R$ {k['custo_frete_por_entrega']:.2f}" if k["custo_frete_por_entrega"] is not None else "sem base"
+        otif = f"{k['otif_pct']:.2f}%" if k["otif_pct"] is not None else "sem base"
+        ocupacao = f"{k['ocupacao_pct']:.2f}%" if k["ocupacao_pct"] is not None else "sem base"
+        print(f"[ok] {empresa}: custo/entrega {custo} | OTIF {otif} | ocupação {ocupacao}")
     return 0
 
 

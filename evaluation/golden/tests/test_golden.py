@@ -1,14 +1,20 @@
 """Gabarito: valores conferidos à mão, sem usar o gerador."""
 
 import datetime as dt
+from copy import deepcopy
+from decimal import Decimal
+from io import StringIO
 import sys
+import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 GOLDEN = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(GOLDEN))
 
 import compute_golden as cg  # noqa: E402
+import sensitivity  # noqa: E402
 
 CFG = {
     "formato": {"data": "%Y-%m-%d", "data_hora_tms": "%Y-%m-%d %H:%M"},
@@ -78,6 +84,97 @@ class DatasEPrazoTest(unittest.TestCase):
         self.assertIsNone(cg.parse_data_hora("02/09/26", "%Y-%m-%d %H:%M", False))
 
 
+class LimitesEConservacaoTest(unittest.TestCase):
+    def test_duas_entregas_do_mesmo_pedido_exigem_outro_recorte(self):
+        fontes = exemplo_quatro_linhas()
+        fontes.pedidos["P1"]["qt_itens"] = 2
+        fontes.entregas.append({**fontes.entregas[0], "id": 99})
+        with self.assertRaisesRegex(ValueError, "uma entrega por pedido.*P1"):
+            cg.compute(CFG, fontes)
+
+    def test_custo_da_viagem_usa_o_mesmo_denominador_do_agregado(self):
+        res = cg.compute(CFG, exemplo_quatro_linhas())
+        viagem = res["por_viagem"][0]
+        self.assertEqual(viagem["n_entregas"], 4)  # contagem operacional preservada
+        self.assertEqual(viagem["n_entregas_elegiveis_custo"], 3)
+        self.assertEqual(viagem["custo_frete_total"], 500.0)
+        self.assertEqual(viagem["custo_por_entrega"], 166.67)
+
+    def test_viagem_excluida_preserva_ocupacao_e_nao_tem_media_de_custo(self):
+        cfg = deepcopy(CFG)
+        cfg["regras_referencia"]["excluir_tipos_viagem"] = ["TRF"]
+        fontes = exemplo_quatro_linhas()
+        fontes.viagens["V1"]["tipo"] = "TRF"
+        res = cg.compute(cfg, fontes)
+        viagem = res["por_viagem"][0]
+        self.assertEqual(viagem["n_entregas"], 4)
+        self.assertEqual(viagem["n_entregas_elegiveis_custo"], 0)
+        self.assertEqual(viagem["custo_frete_total"], 0.0)
+        self.assertIsNone(viagem["custo_por_entrega"])
+        self.assertIsNone(res["kpis"]["custo_frete_por_entrega"])
+        self.assertIsNone(res["kpis"]["otif_pct"])
+        self.assertEqual(res["kpis"]["ocupacao_pct"], 43.0)
+
+    def test_cli_apresenta_indicadores_sem_base(self):
+        cfg = deepcopy(CFG)
+        cfg["regras_referencia"]["excluir_tipos_viagem"] = ["DIST"]
+        with patch.object(cg, "load_cfg", return_value=cfg), \
+                patch.object(cg, "load_fontes", return_value=exemplo_quatro_linhas()), \
+                patch.object(cg, "write_outputs"), patch("sys.stdout", new_callable=StringIO) as output:
+            self.assertEqual(cg.main(["--empresa", "mock"]), 0)
+        self.assertIn("custo/entrega sem base | OTIF sem base", output.getvalue())
+
+    def test_tercos_conservam_cem_reais_com_desempate_estavel(self):
+        fontes = exemplo_quatro_linhas()
+        for pid in ("P1", "P2", "P3"):
+            fontes.pedidos[pid]["peso_kg"] = 1
+        fontes.ctes = [{"chave": "A1", "autorizado": True, "vTPrest": 100.0,
+                        "nfes": ["NFP3", "NFP2", "NFP1"]}]
+        res = cg.compute(CFG, fontes)
+        custos = {r["pedido_id"]: Decimal(str(r["custo_frete_rateado"])) for r in res["por_pedido"]}
+        self.assertEqual(custos, {"P1": Decimal("33.34"), "P2": Decimal("33.33"),
+                                  "P3": Decimal("33.33"), "P4": Decimal("0.00")})
+        self.assertEqual(sum(custos.values()), Decimal("100.00"))
+        self.assertEqual(res["contagens"]["frete_total_elegivel"], 100.0)
+        self.assertEqual(res["por_viagem"][0]["custo_frete_total"], 100.0)
+        fontes.ctes[0]["nfes"].reverse()
+        self.assertEqual(res, cg.compute(CFG, fontes))
+
+    def test_criterio_errado_e_detectado_mesmo_com_media_correta(self):
+        fontes = exemplo_quatro_linhas()
+        fontes.pedidos["P1"]["volume_m3"] = 2
+        fontes.pedidos["P2"]["volume_m3"] = 1
+        correto = cg.compute(CFG, fontes)
+        cfg_errada = deepcopy(CFG)
+        cfg_errada["regras_referencia"]["rateio_cte"] = "volume"
+        errado = cg.compute(cfg_errada, fontes)
+        self.assertEqual(correto["kpis"], errado["kpis"])
+        delta, pedido = sensitivity.diferenca_rateio(correto, errado)
+        self.assertEqual((delta, pedido), (1.0, "P1"))
+
+
+class CancelamentoXmlTest(unittest.TestCase):
+    def test_so_cancelamento_homologado_remove_o_cte(self):
+        cfg = {"formato": {"csv": {"separador": ";", "decimal": ","}},
+               "colunas": {nome: {} for nome in ("erp_pedidos", "tms_veiculos", "tms_viagens", "tms_entregas")}}
+        with tempfile.TemporaryDirectory() as tmp:
+            pasta = Path(tmp)
+            for nome in ("erp/erp_pedidos.csv", "tms/tms_veiculos.csv", "tms/tms_viagens.csv", "tms/tms_entregas.csv"):
+                path = pasta / nome
+                path.parent.mkdir(exist_ok=True)
+                path.write_text("", encoding="utf-8")
+            (pasta / "cte").mkdir()
+            for stat, tipo in (("135", "110111"), ("136", "110111"), ("135", "110110"), ("999", "110111")):
+                with self.subTest(stat=stat, tipo=tipo):
+                    (pasta / "cte/evento.xml").write_text(
+                        '<procEventoCTe xmlns="http://www.portalfiscal.inf.br/cte">'
+                        f'<eventoCTe><infEvento><tpEvento>{tipo}</tpEvento><chCTe>A1</chCTe></infEvento></eventoCTe>'
+                        f'<retEventoCTe><infEvento><cStat>{stat}</cStat></infEvento></retEventoCTe></procEventoCTe>',
+                        encoding="utf-8")
+                    esperado = {"A1"} if (stat, tipo) == ("135", "110111") else set()
+                    self.assertEqual(cg.load_fontes(cfg, pasta).cancelados, esperado)
+
+
 class CasoExplicavelGeradoTest(unittest.TestCase):
     """Confere o caso explicável da 01 no gabarito gerado (valores definidos à mão no empresa.yaml)."""
 
@@ -86,7 +183,8 @@ class CasoExplicavelGeradoTest(unittest.TestCase):
         if not arquivo.is_file():
             self.skipTest("gabarito da 01 ainda não calculado")
         import csv
-        linhas = {r["pedido_id"]: r for r in csv.DictReader(arquivo.open(encoding="utf-8"))}
+        with arquivo.open(encoding="utf-8") as handle:
+            linhas = {r["pedido_id"]: r for r in csv.DictReader(handle)}
         self.assertEqual(float(linhas["900001"]["custo_frete_rateado"]), 100.00)
         self.assertEqual(float(linhas["900002"]["custo_frete_rateado"]), 300.00)
         self.assertEqual(float(linhas["900003"]["custo_frete_rateado"]), 150.00)

@@ -1,0 +1,29 @@
+[
+  {
+    "id": "site-fornecido",
+    "origin": "fornecida",
+    "scope": "empresa",
+    "version": "1",
+    "captured_on": "2026-11-23",
+    "original_url": "https://transkorda.example",
+    "path": "pesquisa/empresa.md"
+  },
+  {
+    "id": "operacao-descoberta",
+    "origin": "descoberta",
+    "scope": "empresa",
+    "version": "1",
+    "captured_on": "2026-11-23",
+    "original_url": "https://transkorda.example/operacao",
+    "path": "pesquisa/operacao.md"
+  },
+  {
+    "id": "referencia-setorial",
+    "origin": "descoberta",
+    "scope": "setor",
+    "version": "1",
+    "captured_on": "2026-11-23",
+    "original_url": "https://logistica.example/medicao",
+    "path": "pesquisa/setor.md"
+  }
+]

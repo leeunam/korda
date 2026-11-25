@@ -1,0 +1,17 @@
+{
+  "fixture_version": "1.0.0",
+  "synthetic": true,
+  "company_id": "01_demo",
+  "company_name": "TransKorda Logística Ltda (fictícia)",
+  "site_url": "https://transkorda.example",
+  "headquarters": "Campinas/SP",
+  "period_start": "2026-09-01",
+  "period_end": "2026-09-30",
+  "goal": "Entender o custo de uma entrega, as falhas de atendimento e o uso da capacidade dos veículos.",
+  "declared_systems": ["ERP", "TMS", "XML de CT-e"],
+  "participants": [
+    {"id": "operacao", "name": "Pessoa fictícia da operação", "role": "operacao"},
+    {"id": "financeiro", "name": "Pessoa fictícia do financeiro", "role": "financeiro"},
+    {"id": "dados", "name": "Pessoa fictícia responsável pelos dados", "role": "dados"}
+  ]
+}

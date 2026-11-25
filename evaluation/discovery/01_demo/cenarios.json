@@ -1,0 +1,50 @@
+{
+  "fixture_version": "1.0.0",
+  "synthetic": true,
+  "company_id": "01_demo",
+  "baseline_round_1": ["operacao-objetivo", "dados-processo", "operacao-frete", "operacao-otif", "operacao-ocupacao", "operacao-rateio"],
+  "scenarios": [
+    {
+      "id": "duas_rodadas",
+      "continue_from_round_1": true,
+      "events": [{"turn_id": "financeiro-rateio", "delivery_id": "envio-financeiro-1"}],
+      "checkpoints": [
+        {"after_turn_id": "operacao-rateio", "context_file": "01_rateio_pendente.json", "status": "a_confirmar", "value": null, "gap_state": "a_confirmar", "state": "rascunho", "required_turn_ids": ["operacao-ocupacao", "operacao-rateio"]},
+        {"after_turn_id": "financeiro-rateio", "context_file": "02_rateio_confirmado.json", "status": "confirmada", "value": "peso", "gap_state": "respondida", "state": "pronto_para_planejamento", "required_turn_ids": ["operacao-rateio", "financeiro-rateio"]}
+      ]
+    },
+    {
+      "id": "resposta_ambigua",
+      "continue_from_round_1": true,
+      "events": [{"turn_id": "operacao-ambigua", "delivery_id": "envio-ambiguo-1"}],
+      "checkpoints": [
+        {"after_turn_id": "operacao-ambigua", "context_file": null, "status": "a_confirmar", "value": null, "gap_state": "a_confirmar", "state": "rascunho", "required_turn_ids": ["operacao-ambigua"]}
+      ]
+    },
+    {
+      "id": "contradicao",
+      "continue_from_round_1": true,
+      "events": [{"turn_id": "financeiro-rateio", "delivery_id": "envio-financeiro-1"}, {"turn_id": "operacao-conflito", "delivery_id": "envio-conflito-1"}],
+      "checkpoints": [
+        {"after_turn_id": "operacao-conflito", "context_file": null, "status": "em_conflito", "value": null, "gap_state": "em_conflito", "state": "rascunho", "required_turn_ids": ["financeiro-rateio", "operacao-conflito"]}
+      ]
+    },
+    {
+      "id": "correcao_com_historico",
+      "continue_from_round_1": true,
+      "events": [{"turn_id": "financeiro-rateio", "delivery_id": "envio-financeiro-1"}, {"turn_id": "operacao-conflito", "delivery_id": "envio-conflito-1"}, {"turn_id": "financeiro-correcao", "delivery_id": "envio-correcao-1"}],
+      "checkpoints": [
+        {"after_turn_id": "financeiro-correcao", "context_file": null, "status": "confirmada", "value": "peso", "gap_state": "respondida", "state": "pronto_para_planejamento", "required_turn_ids": ["financeiro-rateio", "operacao-conflito", "financeiro-correcao"]}
+      ]
+    },
+    {
+      "id": "retomada_e_reenvio",
+      "continue_from_round_1": true,
+      "events": [{"turn_id": "operacao-rateio", "delivery_id": "reenvio-apos-reconexao"}, {"turn_id": "operacao-rateio-repetido", "delivery_id": "nova-fala-mesmo-texto"}, {"turn_id": "financeiro-rateio", "delivery_id": "envio-financeiro-1"}],
+      "expected_unique_turns": 8,
+      "checkpoints": [
+        {"after_turn_id": "financeiro-rateio", "context_file": null, "status": "confirmada", "value": "peso", "gap_state": "respondida", "state": "pronto_para_planejamento", "required_turn_ids": ["operacao-rateio", "operacao-rateio-repetido", "financeiro-rateio"]}
+      ]
+    }
+  ]
+}

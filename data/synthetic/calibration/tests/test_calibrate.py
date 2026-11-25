@@ -1,8 +1,11 @@
 """Testes da calibração com valores conferidos à mão (não recalculados pela implementação)."""
 
 import sys
+import json
+import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
@@ -60,10 +63,6 @@ class DistanceTest(unittest.TestCase):
         self.assertAlmostEqual(total, 1.0, places=6)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class ObtainSourceTest(unittest.TestCase):
     """Procedência: checksum divergente e fonte manual ausente não podem passar como 'ok'."""
 
@@ -101,3 +100,50 @@ class ObtainSourceTest(unittest.TestCase):
         source = {"id": "manual", "titulo": "t", "licenca": "l", "modo": "manual", "files": []}
         entry = bc.obtain_source(source, offline=True, previous={}, now="T")
         self.assertEqual(entry["status"], "pendente")
+
+
+class PublicarCalibracaoTest(unittest.TestCase):
+    def test_falha_preserva_a_ultima_calibracao_e_registra_o_manifesto(self):
+        for status in ("pendente", "divergente"):
+            with self.subTest(status=status), tempfile.TemporaryDirectory(dir=bc.ROOT) as tmp:
+                pasta = Path(tmp)
+                output, manifest, sources = (pasta / nome for nome in ("calibration.yaml", "manifest.json", "sources.json"))
+                original = b"ultima_calibracao_valida: true\n"
+                output.write_bytes(original)
+                sources.write_text('{"sources": [{}]}', encoding="utf-8")
+                entry = {"id": "anp", "status": status, "pendencias": ["indisponivel"]}
+                with patch.multiple(bc, OUTPUT=output, MANIFEST=manifest, SOURCES=sources), \
+                        patch.object(bc, "obtain_source", return_value=entry), patch.object(bc, "aggregate") as aggregate:
+                    self.assertEqual(bc.main(["--offline"]), 1)
+                    aggregate.assert_not_called()
+                self.assertEqual(output.read_bytes(), original)
+                self.assertEqual(json.loads(manifest.read_text(encoding="utf-8"))["fontes"][0]["status"], status)
+
+    def test_sucesso_publica_o_agregado_validado(self):
+        with tempfile.TemporaryDirectory(dir=bc.ROOT) as tmp:
+            pasta = Path(tmp)
+            output, manifest, sources = (pasta / nome for nome in ("calibration.yaml", "manifest.json", "sources.json"))
+            output.write_text("anterior", encoding="utf-8")
+            sources.write_text('{"sources": [{}]}', encoding="utf-8")
+            entry = {"id": "anp", "status": "ok"}
+            with patch.multiple(bc, OUTPUT=output, MANIFEST=manifest, SOURCES=sources), \
+                    patch.object(bc, "obtain_source", return_value=entry), \
+                    patch.object(bc, "aggregate", return_value="agregado: valido\n"):
+                self.assertEqual(bc.main(["--offline"]), 0)
+            self.assertEqual(output.read_text(encoding="utf-8"), "agregado: valido\n")
+
+    def test_erro_na_agregacao_preserva_a_ultima_calibracao(self):
+        with tempfile.TemporaryDirectory(dir=bc.ROOT) as tmp:
+            pasta = Path(tmp)
+            output, manifest, sources = (pasta / nome for nome in ("calibration.yaml", "manifest.json", "sources.json"))
+            output.write_bytes(b"anterior\n")
+            sources.write_text('{"sources": [{}]}', encoding="utf-8")
+            with patch.multiple(bc, OUTPUT=output, MANIFEST=manifest, SOURCES=sources), \
+                    patch.object(bc, "obtain_source", return_value={"id": "anp", "status": "ok"}), \
+                    patch.object(bc, "aggregate", side_effect=ValueError("ANP invalida")):
+                self.assertEqual(bc.main(["--offline"]), 1)
+            self.assertEqual(output.read_bytes(), b"anterior\n")
+
+
+if __name__ == "__main__":
+    unittest.main()
