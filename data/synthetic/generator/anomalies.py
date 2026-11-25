@@ -168,7 +168,7 @@ def build_ctes(mundo: Mundo, registro: list[dict]) -> list[Cte]:
 
     # 2) cancelamento com reemissão
     elegiveis = [c for c in ctes if c.caso_explicavel is None]
-    n_cancel = max(1, round(taxas["cte_cancelado_pct"] * len(ctes)))
+    n_cancel = min(len(elegiveis), round(taxas["cte_cancelado_pct"] * len(ctes)))
     cancelar = rng.sample(elegiveis, n_cancel)
     cancelar += [c for c in ctes if c.caso_explicavel == "cancelado_reemitido"]
     for original in sorted(cancelar, key=lambda c: c.numero):
@@ -187,7 +187,7 @@ def build_ctes(mundo: Mundo, registro: list[dict]) -> list[Cte]:
 
     # 3) duplicatas: o mesmo XML recebido duas vezes (só CT-e autorizados e não cancelados)
     validos = [c for c in ctes if not c.cancelado and c.caso_explicavel is None]
-    n_dup = max(1, round(taxas["cte_duplicado_pct"] * len(validos)))
+    n_dup = min(len(validos), round(taxas["cte_duplicado_pct"] * len(validos)))
     duplicar = rng.sample(validos, n_dup)
     if caso.get("ativo") and caso["cte_dois_pedidos"].get("duplicado"):
         duplicar += [c for c in ctes if c.caso_explicavel == "dois_pedidos"]

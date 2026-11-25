@@ -1,0 +1,4 @@
+# Ferramentas locais dos cenários de descoberta; não instala serviços ou provedores.
+-r requirements-contracts.txt
+pydantic==2.12.4
+pytest==8.4.2
