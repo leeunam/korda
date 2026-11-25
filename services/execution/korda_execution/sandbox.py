@@ -99,10 +99,11 @@ def imagem_existe(imagem: str = IMAGEM_PADRAO) -> bool:
     return r.returncode == 0
 
 
-def opcoes_isolamento(limites: Limites) -> list[str]:
-    """Opções de `docker run` comuns à sandbox e à ingestão: sem rede, sem root, sem privilégios."""
+def opcoes_isolamento(limites: Limites, rede: str = "none") -> list[str]:
+    """Opções de `docker run` comuns à sandbox e à ingestão: sem rede (ou só uma rede interna
+    de sistemas simulados), sem root, sem privilégios."""
     return [
-        "--network", "none",
+        "--network", rede,
         "--read-only",
         "--tmpfs", f"/tmp:rw,noexec,nosuid,size={limites.tmp}",
         "--cap-drop", "ALL",

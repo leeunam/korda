@@ -183,6 +183,7 @@ class TestSandboxLocal(unittest.TestCase):
         self.assertNotIn("evaluation", r.stdout)
         self.assertNotIn("golden", r.stdout)
         self.assertNotIn("anomalias_plantadas", r.stdout)
+        self.assertNotIn("ingestao_n1", r.stdout)  # a ingestão de referência não fica ao alcance do agente
         self.assertEqual(self.rodar("ls", "-A", "/work/fontes/_gerador").stdout.strip(), "")
         # A ingestão também não viu _gerador/: nenhuma tabela nem arquivo do manifesto vem de lá.
         self.assertFalse(any("_gerador" in p.as_posix() for p in self.landing.rglob("*")))
