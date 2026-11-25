@@ -16,4 +16,5 @@ Conjunto mínimo para um CT-e rodoviário autorizado e para o evento de cancelam
 
 Pendências:
 - Conferir se as notas técnicas de 2026 (NT 2026.004 e 2026.005) mudaram algum destes arquivos depois da data de obtenção.
-- A validação de XMLs ainda não está implementada. Ela fica para a branch do gerador, que vai precisar de `lxml` ou `xmlschema`.
+
+A validação está implementada em [`generator/validate_xsd.py`](../../../generator/validate_xsd.py) com `lxml` e roda no CI para todos os XMLs gerados. Ela verifica o documento, o modal rodoviário e o detalhe do evento de cancelamento. A assinatura fictícia tem validade apenas estrutural.

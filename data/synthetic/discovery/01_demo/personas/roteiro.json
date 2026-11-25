@@ -1,0 +1,73 @@
+{
+  "fixture_version": "1.0.0",
+  "synthetic": true,
+  "company_id": "01_demo",
+  "turns": [
+    {
+      "id": "operacao-objetivo", "session_id": "rodada-1", "participant_id": "operacao",
+      "intent": "problema_e_decisao",
+      "question_example": "Que decisão você precisa tomar com esses números?",
+      "answer": "Ensaio sintético: quero comparar quanto custa uma entrega, onde falhamos no atendimento e quanto da capacidade da frota usamos. Não tenho uma meta de economia comprovada."
+    },
+    {
+      "id": "dados-processo", "session_id": "rodada-1", "participant_id": "dados",
+      "intent": "processo_fontes_e_grao",
+      "question_example": "Mostre o caminho de um pedido até a entrega. O que cada arquivo registra?",
+      "answer": "Ensaio sintético: o ERP guarda um pedido por linha; o TMS tem uma entrega por pedido, que pode estar incompleta. qt_itens e qt_entregue contam volumes. TMS.nr_ped liga ao ERP.cd_ped; ERP.ch_nfe liga ao CT-e.infNFe/chave. As datas estão sem offset, em America/Sao_Paulo. O ERP tem a data prometida em dt_prev_ent."
+    },
+    {
+      "id": "operacao-frete", "session_id": "rodada-1", "participant_id": "operacao",
+      "intent": "elegibilidade_e_excecoes_frete",
+      "question_example": "Qual documento e quais entregas entram no custo? Como lidar com cópias e cancelamentos?",
+      "answer": "Ensaio sintético: usamos o valor total vTPrest do CT-e autorizado, cStat 100. Contamos a chave uma vez e excluímos o cancelamento homologado, evento 110111 com retorno 135. Entrega incompleta entra se tem CT-e válido. Sem CT-e válido, fica fora apenas do custo. Não excluímos tipos de viagem."
+    },
+    {
+      "id": "operacao-otif", "session_id": "rodada-1", "participant_id": "operacao",
+      "intent": "prazo_completude_e_ausencia",
+      "question_example": "O que significa entregar completo e no prazo? Como tratar uma baixa sem data?",
+      "answer": "Ensaio sintético: comparamos a data realizada com a data prometida do ERP, incluindo o próprio dia do prazo. Completo exige qt_entregue >= qt_itens em volumes. Sem data realizada conta como falha. O prazo considera sábado. Aqui há uma entrega por pedido; não estamos somando reentregas."
+    },
+    {
+      "id": "operacao-ocupacao", "session_id": "rodada-1", "participant_id": "operacao",
+      "intent": "unidade_e_agregacao_ocupacao",
+      "question_example": "Quando e em qual unidade vocês medem o uso da capacidade?",
+      "answer": "Ensaio sintético: o caminhão lota por peso. A ocupação usa kg na saída: soma dos pesos dos pedidos dividida pela soma das capacidades de todas as viagens. Mantemos valores acima de 100% para investigar. Não temos retorno vazio nem medição por trecho neste recorte."
+    },
+    {
+      "id": "operacao-rateio", "session_id": "rodada-1", "participant_id": "operacao",
+      "intent": "responsavel_e_lacuna_rateio",
+      "question_example": "O uso do peso na ocupação também determina como dividir um CT-e entre pedidos?",
+      "answer": "Ensaio sintético: não consigo confirmar como dividimos o valor de um CT-e compartilhado. Eu falei de ocupação; a regra do frete precisa ser confirmada pelo financeiro. Podemos retomar quando essa pessoa entrar."
+    },
+    {
+      "id": "financeiro-rateio", "session_id": "rodada-2", "participant_id": "financeiro",
+      "intent": "confirmacao_rateio",
+      "question_example": "O financeiro pode confirmar como o valor do documento é dividido?",
+      "answer": "Ensaio sintético: confirmo que dividimos o vTPrest de cada CT-e válido proporcionalmente ao peso bruto de cada pedido. O campo é ps_bruto no ERP. Sou a pessoa fictícia do financeiro responsável por confirmar esta regra."
+    },
+    {
+      "id": "operacao-ambigua", "session_id": "variante-ambigua", "participant_id": "operacao",
+      "intent": "resposta_vaga",
+      "question_example": "Como dividem um documento compartilhado?",
+      "answer": "Ensaio sintético: vai pelo tamanho da carga, como sempre fizemos. Acho que é parecido com a lotação do caminhão, mas preciso consultar o financeiro."
+    },
+    {
+      "id": "operacao-conflito", "session_id": "variante-conflito", "participant_id": "operacao",
+      "intent": "declaracao_contraditoria",
+      "question_example": "Há alguma informação diferente sobre o rateio?",
+      "answer": "Ensaio sintético: ouvi dizer que o valor é dividido igualmente entre os pedidos, sem considerar peso. Isso contradiz o que o financeiro acabou de informar; preciso que ele confira."
+    },
+    {
+      "id": "financeiro-correcao", "session_id": "variante-conflito", "participant_id": "financeiro",
+      "intent": "resolver_conflito_com_autor",
+      "question_example": "Qual regra deve valer após essa divergência?",
+      "answer": "Ensaio sintético: conferi a divergência. A informação de divisão igual estava incorreta. Reafirmo o rateio proporcional ao peso bruto ps_bruto de cada pedido e peço que a declaração divergente seja preservada no histórico."
+    },
+    {
+      "id": "operacao-rateio-repetido", "session_id": "rodada-1", "participant_id": "operacao",
+      "intent": "nova_fala_com_texto_identico",
+      "question_example": "Você consegue confirmar o rateio agora?",
+      "answer": "Ensaio sintético: não consigo confirmar como dividimos o valor de um CT-e compartilhado. Eu falei de ocupação; a regra do frete precisa ser confirmada pelo financeiro. Podemos retomar quando essa pessoa entrar."
+    }
+  ]
+}
