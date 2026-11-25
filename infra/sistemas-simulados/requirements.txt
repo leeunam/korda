@@ -1,0 +1,3 @@
+# Imagem dos sistemas simulados do cliente (TMS por API e preparo do replay).
+# Mesma versão de requirements-synthetic.txt; publicada há mais de duas semanas em 23/11/2026.
+PyYAML==6.0.2
