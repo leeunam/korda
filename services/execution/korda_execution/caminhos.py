@@ -9,8 +9,7 @@ from __future__ import annotations
 import re
 from pathlib import PurePosixPath
 
-from .sandbox import DIR_PROJETO
-
+DIR_PROJETO = "/work/projeto"
 _SEGMENTO = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]*$")
 SUFIXOS_MODELO = (".sql",)
 SUBCOMANDOS_DBT = ("build", "run", "test", "compile", "ls", "debug")
@@ -30,7 +29,7 @@ def _normalizar(caminho: str) -> PurePosixPath:
         raise CaminhoRecusado("use caminho relativo ao projeto, como models/prata/x.sql")
     # Valida a string original: PurePosixPath descartaria "." e "//" em silêncio.
     for parte in caminho.split("/"):
-        if parte in ("..", ".") or not _SEGMENTO.match(parte):
+        if parte in ("..", ".") or not _SEGMENTO.fullmatch(parte):
             raise CaminhoRecusado(f"segmento inválido no caminho: {parte!r}")
     return PurePosixPath(caminho)
 
@@ -59,10 +58,13 @@ def argv_dbt(subcomando: str, selecao: str | None = None) -> list[str]:
     if subcomando not in SUBCOMANDOS_DBT:
         raise CaminhoRecusado(f"subcomando dbt não permitido: {subcomando!r}")
     argv = ["dbt", "--no-use-colors", subcomando]
+    if subcomando == "debug":
+        # A imagem local tem adaptador e banco, mas não inclui git nem usa pacotes remotos.
+        argv.append("--connection")
     if selecao is not None:
         if subcomando == "debug":
             raise CaminhoRecusado("dbt debug não aceita seleção")
-        if not _SELECAO.match(selecao) or selecao.startswith(("-", "/")):
+        if not isinstance(selecao, str) or not _SELECAO.fullmatch(selecao) or selecao.startswith(("-", "/")):
             raise CaminhoRecusado(f"seleção inválida: {selecao!r}")
         argv += ["--select", selecao]
     return argv

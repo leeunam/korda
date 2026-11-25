@@ -11,6 +11,7 @@ COPY requirements.txt /opt/korda/requirements.txt
 RUN pip install -r /opt/korda/requirements.txt
 
 COPY consulta.py /opt/korda/consulta.py
+COPY perfil.py /opt/korda/perfil.py
 
 # Usuário sem root. Em execução o worker passa --user <uid>:<gid> do host para casar com as montagens.
 RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin korda

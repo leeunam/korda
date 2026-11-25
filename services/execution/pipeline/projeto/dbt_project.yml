@@ -1,0 +1,9 @@
+name: korda_logistica
+version: "0.1.0"
+profile: korda
+config-version: 2
+model-paths: ["models", "definicoes"]
+test-paths: ["tests"]
+models:
+  korda_logistica:
+    +materialized: table

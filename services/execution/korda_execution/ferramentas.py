@@ -8,6 +8,7 @@ agente corrigir o pedido.
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from dataclasses import dataclass
 
 from . import caminhos
@@ -15,9 +16,10 @@ from .eventos import EmissorEventos
 from .sandbox import DIR_SAIDA, ErroSandbox, ResultadoComando, Sandbox
 
 BANCO_SAIDA = f"{DIR_SAIDA}/korda.duckdb"
-LIMITE_LEITURA = 100_000
+LIMITE_LEITURA = 16_000
 TIMEOUT_DBT_S = 300
 TIMEOUT_CONSULTA_S = 60
+FONTES = frozenset({"erp_clientes", "erp_pedidos", "tms_veiculos", "tms_viagens", "tms_entregas", "cte"})
 
 
 @dataclass
@@ -26,6 +28,16 @@ class FerramentasRestritas:
     eventos: EmissorEventos
     step: str = "construcao"
     attempt: int = 1
+    plano_aprovado: dict | None = None
+    modelos_permitidos: frozenset[str] | None = None
+
+    def __post_init__(self) -> None:
+        # O coordenador valida a aprovação e projeta o plano antes de oferecê-lo às ferramentas.
+        self.plano_aprovado = deepcopy(self.plano_aprovado)
+        if self.modelos_permitidos is not None:
+            self.modelos_permitidos = frozenset(self.modelos_permitidos)
+            for caminho in self.modelos_permitidos:
+                caminhos.caminho_modelo(caminho)
 
     def _evento(self, type: str, message: str, **extra) -> None:
         self.eventos.emit_event(self.step, type, message, self.attempt, **extra)
@@ -34,11 +46,32 @@ class FerramentasRestritas:
         self._evento("tool_refused", f"{ferramenta}: {motivo}", ferramenta=ferramenta)
         return {"ok": False, "erro": motivo}
 
+    def ler_plano(self) -> dict:
+        if self.plano_aprovado is None:
+            return self._recusa("ler_plano", "nenhum plano aprovado foi associado à execução")
+        self._evento("plan_read", "Plano aprovado consultado", plan_version=self.plano_aprovado.get("plan_version"))
+        return {"ok": True, "plano": deepcopy(self.plano_aprovado)}
+
+    def inspecionar_fonte(self, fonte: str) -> dict:
+        if not isinstance(fonte, str) or fonte not in FONTES:
+            return self._recusa("inspecionar_fonte", "fonte fora do catálogo autorizado")
+        r = self.sandbox.rodar_comando(["python", "/opt/korda/perfil.py", fonte], timeout_s=30)
+        corpo = _objeto_json(r.stdout)
+        if not r.ok or corpo.get("fonte") != fonte:
+            return self._recusa("inspecionar_fonte", corpo.get("erro") or "não foi possível obter o perfil")
+        self._evento("source_profiled", fonte, fonte=fonte, perfil=corpo)
+        return {"ok": True, "perfil": corpo}
+
     def escrever_modelo(self, caminho: str, conteudo: str) -> dict:
         try:
             destino = caminhos.caminho_modelo(caminho)
         except caminhos.CaminhoRecusado as e:
             return self._recusa("escrever_modelo", str(e))
+        if self.plano_aprovado is not None or self.modelos_permitidos is not None:
+            if caminho not in (self.modelos_permitidos or ()):
+                return self._recusa("escrever_modelo", "modelo fora do escopo aprovado")
+        if not isinstance(conteudo, str):
+            return self._recusa("escrever_modelo", "conteúdo SQL deve ser texto")
         dados = conteudo.encode("utf-8")
         try:
             self.sandbox.enviar_arquivos({destino: dados})
@@ -52,9 +85,11 @@ class FerramentasRestritas:
             origem = caminhos.caminho_leitura(caminho)
         except caminhos.CaminhoRecusado as e:
             return self._recusa("ler_arquivo", str(e))
-        r = self.sandbox.rodar_comando(["head", "-c", str(LIMITE_LEITURA), "--", origem], timeout_s=15)
+        r = self.sandbox.rodar_comando(["head", "-c", str(LIMITE_LEITURA + 1), "--", origem], timeout_s=15)
         if not r.ok:
             return {"ok": False, "erro": r.stderr.strip() or "leitura falhou"}
+        if len(r.stdout.encode("utf-8")) > LIMITE_LEITURA:
+            return self._recusa("ler_arquivo", f"arquivo excede {LIMITE_LEITURA} bytes")
         return {"ok": True, "caminho": caminho, "conteudo": r.stdout}
 
     def rodar_dbt(self, subcomando: str, selecao: str | None = None) -> dict:
@@ -69,23 +104,28 @@ class FerramentasRestritas:
         return _resultado(r)
 
     def consultar_sql(self, sql: str) -> dict:
-        if not sql.strip():
+        if not isinstance(sql, str) or not sql.strip():
             return self._recusa("consultar_sql", "consulta vazia")
         r = self.sandbox.rodar_comando(
             ["python", "/opt/korda/consulta.py", BANCO_SAIDA],
             timeout_s=TIMEOUT_CONSULTA_S,
             stdin=sql.encode("utf-8"),
         )
-        try:
-            corpo = json.loads(r.stdout) if r.stdout.strip() else {}
-        except json.JSONDecodeError:
-            corpo = {}
-        if not r.ok or "erro" in corpo:
-            erro = corpo.get("erro") or r.stderr.strip() or "consulta falhou"
+        corpo = _objeto_json(r.stdout)
+        if not r.ok or "erro" in corpo or not isinstance(corpo.get("linhas"), list):
+            erro = corpo.get("erro") or r.stderr.strip() or "resultado da consulta inválido ou grande demais"
             self._evento("query_failed", erro)
             return {"ok": False, "erro": erro, "estourou_tempo": r.estourou_tempo}
         self._evento("query_finished", f"{len(corpo.get('linhas', []))} linha(s)")
         return {"ok": True, **corpo}
+
+
+def _objeto_json(texto: str) -> dict:
+    try:
+        objeto = json.loads(texto)
+    except ValueError:
+        return {}
+    return objeto if isinstance(objeto, dict) else {}
 
 
 def _resultado(r: ResultadoComando) -> dict:
