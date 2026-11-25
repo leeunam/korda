@@ -3,7 +3,8 @@ version: 2
 sources:
   - name: fixture
     meta:
-      external_location: "read_csv('/work/fontes/{name}.csv', header = true)"
+      # Landing zone gerada pela ingestão (korda_ingestao): uma tabela Parquet por CSV, tudo VARCHAR.
+      external_location: "read_parquet('/work/fontes/{name}.parquet')"
     tables:
       - name: cte
       - name: entregas

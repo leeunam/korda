@@ -4,6 +4,6 @@
 
 | Caminho | Conteúdo | Montagem na sandbox |
 | --- | --- | --- |
-| `fontes_minimas/` | `cte.csv` e `entregas.csv` | `/work/fontes`, somente leitura |
+| `fontes_minimas/` | `cte.csv` e `entregas.csv` (brutos) | Ingeridos pelos testes numa landing (`cte.parquet`, `entregas.parquet`), montada em `/work/fontes`, somente leitura |
 | `projeto_minimo/` | `dbt_project.yml`, `profiles.yml`, `definicoes/` (fontes e testes de esquema), `tests/` (testes singulares) | `/work/projeto`, somente leitura |
 | `projeto_minimo/models/` | Vazio: é onde o agente escreve | `/work/projeto/models`, escrita |

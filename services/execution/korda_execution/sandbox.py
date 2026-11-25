@@ -4,7 +4,7 @@ O worker (este processo, no host) controla a sandbox pelo CLI do Docker. Código
 roda só dentro do contêiner, que não tem rede, não tem root e só enxerga montagens
 explícitas:
 
-    /work/fontes          somente leitura  (fontes sintéticas)
+    /work/fontes          somente leitura  (landing zone em Parquet das fontes sintéticas)
     /work/projeto         somente leitura  (dbt_project, profiles, definicoes/, tests/)
     /work/projeto/models  escrita          (modelos que o agente pode criar)
     /work/saida           escrita          (banco DuckDB, target/ e logs/ do dbt)
@@ -99,6 +99,31 @@ def imagem_existe(imagem: str = IMAGEM_PADRAO) -> bool:
     return r.returncode == 0
 
 
+def opcoes_isolamento(limites: Limites) -> list[str]:
+    """Opções de `docker run` comuns à sandbox e à ingestão: sem rede, sem root, sem privilégios."""
+    return [
+        "--network", "none",
+        "--read-only",
+        "--tmpfs", f"/tmp:rw,noexec,nosuid,size={limites.tmp}",
+        "--cap-drop", "ALL",
+        "--security-opt", "no-new-privileges",
+        "--memory", limites.memoria,
+        "--memory-swap", limites.memoria,
+        "--cpus", limites.cpus,
+        "--pids-limit", str(limites.pids),
+        "--user", f"{os.getuid()}:{os.getgid()}",
+    ]
+
+
+def montagens_ocultas(origem: Path, destino: str, nomes: tuple[str, ...]) -> list[str]:
+    """Cobre subpastas de `origem` com um tmpfs vazio, de root e sem escrita (ex.: `_gerador/`)."""
+    argv: list[str] = []
+    for nome in nomes:
+        if (origem / nome).exists():
+            argv += ["--mount", f"type=tmpfs,dst={destino}/{nome},tmpfs-size=4k,tmpfs-mode=0555"]
+    return argv
+
+
 @dataclass
 class LocalDockerSandbox:
     """Uma execução = um diretório em runs/<run_id>/ + um contêiner."""
@@ -112,6 +137,8 @@ class LocalDockerSandbox:
     # Subpastas das fontes que o executor não pode ver. `_gerador/` registra onde as
     # anomalias foram plantadas: seria uma folha de respostas.
     ocultar_nas_fontes: tuple[str, ...] = ("_gerador",)
+    # `fontes` deve ser uma landing zone (ver ingestao.py), com manifesto.json na raiz.
+    exigir_manifesto: bool = True
     container_id: str | None = None
 
     def __post_init__(self) -> None:
@@ -139,6 +166,11 @@ class LocalDockerSandbox:
             raise ErroSandbox(f"projeto dbt não encontrado em {self.projeto}")
         if not self.fontes.is_dir():
             raise ErroSandbox(f"pasta de fontes não encontrada: {self.fontes}")
+        if self.exigir_manifesto and not (self.fontes / "manifesto.json").is_file():
+            raise ErroSandbox(
+                f"{self.fontes} não é uma landing zone (sem manifesto.json); "
+                "rode a ingestão: python -m korda_execution.ingestao"
+            )
         if self.dir_run.exists():
             raise ErroSandbox(f"diretório da execução já existe: {self.dir_run}")
         if not imagem_existe(self.imagem):
@@ -156,25 +188,13 @@ class LocalDockerSandbox:
             "docker", "run", "--detach",
             "--name", self.nome_container,
             "--label", f"korda.run_id={self.run_id}",
-            "--network", "none",
-            "--read-only",
-            "--tmpfs", f"/tmp:rw,noexec,nosuid,size={self.limites.tmp}",
-            "--cap-drop", "ALL",
-            "--security-opt", "no-new-privileges",
-            "--memory", self.limites.memoria,
-            "--memory-swap", self.limites.memoria,
-            "--cpus", self.limites.cpus,
-            "--pids-limit", str(self.limites.pids),
-            "--user", f"{os.getuid()}:{os.getgid()}",
+            *opcoes_isolamento(self.limites),
             "--mount", f"type=bind,src={self.fontes},dst={DIR_FONTES},readonly",
             "--mount", f"type=bind,src={projeto_run},dst={DIR_PROJETO},readonly",
             "--mount", f"type=bind,src={projeto_run / 'models'},dst={DIR_MODELS}",
             "--mount", f"type=bind,src={saida_run},dst={DIR_SAIDA}",
+            *montagens_ocultas(self.fontes, DIR_FONTES, self.ocultar_nas_fontes),
         ]
-        for nome in self.ocultar_nas_fontes:
-            if (self.fontes / nome).exists():
-                # tmpfs vazio, de root e sem escrita, por cima da subpasta.
-                argv += ["--mount", f"type=tmpfs,dst={DIR_FONTES}/{nome},tmpfs-size=4k,tmpfs-mode=0555"]
         argv.append(self.imagem)
         r = subprocess.run(argv, capture_output=True, text=True)
         if r.returncode != 0:

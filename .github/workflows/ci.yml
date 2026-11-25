@@ -86,6 +86,17 @@ jobs:
           python-version: '3.11'
       - name: Build sandbox image
         run: docker build -t korda-sandbox:dev infra/sandbox
+      - name: Ingestion unit tests (inside the image, no network)
+        run: >-
+          docker run --rm --network none --read-only --tmpfs /tmp
+          --user "$(id -u):$(id -g)" -e PYTHONDONTWRITEBYTECODE=1
+          -v "$PWD/infra/sandbox:/src:ro" -e PYTHONPATH=/src
+          korda-sandbox:dev python -m unittest discover -s /src/tests -v
+      - name: Generate tuning companies for ingestion integration (03_reservada is measured by hand)
+        run: |
+          python3 -m pip install -r requirements-synthetic.txt
+          python3 data/synthetic/generator/generate.py --empresa 01_demo
+          python3 data/synthetic/generator/generate.py --empresa 02_variacao
       - name: Unit and integration tests (skipping is a failure here)
         env:
           KORDA_EXIGIR_DOCKER: '1'

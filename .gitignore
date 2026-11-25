@@ -44,3 +44,6 @@ data/external/
 
 # Saída do gerador sintético (reproduzível pela semente)
 data/synthetic/output/
+
+# Landing zone da ingestão (reproduzível a partir de data/synthetic/output/)
+data/synthetic/landing/

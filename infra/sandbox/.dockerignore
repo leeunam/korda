@@ -1,0 +1,4 @@
+# Só o necessário entra na imagem.
+**/__pycache__
+**/*.pyc
+tests/
