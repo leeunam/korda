@@ -1,0 +1,14 @@
+# Projeto dbt mínimo de teste da sandbox (dados sintéticos).
+name: korda_fixture
+version: "0.1.0"
+profile: korda
+config-version: 2
+
+# models/ tem escrita (agente); definicoes/ e tests/ são somente leitura.
+model-paths: ["models", "definicoes"]
+test-paths: ["tests"]
+
+models:
+  korda_fixture:
+    # Tabelas, não views: a consulta somente leitura não acessa arquivos externos.
+    +materialized: table
