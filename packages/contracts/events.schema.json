@@ -1,0 +1,54 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://github.com/leeunam/korda/packages/contracts/events.schema.json",
+ "title": "RunEvent",
+ "$comment": "RASCUNHO pendente de K01. Espelhado em apps/web/src/lib/events.ts. O estado dos nós na UI é derivado somente destes eventos.",
+ "type": "object",
+ "required": ["run_id", "step", "type", "message", "attempt", "ts"],
+ "additionalProperties": false,
+ "properties": {
+  "run_id": { "type": "string", "minLength": 1 },
+  "step": {
+   "description": "Nó do grafo ao qual o evento pertence.",
+   "enum": ["plan", "approval_1", "agent", "run_dbt", "write_hook", "approval_2", "deliver"]
+  },
+  "type": {
+   "enum": [
+    "task_started",
+    "file_written",
+    "test_passed",
+    "test_failed",
+    "fix_applied",
+    "write_blocked",
+    "approval_requested",
+    "approval_granted",
+    "run_completed"
+   ]
+  },
+  "message": { "type": "string", "description": "Texto legível em pt-BR." },
+  "attempt": { "type": ["integer", "null"], "minimum": 1, "maximum": 3 },
+  "ts": { "type": "string", "format": "date-time" },
+  "data": {
+   "description": "Opcional. Detalhes estruturados para o painel de inspeção.",
+   "type": "object",
+   "properties": {
+    "test": { "type": "string" },
+    "kpi": { "type": "string" },
+    "actual": { "type": "number" },
+    "expected": { "type": "number" },
+    "file": { "type": "string" }
+   }
+  }
+ },
+ "examples": [
+  {
+   "run_id": "run_demo_0001",
+   "step": "run_dbt",
+   "type": "test_failed",
+   "message": "custo_frete_entrega: obtido 237,50, esperado 166,67 (sintético)",
+   "attempt": 1,
+   "ts": "2026-11-20T14:01:12-03:00",
+   "data": { "test": "custo_frete_entrega", "kpi": "custo_frete_entrega", "actual": 237.5, "expected": 166.67 }
+  }
+ ]
+}
