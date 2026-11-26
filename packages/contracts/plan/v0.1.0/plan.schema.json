@@ -24,7 +24,7 @@
     "gaps": {"$ref": "../../context/v0.1.0/context.schema.json#/properties/gaps"},
     "state": {"enum": ["rascunho", "aguardando_aprovacao"]},
     "dataset": {"enum": ["01_demo", "02_variacao", "03_reservada", null]},
-    "editable_models": {"type": "array", "items": {"const": "models/prata_ctes.sql"}, "uniqueItems": true},
+    "editable_models": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^models/(?:[A-Za-z0-9_][A-Za-z0-9_.-]*/)*(?:[A-Za-z0-9_][A-Za-z0-9_.-]*\\.sql|\\*|\\*\\.sql)$"}},
     "period": {"type": "string", "minLength": 1},
     "metrics": {
       "type": "object",
