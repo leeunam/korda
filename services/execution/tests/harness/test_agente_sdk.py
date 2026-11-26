@@ -27,7 +27,8 @@ FERRAMENTAS_OK = [PREFIXO + n for n in ("ler_plano", "escrever_modelo", "rodar_d
 
 
 def _cfg(**extra):
-    env = {"KORDA_CORRETOR": "agente", "KORDA_PERMITIR_LLM_REAL": "1", "ANTHROPIC_API_KEY": "sk-teste", **extra}
+    env = {"KORDA_EXECUTOR": "agente_sdk", "KORDA_PERMITIR_LLM_REAL": "1", "ANTHROPIC_API_KEY": "sk-teste",
+           "KORDA_ORCAMENTO_EXECUCAO_USD": "3.00", **extra}
     return ConfigHarness.de_ambiente(env)
 
 
@@ -56,7 +57,7 @@ class TestCorretorAgente(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.emissor = EmissorEventos(Path(self.tmp.name) / "eventos.jsonl", "run-teste")
-        self.medidor = Medidor("run-teste", "agente", "claude-opus-5-5")
+        self.medidor = Medidor("run-teste", "agente_sdk", "claude-opus-5-5")
         self.f = FerramentasFalsas({MODELO: "select 1"}, [MODELO])
 
     def tearDown(self):
@@ -124,7 +125,7 @@ class TestCorretorAgente(unittest.TestCase):
         self.assertAlmostEqual(corretor.gasto_usd, 0.9)
 
     def test_exige_config_de_agente(self):
-        cfg = ConfigHarness.de_ambiente({"KORDA_CORRETOR": "falso"})
+        cfg = ConfigHarness.de_ambiente({"KORDA_EXECUTOR": "falso"})
         with self.assertRaises(ValueError):
             self._corretor(SessaoFalsa([]), cfg=cfg)
 

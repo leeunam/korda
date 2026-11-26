@@ -14,19 +14,23 @@ O harness substitui o `corrigir(falha, tentativa)` do worker por um **corretor**
 
 ## Variáveis
 
-Exemplo em [`.env.example`](../../../../.env.example).
+Exemplo em [`.env.example`](../../../../.env.example). Validadas por `ConfigHarness.de_ambiente()` ([`config.py`](config.py)).
 
 | Variável | Padrão | Efeito |
 | --- | --- | --- |
-| `KORDA_CORRETOR` | `roteirizado` | `roteirizado` (sem LLM), `falso` (testes, sem LLM) ou `agente` (LLM real). |
-| `KORDA_PERMITIR_LLM_REAL` | vazio | Precisa ser `1` para o `agente` rodar. Proteção contra gasto acidental. |
-| `ANTHROPIC_API_KEY` | vazio | Obrigatória só para o `agente`. Lida do ambiente do host; nunca vai para a sandbox, eventos ou logs. |
-| `KORDA_MODELO` | `claude-opus-5-5` | Modelo do agente. |
-| `KORDA_ORCAMENTO_EXECUCAO_USD` | `3.00` | Teto de gasto por execução, somando as tentativas. |
-| `KORDA_MAX_TURNOS_TENTATIVA` | `12` | Limite de turnos do agente em cada tentativa. |
-| `KORDA_TAXA_USD_BRL` | `6.00` | Conversão para `custo_centavos` (centavos de real). Suposição da equipe, não cotação. |
+| `KORDA_EXECUTOR` | `roteirizado` | `roteirizado` (plano B, sem LLM), `falso` (testes, sem LLM), `chat` (LLM real via chat/completions) ou `agente_sdk` (LLM real via Claude Agent SDK). |
+| `KORDA_PERMITIR_LLM_REAL` | vazio | Precisa ser `1` para `chat` ou `agente_sdk` rodarem. Proteção contra gasto acidental. |
+| `KORDA_LLM_CHAVE` | vazio | Chave do gateway (Feita) para `chat`. Fica no host; nunca vai para a sandbox, eventos ou logs. |
+| `KORDA_LLM_URL` | `https://api.feita.ai/gateway/v1` | Base da API chat/completions. Só `https`. |
+| `ANTHROPIC_API_KEY` | vazio | Só para `agente_sdk`. |
+| `KORDA_MODELO` | `anthropic/claude-opus-5.5` (`chat`) ou `claude-opus-5-5` (`agente_sdk`) | Modelo. |
+| `KORDA_ORCAMENTO_EXECUCAO_USD` | `8.00` | Teto de gasto por execução: construção mais correções. |
+| `KORDA_MAX_TURNOS_CONSTRUCAO` | `40` | Limite de turnos da construção. |
+| `KORDA_MAX_TURNOS_TENTATIVA` | `12` | Limite de turnos de cada correção. |
+| `KORDA_PRECO_ENTRADA_USD_MTOK`, `KORDA_PRECO_SAIDA_USD_MTOK` | `4.00`, `20.00` | Preço por milhão de tokens usado para **estimar** o custo no `chat` (o gateway cobra em créditos). |
+| `KORDA_TAXA_USD_BRL` | `6.00` | Conversão para centavos de real. Suposição da equipe, não cotação. |
 
-`ConfigHarness.de_ambiente()` ([`config.py`](config.py)) valida essas variáveis. Com `KORDA_CORRETOR=agente`, ela falha com mensagem clara se faltar a chave ou a permissão explícita.
+Sem a chave ou sem `KORDA_PERMITIR_LLM_REAL=1`, os executores com LLM falham com mensagem clara. `KORDA_CORRETOR`, da versão anterior, é recusada com aviso.
 
 ## Corretor agente (Claude Agent SDK)
 

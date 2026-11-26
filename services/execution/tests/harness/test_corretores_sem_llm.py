@@ -47,7 +47,7 @@ class TestFalso(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.emissor = EmissorEventos(Path(self.tmp.name) / "eventos.jsonl", "run-teste")
-        self.cfg = ConfigHarness.de_ambiente({"KORDA_CORRETOR": "falso"})
+        self.cfg = ConfigHarness.de_ambiente({"KORDA_EXECUTOR": "falso"})
         self.f = FerramentasFalsas({MODELO: "select chave from ctes"}, [MODELO])
 
     def tearDown(self):

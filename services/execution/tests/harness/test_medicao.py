@@ -10,14 +10,14 @@ from korda_execution.harness.tipos import ResultadoTentativa
 
 
 def _tentativa(n, custo_usd=0.5, custo_centavos=300, ok=True):
-    return ResultadoTentativa(tentativa=n, corretor="agente", ok=ok, motivo_parada="success", turnos=4,
+    return ResultadoTentativa(tentativa=n, corretor="chat", ok=ok, motivo_parada="success", turnos=4,
                               tokens_entrada=1000, tokens_saida=200, tokens_cache_leitura=50, custo_usd=custo_usd,
                               custo_centavos=custo_centavos, duracao_s=10.0, arquivos_escritos=["models/prata_ctes.sql"])
 
 
 class TestMedidor(unittest.TestCase):
     def test_soma_tentativas(self):
-        m = Medidor("run-1", "agente", "claude-opus-5-5")
+        m = Medidor("run-1", "chat", "claude-opus-5-5")
         m.registrar(_tentativa(1))
         m.registrar(_tentativa(2, custo_usd=0.25, custo_centavos=150, ok=False))
         r = m.resumo()
@@ -34,7 +34,7 @@ class TestMedidor(unittest.TestCase):
         self.assertFalse(r["synthetic"])
 
     def test_custo_desconhecido_marca_incompleto(self):
-        m = Medidor("run-1", "agente", "claude-opus-5-5")
+        m = Medidor("run-1", "chat", "claude-opus-5-5")
         m.registrar(_tentativa(1))
         m.registrar(_tentativa(2, custo_usd=None, custo_centavos=None))
         r = m.resumo()
@@ -47,9 +47,11 @@ class TestMedidor(unittest.TestCase):
         self.assertEqual(r["custo_centavos"], 0)
         self.assertTrue(r["custo_completo"])
 
-    def test_sintetico_quando_nao_e_agente(self):
-        for corretor in ("falso", "roteirizado"):
-            self.assertTrue(Medidor("run-1", corretor, None).resumo()["synthetic"])
+    def test_sintetico_quando_nao_usa_llm(self):
+        for executor in ("falso", "roteirizado"):
+            self.assertTrue(Medidor("run-1", executor, None).resumo()["synthetic"])
+        for executor in ("chat", "agente_sdk"):
+            self.assertFalse(Medidor("run-1", executor, None).resumo()["synthetic"])
 
     def test_grava_json(self):
         m = Medidor("run-1", "falso", "claude-opus-5-5")
@@ -59,7 +61,7 @@ class TestMedidor(unittest.TestCase):
             m.gravar(caminho)
             dados = json.loads(caminho.read_text(encoding="utf-8"))
         self.assertEqual(dados["run_id"], "run-1")
-        self.assertEqual(dados["corretor"], "falso")
+        self.assertEqual(dados["executor"], "falso")
         self.assertTrue(dados["synthetic"])
         self.assertNotIn("ANTHROPIC_API_KEY", json.dumps(dados))
 

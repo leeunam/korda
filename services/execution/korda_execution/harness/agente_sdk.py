@@ -132,11 +132,11 @@ def rodar_sessao_sdk(prompt: str, ctx: ContextoSessao) -> SaidaSessao:
 
 
 class CorretorAgente:
-    nome = "agente"
+    nome = "agente_sdk"
 
     def __init__(self, cfg: ConfigHarness, ferramentas: FerramentasAgente, plano_publico: dict, perfis: dict,
                  limite: int, emissor, medidor, rodar_sessao: RodarSessao | None = None):
-        if cfg.corretor != "agente" or not cfg.permitir_llm_real or not cfg.chave_api:
+        if cfg.executor != "agente_sdk" or not cfg.permitir_llm_real or not cfg.chave_api:
             raise ValueError("CorretorAgente exige a configuração do agente liberada (ver ConfigHarness)")
         self.cfg = cfg
         self.ferramentas = ferramentas
