@@ -38,3 +38,23 @@ class TestContratos(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestContratoComOWorker(unittest.TestCase):
+    """Depois do merge do #21: a classe real cumpre a interface que o harness usa."""
+
+    def test_ferramentas_restritas_cumprem_o_protocolo(self):
+        import inspect
+        import tempfile
+        from pathlib import Path
+
+        from korda_execution.eventos import EmissorEventos
+        from korda_execution.ferramentas import FerramentasRestritas
+
+        with tempfile.TemporaryDirectory() as d:
+            real = FerramentasRestritas(sandbox=object(), eventos=EmissorEventos(Path(d) / "e.jsonl", "r"))
+        self.assertIsInstance(real, FerramentasAgente)
+        for nome in ("ler_plano", "inspecionar_fonte", "ler_arquivo", "escrever_modelo", "rodar_dbt", "consultar_sql"):
+            with self.subTest(nome=nome):
+                esperado = list(inspect.signature(getattr(FerramentasAgente, nome)).parameters)
+                self.assertEqual(list(inspect.signature(getattr(FerramentasRestritas, nome)).parameters), esperado)
