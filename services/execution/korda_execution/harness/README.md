@@ -65,6 +65,22 @@ Entradas fora do formato (campo faltando, campo extra, valor que não é texto) 
 
 Evidências, fontes, destino e fórmulas não entram. As respostas esperadas (`evaluation/golden/`) nunca fazem parte do contexto. Se o planejador (K06) mudar, o harness depende só desses cinco campos.
 
+## Medição
+
+[`medicao.py`](medicao.py) acumula uma linha por tentativa e grava `medicao.json` (insumo da K14):
+
+| Campo | Conteúdo |
+| --- | --- |
+| `run_id`, `corretor`, `modelo` | Identificação. |
+| `synthetic` | `true` quando o corretor não é o `agente`: os números não medem um LLM real. |
+| `tentativas`, `turnos`, `duracao_s` | Soma das tentativas do corretor. |
+| `tokens_entrada`, `tokens_saida`, `tokens_cache_leitura` | Soma dos tokens informados. |
+| `custo_usd`, `custo_centavos` | Custo informado; centavos de real pela taxa configurada. |
+| `custo_completo` | `false` se alguma tentativa não informou o custo. |
+| `por_tentativa` | Detalhe de cada tentativa, inclusive arquivos escritos e motivo de parada. |
+
+A ligação com o worker (gravar em `revisao/<run>/medicao.json`) depende do #21.
+
 ## Contratos de que dependemos
 
 O harness depende só de pontos estreitos, definidos em [`tipos.py`](tipos.py):
