@@ -7,6 +7,7 @@ do harness não dependam da sandbox Docker nem do PR #21.
 from __future__ import annotations
 
 from korda_execution import caminhos
+from korda_execution.harness.politica import modelo_autorizado
 
 
 class FerramentasFalsas:
@@ -44,7 +45,7 @@ class FerramentasFalsas:
             caminhos.caminho_modelo(caminho)
         except caminhos.CaminhoRecusado as e:
             return {"ok": False, "erro": str(e)}
-        if caminho not in self.editable_models:
+        if not modelo_autorizado(caminho, self.editable_models):
             return {"ok": False, "erro": "modelo fora do escopo aprovado"}
         self.modelos[caminho] = conteudo
         self._registrar("escrever_modelo_ok", caminho)

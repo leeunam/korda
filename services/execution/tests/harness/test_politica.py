@@ -84,3 +84,22 @@ class TestHook(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestPadraoDeModelos(unittest.TestCase):
+    """O construtor recebe `models/*`: qualquer SQL em models/, nada fora."""
+
+    PADRAO = frozenset({"models/*"})
+
+    def test_permite_qualquer_sql_em_models(self):
+        for caminho in ("models/bronze_ctes.sql", "models/prata/prata_ctes.sql", "models/ouro_kpis.sql"):
+            with self.subTest(caminho=caminho):
+                entrada = {"caminho": caminho, "conteudo": "select 1"}
+                self.assertTrue(avaliar_chamada(PREFIXO + "escrever_modelo", entrada, self.PADRAO).permitir)
+
+    def test_continua_negando_fora_de_models(self):
+        for caminho in ("tests/chave_fiscal_unica.sql", "definicoes/fontes.yml", "models/schema.yml",
+                        "models/../tests/x.sql", "dbt_project.yml", "macros/x.sql"):
+            with self.subTest(caminho=caminho):
+                entrada = {"caminho": caminho, "conteudo": "select 1"}
+                self.assertFalse(avaliar_chamada(PREFIXO + "escrever_modelo", entrada, self.PADRAO).permitir)

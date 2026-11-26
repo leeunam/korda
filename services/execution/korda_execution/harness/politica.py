@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from fnmatch import fnmatchcase
 from typing import Any
 
 from .. import caminhos
@@ -32,6 +33,15 @@ def nome_curto(nome: str) -> str | None:
     return None
 
 
+def modelo_autorizado(caminho: str, editable_models) -> bool:
+    """Caminho exato ou padrão glob (ex.: `models/*`) de editable_models.
+
+    O chamador já validou o caminho com `caminhos.caminho_modelo` (só models/**/*.sql,
+    sem `..`), então o padrão não abre escrita fora de models/.
+    """
+    return any(caminho == padrao or fnmatchcase(caminho, padrao) for padrao in editable_models)
+
+
 def avaliar_chamada(nome: str, entrada: dict, editable_models: frozenset[str]) -> Decisao:
     curto = nome_curto(nome)
     if curto is None:
@@ -44,7 +54,7 @@ def avaliar_chamada(nome: str, entrada: dict, editable_models: frozenset[str]) -
             caminhos.caminho_modelo(caminho)
         except caminhos.CaminhoRecusado as e:
             return Decisao(False, str(e))
-        if caminho not in editable_models:
+        if not modelo_autorizado(caminho, editable_models):
             return Decisao(False, "modelo fora do escopo aprovado; permitidos: " + ", ".join(sorted(editable_models)))
     return Decisao(True, "permitido")
 
