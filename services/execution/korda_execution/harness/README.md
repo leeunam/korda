@@ -4,6 +4,14 @@
 
 O harness substitui o `corrigir(falha, tentativa)` do worker por um **corretor** escolhido por configuração. O corretor só pode alterar os modelos listados em `editable_models` do plano aprovado.
 
+## Corretores
+
+| Corretor | Arquivo | Usa LLM? | Para quê |
+| --- | --- | --- | --- |
+| `roteirizado` | [`roteirizado.py`](roteirizado.py) | Não | Plano B da demo. Restaura a versão revisada do modelo, como o `corrigir` atual do #21. Não descobre nada. Custo zero. |
+| `falso` | [`falso.py`](falso.py) | Não | Testes. Segue um roteiro fixo de chamadas pelo mesmo hook e o mesmo despacho do agente. Tokens e custo são sintéticos. |
+| `agente` | `agente_sdk.py` (em construção) | **Sim** | Correção real com o Claude Agent SDK. Exige a chave e `KORDA_PERMITIR_LLM_REAL=1`. |
+
 ## Variáveis
 
 Exemplo em [`.env.example`](../../../../.env.example).
