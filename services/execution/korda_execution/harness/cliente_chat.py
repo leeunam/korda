@@ -67,7 +67,10 @@ class ClienteChatHttp:
         return f"ClienteChatHttp(url={self.url!r}, modelo={self.modelo!r})"
 
     def completar(self, mensagens: list[dict], ferramentas: list[dict]) -> RespostaChat:
-        corpo = json.dumps({"model": self.modelo, "messages": mensagens, "tools": ferramentas}).encode("utf-8")
+        dados = {"model": self.modelo, "messages": mensagens}
+        if ferramentas:
+            dados["tools"] = ferramentas
+        corpo = json.dumps(dados).encode("utf-8")
         pedido = urllib.request.Request(self.url, data=corpo, method="POST", headers={
             "Authorization": f"Bearer {self._chave}", "Content-Type": "application/json"})
         try:

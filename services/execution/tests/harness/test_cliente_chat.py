@@ -69,6 +69,14 @@ class TestClienteChatHttp(unittest.TestCase):
         self.assertTrue(resposta.uso_informado)
         self.assertEqual(resposta.mensagem_assistente["tool_calls"][0]["id"], "call_1")
 
+    def test_sem_ferramentas_nao_envia_o_campo_tools(self):
+        s = _Servidor(corpo={"choices": [{"finish_reason": "stop", "message": {"role": "assistant", "content": "x"}}]})
+        try:
+            self._cliente(s).completar([{"role": "user", "content": "oi"}], [])
+        finally:
+            s.fechar()
+        self.assertNotIn("tools", s.recebidos[0]["body"])
+
     def test_resposta_sem_usage(self):
         corpo = {"choices": [{"finish_reason": "stop", "message": {"role": "assistant", "content": "pronto"}}]}
         s = _Servidor(corpo=corpo)
