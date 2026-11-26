@@ -20,6 +20,14 @@ Exemplo em [`.env.example`](../../../../.env.example).
 
 `ConfigHarness.de_ambiente()` ([`config.py`](config.py)) valida essas variáveis. Com `KORDA_CORRETOR=agente`, ela falha com mensagem clara se faltar a chave ou a permissão explícita.
 
+## Contratos de que dependemos
+
+O harness depende só de pontos estreitos, definidos em [`tipos.py`](tipos.py):
+
+- `Corretor`: mesma assinatura do `corrigir(falha, tentativa)` do worker (#21). Devolve `{"ok", "erro"?, "custo_centavos"}`. `ok: True` quer dizer "apliquei uma alteração"; quem julga é o rebuild. Custo `None` significa desconhecido, e o ciclo escala em vez de assumir zero.
+- `FerramentasAgente`: espelha os seis métodos de `FerramentasRestritas` do #21 (`ler_plano`, `inspecionar_fonte`, `ler_arquivo`, `escrever_modelo`, `rodar_dbt`, `consultar_sql`) sem importar a classe.
+- `usd_para_centavos`: converte o custo do SDK (USD) em centavos de real, arredondando para cima.
+
 ## Verificação
 
 ```bash
