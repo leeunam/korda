@@ -60,6 +60,8 @@ class TestClienteChatHttp(unittest.TestCase):
         pedido = s.recebidos[0]
         self.assertEqual(pedido["path"], "/gateway/v1/chat/completions")
         self.assertEqual(pedido["headers"]["Authorization"], "Bearer fk-teste")
+        # Cloudflare bloqueia o User-Agent padrão do urllib (HTTP 403, error code 1010).
+        self.assertTrue(pedido["headers"]["User-Agent"].startswith("korda-harness/"))
         self.assertEqual(pedido["body"]["model"], "anthropic/claude-opus-5.5")
         self.assertEqual(pedido["body"]["tools"], FERRAMENTAS)
         self.assertEqual(pedido["body"]["messages"], [{"role": "user", "content": "oi"}])

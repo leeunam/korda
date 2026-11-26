@@ -13,6 +13,9 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 
+USER_AGENT = "korda-harness/0.1"
+
+
 class ErroLLM(RuntimeError):
     """Falha de comunicação com a API do LLM."""
 
@@ -72,7 +75,7 @@ class ClienteChatHttp:
             dados["tools"] = ferramentas
         corpo = json.dumps(dados).encode("utf-8")
         pedido = urllib.request.Request(self.url, data=corpo, method="POST", headers={
-            "Authorization": f"Bearer {self._chave}", "Content-Type": "application/json"})
+            "Authorization": f"Bearer {self._chave}", "Content-Type": "application/json", "User-Agent": USER_AGENT})
         try:
             with urllib.request.urlopen(pedido, timeout=self.timeout_s) as r:
                 bruto = r.read()

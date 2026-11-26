@@ -34,6 +34,14 @@ class TestPadroes(unittest.TestCase):
         self.assertEqual(cfg.chave_api, "sk-teste")
 
 
+    def test_variaveis_vazias_usam_o_padrao(self):
+        # O .env copiado do .env.example traz KORDA_MODELO= e KORDA_LLM_URL= vazios.
+        cfg = ConfigHarness.de_ambiente({"KORDA_MODELO": "  ", "KORDA_LLM_URL": "", "KORDA_EXECUTOR": ""})
+        self.assertEqual(cfg.modelo, "anthropic/claude-opus-5.5")
+        self.assertEqual(cfg.llm_url, "https://api.feita.ai/gateway/v1")
+        self.assertEqual(cfg.executor, "roteirizado")
+
+
 class TestPortao(unittest.TestCase):
     def test_chat_sem_chave_falha_com_mensagem(self):
         for chave in (None, "", "   "):
@@ -70,7 +78,7 @@ class TestPortao(unittest.TestCase):
             {"KORDA_ORCAMENTO_EXECUCAO_USD": "nan"}, {"KORDA_MAX_TURNOS_TENTATIVA": "0"},
             {"KORDA_MAX_TURNOS_CONSTRUCAO": "2.5"}, {"KORDA_MAX_TURNOS_TENTATIVA": "²"},
             {"KORDA_TAXA_USD_BRL": "0"}, {"KORDA_PRECO_SAIDA_USD_MTOK": "-1"},
-            {"KORDA_EXECUTOR": "devin"}, {"KORDA_MODELO": "  "}, {"KORDA_CORRETOR": "agente"},
+            {"KORDA_EXECUTOR": "devin"}, {"KORDA_CORRETOR": "agente"},
         ]
         for env in invalidos:
             with self.subTest(env=env), self.assertRaises(ErroConfiguracao):

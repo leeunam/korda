@@ -450,7 +450,7 @@ Rodar uma vez `03_reservada` com o corretor configurado, **sem ajustar nada depo
 
 | # | Passo | Arquivos | Chave real? |
 |---|---|---|---|
-| B-a | Teste de fumaça do gateway: 1 chamada com uma ferramenta fictícia; confirma `tool_calls`, `usage` e o nome do modelo | script em `harness/` | **Sim, o primeiro passo que exige a chave.** Só com "pode rodar". |
+| B-a | ✅ Feito em 25/11 com autorização: o gateway devolve `tool_calls`, aceita `role: tool` e informa `usage`; cerca de US$ 0,005. Exigiu `User-Agent` próprio (Cloudflare 1010) | `harness/fumaca.py` | Sim (usada) |
 | B-b | Worker: trocar o build do pipeline à mão por `gerar_documento_base` + `construir_e_verificar`; `KORDA_EXECUTOR` escolhe o executor; gravar `documento_base.md` e `medicao.json` em `revisao/<run>/` | `worker.py` (#21) | Não |
 | B-c | Sandbox: projeto começa com `models/` vazio e gravável; `tests/`, `definicoes/`, macros e configuração só leitura; o pipeline à mão nunca é montado (só copiado pelo `roteirizado`) | `sandbox.py`, `worker.py` (#21) | Não |
 | B-d | Contrato do plano: `editable_models` aceitar `models/*` (hoje é `const` de `models/prata_ctes.sql`); worker deixa de exigir a lista fixa; toda falha de teste ou compilação nos modelos vira `implementacao` | `plan.schema.json`, `worker.py` (#21; K01/K06) | Não |

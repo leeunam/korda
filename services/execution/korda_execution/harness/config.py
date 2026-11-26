@@ -71,9 +71,7 @@ class ConfigHarness:
         executor = env.get("KORDA_EXECUTOR", "").strip() or "roteirizado"
         if executor not in EXECUTORES:
             raise ErroConfiguracao(f"KORDA_EXECUTOR deve ser um de {', '.join(EXECUTORES)}; recebido {executor!r}")
-        modelo = env.get("KORDA_MODELO", MODELO_PADRAO.get(executor, MODELO_PADRAO_CHAT)).strip()
-        if not modelo:
-            raise ErroConfiguracao("KORDA_MODELO não pode ser vazio")
+        modelo = env.get("KORDA_MODELO", "").strip() or MODELO_PADRAO.get(executor, MODELO_PADRAO_CHAT)
         url = (env.get("KORDA_LLM_URL", "").strip() or URL_PADRAO).rstrip("/")
         if not url.startswith("https://"):
             raise ErroConfiguracao(f"KORDA_LLM_URL deve usar https, recebido {url!r}")

@@ -1,6 +1,6 @@
 # Harness do executor (K08, K09, K10)
 
-**Status (25/11/2026): em construção.** O código e os testes com cliente falso existem. **Ainda não está ligado ao worker** (depende do PR #21) e **nunca rodou com LLM real**. Plano: [`2026-11-25-harness-executor.md`](../../../../docs/superpowers/plans/2026-11-25-harness-executor.md).
+**Status (25/11/2026): em construção.** O código e os testes com cliente falso existem. **Ainda não está ligado ao worker** (depende do PR #21). A única chamada real até agora foi o teste de fumaça do gateway (abaixo); a construção nunca rodou com LLM real. Plano: [`2026-11-25-harness-executor.md`](../../../../docs/superpowers/plans/2026-11-25-harness-executor.md).
 
 ## Papel
 
@@ -178,6 +178,22 @@ O harness depende só de pontos estreitos, definidos em [`tipos.py`](tipos.py):
 - `Corretor`: mesma assinatura do `corrigir(falha, tentativa)` do worker (#21). Devolve `{"ok", "erro"?, "custo_centavos"}`. `ok: True` quer dizer "apliquei uma alteração"; quem julga é o rebuild. Custo `None` significa desconhecido, e o ciclo escala em vez de assumir zero.
 - `FerramentasAgente`: espelha os seis métodos de `FerramentasRestritas` do #21 (`ler_plano`, `inspecionar_fonte`, `ler_arquivo`, `escrever_modelo`, `rodar_dbt`, `consultar_sql`) sem importar a classe.
 - `usd_para_centavos`: converte o custo do SDK (USD) em centavos de real, arredondando para cima.
+
+## Teste de fumaça do gateway
+
+[`fumaca.py`](fumaca.py) faz no máximo duas chamadas curtas: pede ao modelo que chame uma ferramenta fictícia `ping` e devolve o resultado como mensagem `role: tool`.
+
+```bash
+set -a; . ./.env; set +a          # KORDA_LLM_CHAVE no .env (ignorado pelo Git)
+cd services/execution
+KORDA_EXECUTOR=chat KORDA_PERMITIR_LLM_REAL=1 python3 -m korda_execution.harness.fumaca
+```
+
+**Resultado em 25/11/2026** (`anthropic/claude-opus-5.5` via `https://api.feita.ai/gateway/v1`):
+- gateway compatível: devolve `tool_calls` com JSON válido, aceita `role: tool` e informa `usage`;
+- 2 chamadas, 914 tokens de entrada e 54 de saída, cerca de US$ 0,005 estimados.
+
+O gateway fica atrás do Cloudflare, que recusa o `User-Agent` padrão do Python (HTTP 403, `error code: 1010`). O cliente envia `korda-harness/0.1`.
 
 ## Verificação
 
