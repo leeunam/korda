@@ -1,16 +1,40 @@
-# Harness do executor (K08, K10)
+# Harness do executor (K08, K09, K10)
 
-**Status (25/11/2026): em construção, Fase A do [plano](../../../../docs/superpowers/plans/2026-11-25-harness-executor.md).** Ainda **não** está ligado ao worker: isso depende do PR #21. Nenhuma execução real com LLM foi feita.
+**Status (25/11/2026): em construção.** O código e os testes com cliente falso existem. **Ainda não está ligado ao worker** (depende do PR #21) e **nunca rodou com LLM real**. Plano: [`2026-11-25-harness-executor.md`](../../../../docs/superpowers/plans/2026-11-25-harness-executor.md).
 
-O harness substitui o `corrigir(falha, tentativa)` do worker por um **corretor** escolhido por configuração. O corretor só pode alterar os modelos listados em `editable_models` do plano aprovado.
+## Papel
 
-## Corretores
+Decisão do responsável pela execução (25/11/2026): **o harness constrói o pipeline; o worker só orquestra.** O worker gera o documento-base (uma chamada de API), prepara a sandbox, chama o harness e depois avalia e entrega. O pipeline dbt feito à mão no #21 deixa de ser o produto e vira o executor `roteirizado` (plano B da demo), fora do alcance do agente.
 
-| Corretor | Arquivo | Usa LLM? | Para quê |
+```
+contexto das entrevistas (P1) ─┐
+plano aprovado (aprovação 1) ──┴─▶ worker: gerar_documento_base()  ── 1 chamada de API, sem ferramentas
+                                        │
+                                        ▼
+                         worker: sandbox (sem rede, testes e fontes só leitura, models/ gravável)
+                                        │
+                                        ▼
+               harness: construir_e_verificar()
+                 1. ExecutorChat.construir(documento_base)  → escreve bronze/prata/ouro
+                 2. dbt build (testes protegidos)
+                 3. falhou? ExecutorChat(falha, tentativa)  → até 3 correções; depois, pede ajuda
+                                        │
+                                        ▼
+                         worker: avaliador independente → aprovação 2 → entrega
+```
+
+O modelo nunca executa nada: ele só pede ferramentas. Cada pedido passa pela política ([`politica.py`](politica.py)) e só então vira um comando na sandbox. A chave fica no processo do host.
+
+## Executores
+
+| `KORDA_EXECUTOR` | Arquivo | Usa LLM? | O que faz |
 | --- | --- | --- | --- |
-| `roteirizado` | [`roteirizado.py`](roteirizado.py) | Não | Plano B da demo. Restaura a versão revisada do modelo, como o `corrigir` atual do #21. Não descobre nada. Custo zero. |
-| `falso` | [`falso.py`](falso.py) | Não | Testes. Segue um roteiro fixo de chamadas pelo mesmo hook e o mesmo despacho do agente. Tokens e custo são sintéticos. |
-| `agente` | [`agente_sdk.py`](agente_sdk.py) | **Sim** | Correção real com o Claude Agent SDK. Exige a chave e `KORDA_PERMITIR_LLM_REAL=1`. |
+| `chat` | [`executor_chat.py`](executor_chat.py), [`sessao_chat.py`](sessao_chat.py), [`cliente_chat.py`](cliente_chat.py) | **Sim** | Constrói e corrige com loop próprio de ferramentas sobre uma API chat/completions (gateway da Feita). Custo estimado pelos tokens. |
+| `agente_sdk` | [`agente_sdk.py`](agente_sdk.py) | **Sim** | Só correção, com o Claude Agent SDK. Exige chave da Anthropic. Guardado para quando houver uma. |
+| `roteirizado` | [`roteirizado.py`](roteirizado.py) | Não | Plano B: `ConstrutorRoteirizado` copia o pipeline feito à mão; `CorretorRoteirizado` restaura o modelo revisado. **Não demonstra construção por IA.** |
+| `falso` | [`falso.py`](falso.py), `ClienteChatFalso` | Não | Testes. Roteiro fixo de chamadas pelo mesmo caminho do agente; tokens e custo sintéticos. |
+
+O documento-base é gerado por [`documento_base.py`](../documento_base.py), responsabilidade do worker: contexto + plano entram, saem as seções Modelos, Regras aplicadas, Métricas, Testes de aceite e Premissas e lacunas. O prompt proíbe inventar regras; o que falta vira lacuna.
 
 ## Variáveis
 
@@ -32,9 +56,9 @@ Exemplo em [`.env.example`](../../../../.env.example). Validadas por `ConfigHarn
 
 Sem a chave ou sem `KORDA_PERMITIR_LLM_REAL=1`, os executores com LLM falham com mensagem clara. `KORDA_CORRETOR`, da versão anterior, é recusada com aviso.
 
-## Corretor agente (Claude Agent SDK)
+## Executor `agente_sdk` (Claude Agent SDK, só correção)
 
-[`agente_sdk.py`](agente_sdk.py) é o único arquivo que importa o `claude-agent-sdk` (versão fixada em [`requirements-harness.txt`](../../../../requirements-harness.txt)). **Ainda não foi executado com LLM real.** O primeiro ensaio é a Tarefa 12 do plano, depois do merge do #21 e com autorização do responsável pela chave.
+[`agente_sdk.py`](agente_sdk.py) é o único arquivo que importa o `claude-agent-sdk` (versão fixada em [`requirements-harness.txt`](../../../../requirements-harness.txt)). **Ainda não foi executado com LLM real.** Com a chave atual (gateway chat/completions da Feita), ele não se aplica; o executor usado é o `chat`.
 
 O SDK roda o CLI do Claude Code **no host**, onde estão o repositório e as respostas esperadas. Por isso, cada sessão:
 
@@ -107,7 +131,18 @@ Evidências, fontes, destino e fórmulas não entram. As respostas esperadas (`e
 | `custo_completo` | `false` se alguma tentativa não informou o custo. |
 | `por_tentativa` | Detalhe de cada tentativa, inclusive arquivos escritos e motivo de parada. |
 
-A ligação com o worker (gravar em `revisao/<run>/medicao.json`) depende do #21.
+A construção aparece como tentativa `0`. A ligação com o worker (gravar em `revisao/<run>/medicao.json`) depende do #21.
+
+## Orçamento do executor `chat`
+
+| Limite | Valor | Comportamento |
+| --- | --- | --- |
+| Orçamento total | `KORDA_ORCAMENTO_EXECUCAO_USD` (8,00) | Esgotado, a fase devolve `ok: False` sem chamar a API, e uma pessoa decide. |
+| Construção | até 60% do total, com folga de 10% | Para com `error_max_budget_usd` e escala. |
+| Cada correção | restante ÷ tentativas que faltam, com folga de 10% | Idem. |
+| Turnos | 40 na construção, 12 por correção | Para com `error_max_turns`. |
+
+O custo é **estimado**: tokens informados pelo gateway × `KORDA_PRECO_*`. A Feita cobra em créditos; a referência real é o saldo. Sem `usage` na resposta, o custo fica desconhecido e consome o teto da fase no controle de orçamento.
 
 ## Adaptador de eventos para o front (provisório)
 

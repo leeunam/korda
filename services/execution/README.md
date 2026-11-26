@@ -6,7 +6,7 @@ O executor não modifica fontes, testes ou gabaritos. Até três correções por
 
 ## Estado (23/11/2026)
 
-**Rascunho para [K08](https://github.com/leeunam/korda/issues/8) e [K09](https://github.com/leeunam/korda/issues/9).** Existem a sandbox local em Docker, as ferramentas restritas e a ingestão de nível 0 (arquivos exportados → landing zone em Parquet), com testes. O [harness](korda_execution/harness/README.md) (K10) existe em código e testes com cliente falso, mas **ainda não está ligado ao worker** (depende do PR #21) e **nunca rodou com LLM real**. **Ainda não existem:** o ciclo de correção com limite, os modelos dos três indicadores (K09), as aprovações (K07) e a sandbox em nuvem. Os tipos de evento são provisórios até a [K01](https://github.com/leeunam/korda/issues/1).
+**Rascunho para [K08](https://github.com/leeunam/korda/issues/8) e [K09](https://github.com/leeunam/korda/issues/9).** Existem a sandbox local em Docker, as ferramentas restritas e a ingestão de nível 0 (arquivos exportados → landing zone em Parquet), com testes. **Decisão de 25/11/2026:** o [harness](korda_execution/harness/README.md) constrói o pipeline a partir do plano aprovado e do documento-base; o worker só orquestra (documento-base por chamada de API, sandbox, harness, avaliação e entrega). O harness existe em código e testes com cliente falso, mas **ainda não está ligado ao worker** (depende do PR #21) e **nunca rodou com LLM real**. **Ainda não existem:** o ciclo de correção com limite, os modelos dos três indicadores (K09), as aprovações (K07) e a sandbox em nuvem. Os tipos de evento são provisórios até a [K01](https://github.com/leeunam/korda/issues/1).
 
 | Caminho | Conteúdo |
 | --- | --- |
@@ -18,12 +18,13 @@ O executor não modifica fontes, testes ou gabaritos. Até três correções por
 | [`korda_execution/sandbox.py`](korda_execution/sandbox.py) | Interface `Sandbox` (`criar`, `enviar_arquivos`, `rodar_comando`, `destruir`) e `LocalDockerSandbox`. |
 | [`korda_execution/ferramentas.py`](korda_execution/ferramentas.py) | Ferramentas que o harness vai expor ao agente. |
 | [`korda_execution/caminhos.py`](korda_execution/caminhos.py) | Política de caminhos e lista branca do dbt. |
-| [`korda_execution/harness/`](korda_execution/harness/README.md) | Corretores (`roteirizado`, `falso`, `agente` com o Claude Agent SDK), política e hook `PreToolUse`, contexto do agente, medição e adaptador provisório de eventos para o front. |
+| [`korda_execution/harness/`](korda_execution/harness/README.md) | Executores (`chat` constrói e corrige via chat/completions; `agente_sdk`; `roteirizado` como plano B; `falso`), política e hook, contexto, orçamento, medição, `construir_e_verificar` e adaptador provisório de eventos (com custo) para o front. |
+| [`korda_execution/documento_base.py`](korda_execution/documento_base.py) | Chamada de API do worker que gera o documento-base (especificação) a partir do contexto e do plano. |
 | [`korda_execution/eventos.py`](korda_execution/eventos.py) | `emit_event` provisório (JSONL por execução). |
 | [`korda_execution/smoke.py`](korda_execution/smoke.py) | Teste de fumaça: ingere as fontes do gerador e sobe a sandbox sobre a landing. |
 | [`tests/`](tests/fixtures/README.md) | Testes unitários e de integração; fixture dbt com dados sintéticos. |
 
-O worker (processo Python no host) usa só a biblioteca padrão e o CLI do Docker. As dependências ficam na imagem. A exceção é o corretor `agente` do harness, que precisa do `claude-agent-sdk` no host ([`requirements-harness.txt`](../../requirements-harness.txt)); os outros corretores e os testes funcionam sem ele.
+O worker (processo Python no host) usa só a biblioteca padrão e o CLI do Docker. As dependências ficam na imagem. O executor `chat` e o documento-base também usam só a biblioteca padrão. A exceção é o executor `agente_sdk`, que precisa do `claude-agent-sdk` no host ([`requirements-harness.txt`](../../requirements-harness.txt)); os testes funcionam sem ele.
 
 Fluxo de nível 0: **fontes brutas** (`data/synthetic/output/<empresa>`) → **ingestão** (contêiner efêmero) → **landing zone** em Parquet → **sandbox** (`/work/fontes`). A ingestão não limpa nada: duplicatas, cancelados e formatos mistos chegam intactos para o agente tratar conforme o plano. Detalhes em [`korda_ingestao/README.md`](../../infra/sandbox/korda_ingestao/README.md).
 

@@ -435,3 +435,35 @@ Rodar uma vez `03_reservada` com o corretor configurado, **sem ajustar nada depo
 3. `docker build -t korda-sandbox:dev infra/sandbox` e repetir 2 → aceites da Tarefa 11 com cliente falso
 4. `python -m services.execution.korda_execution.harness.adaptador_eventos runs/worker/revisao/<run>/eventos.jsonl --synthetic` → JSON válido contra `events.schema.json`
 5. Só com autorização: Tarefa 12
+
+## Revisão de 25/11/2026 (tarde): o harness constrói; o worker orquestra
+
+**Decisões do Gabriel:**
+1. A chave disponível é do gateway da Feita (`https://api.feita.ai/gateway/v1/chat/completions`, formato OpenAI). O Agent SDK não fala esse formato. O executor principal passa a ser `chat`: loop próprio de ferramentas, só com a biblioteca padrão. O `agente_sdk` fica guardado.
+2. **O harness constrói o pipeline inteiro (bronze, prata e ouro) a partir do plano**, e corrige até 3 vezes. O pipeline feito à mão do #21 vira o executor `roteirizado` (plano B), fora do alcance do agente.
+3. **O worker só orquestra:** (a) uma chamada de API gera o documento-base a partir do contexto das entrevistas e do plano; (b) prepara a sandbox; (c) chama `construir_e_verificar`; (d) avaliador, aprovação 2 e entrega.
+4. Orçamento de US$ 8 por execução: construção até 60%; correções dividem o restante. Custo estimado por tokens, porque a Feita cobra em créditos. O custo vai para o front em `data` dos eventos.
+
+**Já implementado (sem LLM, sem #21):** `config.py` (executores e variáveis), `cliente_chat.py`, `sessao_chat.py`, `executor_chat.py`, `ConstrutorRoteirizado`, contexto de construção (tarefas em ordem topológica e métricas completas), `editable_models` com padrão `models/*`, `documento_base.py`, `orquestracao.py` e o custo no adaptador.
+
+**Nova Fase B (depois do merge do #21), substitui as Tarefas 10–12:**
+
+| # | Passo | Arquivos | Chave real? |
+|---|---|---|---|
+| B-a | Teste de fumaça do gateway: 1 chamada com uma ferramenta fictícia; confirma `tool_calls`, `usage` e o nome do modelo | script em `harness/` | **Sim, o primeiro passo que exige a chave.** Só com "pode rodar". |
+| B-b | Worker: trocar o build do pipeline à mão por `gerar_documento_base` + `construir_e_verificar`; `KORDA_EXECUTOR` escolhe o executor; gravar `documento_base.md` e `medicao.json` em `revisao/<run>/` | `worker.py` (#21) | Não |
+| B-c | Sandbox: projeto começa com `models/` vazio e gravável; `tests/`, `definicoes/`, macros e configuração só leitura; o pipeline à mão nunca é montado (só copiado pelo `roteirizado`) | `sandbox.py`, `worker.py` (#21) | Não |
+| B-d | Contrato do plano: `editable_models` aceitar `models/*` (hoje é `const` de `models/prata_ctes.sql`); worker deixa de exigir a lista fixa; toda falha de teste ou compilação nos modelos vira `implementacao` | `plan.schema.json`, `worker.py` (#21; K01/K06) | Não |
+| B-e | Aceites sem LLM (Docker + `ClienteChatFalso`): construção falsa escreve o pipeline e o avaliador aprova; falha sem solução chega ao limite; escrita em teste ou fonte recusada pela política e pelo kernel | testes (#21) | Não |
+| B-f | Ensaio real no `01_demo` com `KORDA_EXECUTOR=chat`: documento-base, construção, correções, avaliador; anotar o saldo de créditos antes e depois | — | **Sim** |
+| B-g | Pacote de entrega (proposta, K13): projeto dbt, resultados, `dbt docs`, `decisoes.md`, `execucao.md` (o que o agente fez e quanto custou), manifesto | promoção (#21) | Não |
+
+**Mudança pedida ao leeunam (#21):**
+- O worker deixa de rodar o pipeline à mão como caminho principal. Ele chama `gerar_documento_base` e depois `construir_e_verificar(construtor, corretor, tentar, executar_etapa, registrar, limite=…, documento_base=…)`.
+- A sandbox começa com `models/` vazio.
+- O pipeline à mão vira o executor `roteirizado`.
+- A classificação `implementacao` passa a cobrir qualquer falha de teste ou compilação de modelo, não só `chave_fiscal_unica`.
+- `editable_models` passa a aceitar padrão.
+- Perguntas:
+  1. O documento-base passa pela aprovação 1, junto com o plano?
+  2. Quem mantém o `plano.py` por template, já que ele substitui a K06 por enquanto?
