@@ -20,6 +20,16 @@ Exemplo em [`.env.example`](../../../../.env.example).
 
 `ConfigHarness.de_ambiente()` ([`config.py`](config.py)) valida essas variáveis. Com `KORDA_CORRETOR=agente`, ela falha com mensagem clara se faltar a chave ou a permissão explícita.
 
+## Camadas de proteção
+
+Em ordem de autoridade:
+
+1. **Kernel (a barreira real).** A sandbox monta o projeto dbt em modo somente leitura e deixa graváveis só os arquivos de `editable_models`, sem rede (`--network none`). No #21, isso fica em `sandbox.py`. Nesta branch a montagem por arquivo ainda não existe na `main`.
+2. **Ferramentas restritas.** `caminhos.caminho_modelo` aceita só `models/**/*.sql`, e `FerramentasRestritas` recusa modelos fora do plano.
+3. **Hook `PreToolUse`** ([`politica.py`](politica.py)). Recusa qualquer ferramenta fora de `mcp__korda__*` e qualquer escrita fora de `editable_models`, com motivo para o agente e evento `tool_refused` (`dados.origem = "hook"`). A mensagem do evento não repete a entrada da ferramenta.
+
+O hook é uma camada extra. Sozinho, não garante isolamento.
+
 ## Contratos de que dependemos
 
 O harness depende só de pontos estreitos, definidos em [`tipos.py`](tipos.py):
