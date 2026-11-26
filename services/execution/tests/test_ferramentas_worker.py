@@ -41,6 +41,14 @@ class TestFerramentas(unittest.TestCase):
         self.sandbox.enviar_arquivos.assert_called_once_with({f"/work/projeto/{caminho}": b"select 1"})
         self.assertEqual(self.eventos.ler()[-1]["type"], "file_written")
 
+    def test_padrao_do_plano_autoriza_qualquer_sql_em_models(self):
+        ferramentas = FerramentasRestritas(self.sandbox, self.eventos, plano_aprovado={"plan_version": 1},
+                                           modelos_permitidos=frozenset(["models/*"]))
+        self.assertTrue(ferramentas.escrever_modelo("models/ouro_kpis.sql", "select 1")["ok"])
+        self.assertFalse(ferramentas.escrever_modelo("tests/chave_fiscal_unica.sql", "select 1")["ok"])
+        self.assertFalse(ferramentas.escrever_modelo("models/fontes.yml", "x")["ok"])
+        self.sandbox.enviar_arquivos.assert_called_once_with({"/work/projeto/models/ouro_kpis.sql": b"select 1"})
+
     def test_sem_plano_e_sem_modelos_autorizados(self):
         self.assertFalse(FerramentasRestritas(self.sandbox, self.eventos).ler_plano()["ok"])
         ferramentas = FerramentasRestritas(self.sandbox, self.eventos, plano_aprovado={"version": 1})
