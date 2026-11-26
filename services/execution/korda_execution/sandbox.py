@@ -6,7 +6,7 @@ explícitas:
 
     /work/fontes          somente leitura  (landing zone em Parquet das fontes sintéticas)
     /work/projeto         somente leitura  (dbt_project, profiles, definicoes/, tests/)
-    /work/projeto/models  escrita          (modelos que o agente pode criar)
+    /work/projeto/models  somente os SQL autorizados para escrita (diretório inteiro na fixture avulsa)
     /work/saida           escrita          (banco DuckDB, target/ e logs/ do dbt)
 
 Isto é isolamento de demo, não de produção: o kernel é compartilhado com o host.
@@ -23,6 +23,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
+from .caminhos import DIR_PROJETO, caminho_modelo
+
 RAIZ_REPO = Path(__file__).resolve().parents[3]
 IMAGEM_PADRAO = os.environ.get("KORDA_SANDBOX_IMAGE", "korda-sandbox:dev")
 RAIZ_RUNS_PADRAO = RAIZ_REPO / "runs"
@@ -30,7 +32,6 @@ LIMITE_SAIDA = 20_000  # caracteres de stdout/stderr devolvidos (mantém o final
 FOLGA_TIMEOUT_HOST = 15  # segundos extras antes de o host desistir do `docker exec`
 
 DIR_FONTES = "/work/fontes"
-DIR_PROJETO = "/work/projeto"
 DIR_MODELS = "/work/projeto/models"
 DIR_SAIDA = "/work/saida"
 
@@ -95,7 +96,10 @@ def docker_disponivel() -> bool:
 
 
 def imagem_existe(imagem: str = IMAGEM_PADRAO) -> bool:
-    r = subprocess.run(["docker", "image", "inspect", imagem], capture_output=True)
+    try:
+        r = subprocess.run(["docker", "image", "inspect", imagem], capture_output=True, timeout=20)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
     return r.returncode == 0
 
 
@@ -138,16 +142,31 @@ class LocalDockerSandbox:
     # Subpastas das fontes que o executor não pode ver. `_gerador/` registra onde as
     # anomalias foram plantadas: seria uma folha de respostas.
     ocultar_nas_fontes: tuple[str, ...] = ("_gerador",)
+    # None é a sandbox avulsa do PR #19. O worker aprovado passa uma lista explícita,
+    # inclusive vazia quando nenhum modelo da versão pode receber correções.
+    modelos_permitidos: tuple[str, ...] | None = None
     # `fontes` deve ser uma landing zone (ver ingestao.py), com manifesto.json na raiz.
+    # O worker do plano aprovado ainda recebe fontes brutas e desliga esta exigência;
+    # unificar as duas ingestões é pendência registrada no README da execução.
     exigir_manifesto: bool = True
-    container_id: str | None = None
+    container_id: str | None = field(default=None, init=False)
+    _diretorio_proprio: bool = field(default=False, init=False, repr=False)
 
     def __post_init__(self) -> None:
-        if not _RUN_ID.match(self.run_id):
+        if not isinstance(self.run_id, str) or not _RUN_ID.fullmatch(self.run_id):
             raise ErroSandbox(f"run_id inválido: {self.run_id!r}")
         self.projeto = Path(self.projeto).resolve()
         self.fontes = Path(self.fontes).resolve()
         self.raiz_runs = Path(self.raiz_runs).resolve()
+        if self.modelos_permitidos is not None:
+            self.modelos_permitidos = tuple(self.modelos_permitidos)
+            if len(set(self.modelos_permitidos)) != len(self.modelos_permitidos):
+                raise ErroSandbox("lista de modelos permitidos contém caminho repetido")
+            for nome in self.modelos_permitidos:
+                caminho_modelo(nome)
+                modelo = self.projeto / nome
+                if modelo.resolve() != modelo or not modelo.is_file():
+                    raise ErroSandbox(f"modelo autorizado precisa existir como arquivo regular do projeto: {nome}")
 
     @property
     def dir_run(self) -> Path:
@@ -172,13 +191,28 @@ class LocalDockerSandbox:
                 f"{self.fontes} não é uma landing zone (sem manifesto.json); "
                 "rode a ingestão: python -m korda_execution.ingestao"
             )
-        if self.dir_run.exists():
-            raise ErroSandbox(f"diretório da execução já existe: {self.dir_run}")
         if not imagem_existe(self.imagem):
             raise ErroSandbox(
                 f"imagem {self.imagem} não encontrada; rode: docker build -t {self.imagem} infra/sandbox"
             )
+        try:
+            self.dir_run.mkdir(mode=0o700, parents=True, exist_ok=False)
+        except FileExistsError as e:
+            raise ErroSandbox(f"diretório da execução já existe: {self.dir_run}") from e
+        self._diretorio_proprio = True
+        try:
+            self._iniciar()
+        except BaseException:
+            # O Docker pode ter criado o contêiner antes de o CLI devolver um erro.
+            cidfile = self.dir_run / "container.cid"
+            if cidfile.is_file():
+                cid = cidfile.read_text().strip()
+                if re.fullmatch(r"[0-9a-f]{64}", cid):
+                    self.container_id = cid
+            self.destruir()
+            raise
 
+    def _iniciar(self) -> None:
         projeto_run = self.dir_run / "projeto"
         saida_run = self.dir_run / "saida"
         shutil.copytree(self.projeto, projeto_run, symlinks=False)
@@ -186,20 +220,23 @@ class LocalDockerSandbox:
         saida_run.mkdir(parents=True)
 
         argv = [
-            "docker", "run", "--detach",
+            "docker", "run", "--detach", "--pull", "never", "--cidfile", str(self.dir_run / "container.cid"),
             "--name", self.nome_container,
             "--label", f"korda.run_id={self.run_id}",
             *opcoes_isolamento(self.limites),
             "--mount", f"type=bind,src={self.fontes},dst={DIR_FONTES},readonly",
             "--mount", f"type=bind,src={projeto_run},dst={DIR_PROJETO},readonly",
-            "--mount", f"type=bind,src={projeto_run / 'models'},dst={DIR_MODELS}",
             "--mount", f"type=bind,src={saida_run},dst={DIR_SAIDA}",
             *montagens_ocultas(self.fontes, DIR_FONTES, self.ocultar_nas_fontes),
         ]
+        if self.modelos_permitidos is None:
+            argv += ["--mount", f"type=bind,src={projeto_run / 'models'},dst={DIR_MODELS}"]
+        else:
+            for nome in self.modelos_permitidos:
+                argv += ["--mount", f"type=bind,src={projeto_run / nome},dst={caminho_modelo(nome)}"]
         argv.append(self.imagem)
-        r = subprocess.run(argv, capture_output=True, text=True)
+        r = subprocess.run(argv, capture_output=True, text=True, timeout=90)
         if r.returncode != 0:
-            shutil.rmtree(self.dir_run, ignore_errors=True)
             raise ErroSandbox(f"docker run falhou: {r.stderr.strip()}")
         self.container_id = r.stdout.strip()
 
@@ -253,10 +290,18 @@ class LocalDockerSandbox:
                 raise ErroSandbox(f"escrita recusada em {destino}: {r.stderr.strip()}")
 
     def destruir(self, apagar_diretorio: bool = True) -> None:
-        subprocess.run(["docker", "rm", "--force", self.nome_container], capture_output=True)
-        self.container_id = None
+        if not self._diretorio_proprio:
+            return
+        if self.container_id:
+            r = subprocess.run(
+                ["docker", "rm", "--force", self.container_id], capture_output=True, text=True, timeout=45
+            )
+            if r.returncode != 0 and "No such container" not in r.stderr:
+                raise ErroSandbox(f"não foi possível remover o contêiner da execução: {r.stderr.strip()}")
+            self.container_id = None
         if apagar_diretorio:
-            shutil.rmtree(self.dir_run, ignore_errors=True)
+            shutil.rmtree(self.dir_run)
+            self._diretorio_proprio = False
 
     def __enter__(self) -> "LocalDockerSandbox":
         self.criar()

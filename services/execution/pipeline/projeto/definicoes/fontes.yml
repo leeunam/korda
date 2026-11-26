@@ -1,0 +1,10 @@
+version: 2
+sources:
+  - name: sinteticas
+    schema: main
+    tables:
+      - name: bronze_pedidos
+      - name: bronze_entregas
+      - name: bronze_viagens
+      - name: bronze_veiculos
+      - name: bronze_documentos

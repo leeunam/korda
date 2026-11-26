@@ -11,6 +11,7 @@ COPY requirements.txt /opt/korda/requirements.txt
 RUN pip install -r /opt/korda/requirements.txt
 
 COPY consulta.py /opt/korda/consulta.py
+COPY perfil.py /opt/korda/perfil.py
 # Ingestão de arquivos exportados para a landing zone em Parquet (ver korda_ingestao/README.md).
 COPY korda_ingestao /opt/korda/korda_ingestao
 

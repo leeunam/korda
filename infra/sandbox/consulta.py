@@ -22,10 +22,13 @@ def main():
     try:
         con.execute("SET enable_external_access = false")
         con.execute("SET lock_configuration = true")
+        consultas = con.extract_statements(sql)
+        if len(consultas) != 1 or consultas[0].type != duckdb.StatementType.SELECT:
+            raise ValueError("a consulta deve conter um único SELECT")
         cursor = con.execute(sql)
         colunas = [d[0] for d in cursor.description] if cursor.description else []
         linhas = cursor.fetchmany(LIMITE_LINHAS + 1)
-    except duckdb.Error as erro:
+    except (duckdb.Error, ValueError) as erro:
         print(json.dumps({"erro": str(erro)}, ensure_ascii=False))
         return 1
     finally:
