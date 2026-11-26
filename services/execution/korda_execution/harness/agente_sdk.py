@@ -26,7 +26,7 @@ from .config import ConfigHarness
 from .contexto import SISTEMA, montar_prompt
 from .ferramentas_agente import ESPECIFICACOES, despachar
 from .politica import FERRAMENTAS, PREFIXO, STEP, HookPreToolUse, hook_pre_tool_use
-from .tipos import FerramentasAgente, ResultadoTentativa, usd_para_centavos
+from .tipos import FerramentasAgente, ResultadoTentativa, SaidaSessao, usd_para_centavos
 
 EMBUTIDAS = (
     "Bash", "BashOutput", "KillShell", "Read", "Write", "Edit", "MultiEdit", "NotebookEdit", "Glob", "Grep",
@@ -37,15 +37,6 @@ FOLGA_ORCAMENTO = 0.9
 
 class ErroSegurancaHarness(RuntimeError):
     """A sessão do agente expôs algo fora da política; a tentativa é abortada."""
-
-
-@dataclass
-class SaidaSessao:
-    subtype: str
-    num_turns: int
-    total_cost_usd: float | None
-    usage: dict
-    ferramentas_sessao: list[str] = field(default_factory=list)
 
 
 @dataclass

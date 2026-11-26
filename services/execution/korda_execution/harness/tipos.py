@@ -53,6 +53,16 @@ class ResultadoTentativa:
         return asdict(self)
 
 
+@dataclass
+class SaidaSessao:
+    """Resultado de uma sessão de agente (chat ou SDK)."""
+    subtype: str
+    num_turns: int
+    total_cost_usd: float | None
+    usage: dict
+    ferramentas_sessao: list[str] = field(default_factory=list)
+
+
 def usd_para_centavos(usd: float | None, taxa: float) -> int | None:
     """Converte dólares em centavos de real, arredondando para cima."""
     if usd is None:
