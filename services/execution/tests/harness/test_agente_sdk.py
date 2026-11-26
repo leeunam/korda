@@ -21,7 +21,8 @@ from .fakes import FerramentasFalsas
 MODELO = "models/prata_ctes.sql"
 FALHA = {"ok": False, "codigo": "implementacao", "erro": "Failure in test chave_fiscal_unica"}
 PLANO = {"plan_version": "a" * 64, "editable_models": [MODELO], "limits": {"max_repair_attempts_per_step": 3},
-         "rules": {"deduplicar_cte": True}, "metrics": {"custo_frete_por_entrega": {"acceptance": ["única"]}}}
+         "rules": {"deduplicar_cte": True}, "metrics": {"custo_frete_por_entrega": {"acceptance": ["única"]}},
+         "tasks": [{"id": "prata", "depends_on": [], "output": "ctes", "verify": "única"}]}
 SDK_INSTALADO = importlib.util.find_spec("claude_agent_sdk") is not None
 FERRAMENTAS_OK = [PREFIXO + n for n in ("ler_plano", "escrever_modelo", "rodar_dbt")]
 
