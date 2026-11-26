@@ -100,6 +100,16 @@ class TestExecutorChat(unittest.TestCase):
                          fins[0]["dados"]["custo_centavos"] + fins[1]["dados"]["custo_centavos"])
         self.assertEqual(self.emissor.ler()[0]["type"], "build_started")
 
+    def test_documento_base_desconta_do_orcamento_e_entra_no_custo_total(self):
+        executor = self._executor([_escreve("models/a.sql"), RespostaChat.texto("ok")])
+        executor.descontar_documento_base(0.5)
+        executor.descontar_documento_base(None)
+        self.assertAlmostEqual(executor.restante_usd, 7.5)
+        self.assertAlmostEqual(executor.teto_construcao(), 4.8 * 0.9)
+        executor.construir(None)
+        fim = [e for e in self.emissor.ler() if e["type"] == "agent_finished"][0]["dados"]
+        self.assertEqual(fim["custo_total_centavos"], 300 + fim["custo_centavos"])
+
     def test_custo_desconhecido_consome_o_teto(self):
         sem_uso = _escreve("models/a.sql")
         sem_uso.uso_informado = False

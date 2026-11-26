@@ -44,6 +44,12 @@ class ExecutorChat:
     def restante_usd(self) -> float:
         return self.cfg.orcamento_execucao_usd - self.gasto_usd
 
+    def descontar_documento_base(self, custo_usd: float | None) -> None:
+        """O documento-base (chamada do worker) sai do mesmo orçamento da execução."""
+        if custo_usd:
+            self.gasto_usd += custo_usd
+            self.custo_total_centavos += usd_para_centavos(custo_usd, self.cfg.taxa_usd_brl) or 0
+
     def teto_construcao(self) -> float:
         return min(self.restante_usd, self.cfg.orcamento_execucao_usd * FRACAO_CONSTRUCAO) * FOLGA
 
