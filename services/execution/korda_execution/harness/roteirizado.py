@@ -26,3 +26,24 @@ class CorretorRoteirizado:
             return {"ok": False, "erro": "modelo indisponível ou já corresponde à versão revisada", "custo_centavos": 0}
         alteracao = self.ferramentas.escrever_modelo(self.modelo, correto)
         return {**alteracao, "custo_centavos": 0}
+
+
+class ConstrutorRoteirizado:
+    """Plano B da demo: copia o pipeline feito à mão para a sandbox. Sem LLM, custo zero.
+
+    Não demonstra construção por IA; existe para a demo não depender do LLM.
+    """
+
+    nome = "roteirizado"
+
+    def __init__(self, ferramentas: FerramentasAgente, modelos: dict[str, str]):
+        self.ferramentas = ferramentas
+        self.modelos = dict(modelos)
+
+    def construir(self, documento_base: str | None) -> dict:
+        for caminho, conteudo in sorted(self.modelos.items()):
+            resultado = self.ferramentas.escrever_modelo(caminho, conteudo)
+            if not resultado.get("ok"):
+                return {"ok": False, "erro": f"{caminho}: {resultado.get('erro', 'escrita recusada')}",
+                        "custo_centavos": 0}
+        return {"ok": True, "custo_centavos": 0}
