@@ -111,7 +111,7 @@ def _montar(contexto, destino, custo, dataset):
         schema_version=VERSAO, context_revision=contexto["revision"], context_state=contexto["state"],
         state="aguardando_aprovacao" if contexto["state"] == "pronto_para_planejamento" else "rascunho",
         metrics=metricas, tasks=tarefas, dataset=dataset,
-        editable_models=["models/prata_ctes.sql"] if dataset == "01_demo" else [],
+        editable_models=["models/*"] if dataset == "01_demo" else [],
         period="Lote sintético de fontes autorizado para a execução inteira, sem recorte adicional de datas.",
         limits={"max_repair_attempts_per_step": 3}, destination=destino, cost_estimate_brl_cents=custo,
     )

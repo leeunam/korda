@@ -13,6 +13,8 @@ from jsonschema import ValidationError
 from .aprovacoes import Registro
 from .artefatos import entregar
 from .sandbox import ErroSandbox, RAIZ_REPO
+from .harness.cliente_chat import ErroLLM
+from .harness.config import ErroConfiguracao
 from .worker import executar
 
 
@@ -28,6 +30,9 @@ def main(argv=None):
     rodar = sub.add_parser("executar", help="processar o lote sintético da versão aprovada")
     rodar.add_argument("plano", type=Path)
     rodar.add_argument("--run-id", help="identificador novo; o padrão é aleatório")
+    rodar.add_argument("--contexto", type=Path,
+                       help="contexto validado das entrevistas (contrato context v0.1.0) que originou o plano; "
+                            "obrigatório com KORDA_EXECUTOR=chat, que gera o documento-base")
     sub.add_parser("consultar", help="ver estado, manifesto e histórico").add_argument("run_id")
     entrega = sub.add_parser("decidir-entrega", help="registrar a decisão humana sobre a entrega avaliada")
     entrega.add_argument("run_id")
@@ -48,7 +53,8 @@ def main(argv=None):
             else:
                 run_id = args.run_id or uuid.uuid4().hex
                 print(f"Execução {run_id}", file=sys.stderr, flush=True)
-                resultado = executar(registro, plano, run_id, raiz=raiz,
+                contexto = json.loads(args.contexto.read_text(encoding="utf-8")) if args.contexto else None
+                resultado = executar(registro, plano, run_id, raiz=raiz, contexto=contexto,
                                      fontes=RAIZ_REPO / "data/synthetic/output/01_demo")
         elif args.comando == "decidir-plano":
             resultado = registro.decidir_plano(args.projeto, args.versao, args.pessoa, args.decisao == "aprovar")
@@ -60,7 +66,8 @@ def main(argv=None):
             resultado = registro.consultar(args.run_id)
         print(json.dumps(resultado, ensure_ascii=False, indent=2))
         return 0
-    except (OSError, ValueError, ErroSandbox, ValidationError, sqlite3.Error, subprocess.SubprocessError) as exc:
+    except (OSError, ValueError, ErroSandbox, ValidationError, sqlite3.Error, subprocess.SubprocessError,
+            ErroConfiguracao, ErroLLM) as exc:
         print(f"Operação interrompida: {exc}", file=sys.stderr)
         return 1
 
