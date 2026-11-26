@@ -14,6 +14,6 @@ Revisar conjuntamente enumerações, obrigatoriedade, erros e compatibilidade. A
 
 ## Rascunhos
 
-- [events.schema.json](events.schema.json): evento de execução usado pela UI do grafo (K12). Acrescenta `write_blocked`, `approval_granted` e o campo opcional `data`. **Rascunho** até K01 fechar o contrato; o worker deve emitir este formato.
+- [events.schema.json](events.schema.json): evento de execução usado pela UI do grafo (K12). Acrescenta `write_blocked`, `approval_granted` e o campo opcional `data`. **Rascunho** até K01 fechar o contrato; o worker deve emitir este formato. Enquanto o worker emite outro formato, o [adaptador provisório](../../services/execution/korda_execution/harness/README.md#adaptador-de-eventos-para-o-front-provisório) traduz os eventos.
 
 Proposta em andamento: [seção de ingestão do plano v0.1.0](ingestion_plan/v0.1.0/README.md), com schema, validador e exemplos sintéticos. Ainda sem revisão conjunta das frentes.

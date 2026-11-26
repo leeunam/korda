@@ -70,7 +70,7 @@ Os testes de nível 1 também precisam de `docker build -t korda-simulados:dev i
 
 ## Estado (25/11/2026)
 
-**Rascunho para [K08](https://github.com/leeunam/korda/issues/8), [K09](https://github.com/leeunam/korda/issues/9) e [K10](https://github.com/leeunam/korda/issues/10).** Existem a sandbox local em Docker, as ferramentas restritas, a ingestão de níveis 0 e 1, o worker com as duas aprovações, o ciclo de até três correções e o avaliador independente, com testes. **O pipeline dbt dos três indicadores é escrito à mão** (referência e plano B da demo), e a correção é roteirizada. **Ainda não existem nesta versão:** o agente que constrói e corrige com LLM (harness, K10), a sandbox em nuvem e a unificação das duas ingestões. O worker ainda recebe fontes brutas (`exigir_manifesto=False`); a sandbox avulsa exige a landing zone. Os tipos de evento são provisórios até a [K01](https://github.com/leeunam/korda/issues/1).
+**Rascunho para [K08](https://github.com/leeunam/korda/issues/8), [K09](https://github.com/leeunam/korda/issues/9) e [K10](https://github.com/leeunam/korda/issues/10).** Existem a sandbox local em Docker, as ferramentas restritas, a ingestão de níveis 0 e 1, o worker com as duas aprovações, o ciclo de até três correções e o avaliador independente, com testes. **O pipeline dbt dos três indicadores é escrito à mão** (referência e plano B da demo), e a correção é roteirizada. **Decisão de 25/11/2026:** o [harness](korda_execution/harness/README.md) constrói o pipeline a partir do plano aprovado e do [documento-base](korda_execution/documento_base.py); o worker só orquestra. O harness existe com testes de cliente falso e um teste de fumaça real do gateway, mas **ainda não está ligado ao worker** e a construção nunca rodou com LLM real. **Ainda não existem nesta versão:** essa ligação (com `models/` vazio na sandbox e as travas do worker afrouxadas), a sandbox em nuvem e a unificação das duas ingestões. O worker ainda recebe fontes brutas (`exigir_manifesto=False`); a sandbox avulsa exige a landing zone. Os tipos de evento são provisórios até a [K01](https://github.com/leeunam/korda/issues/1).
 
 ## Componentes
 
@@ -84,12 +84,14 @@ Os testes de nível 1 também precisam de `docker build -t korda-simulados:dev i
 | [`korda_execution/sandbox.py`](korda_execution/sandbox.py) | Interface `Sandbox` (`criar`, `enviar_arquivos`, `rodar_comando`, `destruir`) e `LocalDockerSandbox`. |
 | [`korda_execution/ferramentas.py`](korda_execution/ferramentas.py) | Ferramentas que o harness vai expor ao agente. |
 | [`korda_execution/caminhos.py`](korda_execution/caminhos.py) | Política de caminhos e lista branca do dbt. |
+| [`korda_execution/harness/`](korda_execution/harness/README.md) | Executores (`chat` constrói e corrige via chat/completions; `agente_sdk`; `roteirizado` como plano B; `falso`), política e hook, contexto, orçamento, medição, `construir_e_verificar` e adaptador provisório de eventos (com custo) para o front. |
+| [`korda_execution/documento_base.py`](korda_execution/documento_base.py) | Chamada de API do worker que gera o documento-base (especificação) a partir do contexto e do plano. |
 | [`korda_execution/eventos.py`](korda_execution/eventos.py) | `emit_event` provisório (JSONL por execução). |
 | [`korda_execution/smoke.py`](korda_execution/smoke.py) | Teste de fumaça: ingere as fontes do gerador e sobe a sandbox sobre a landing. |
 | [`pipeline/`](pipeline/README.md) | Pipeline dbt da 01 escrito à mão (referência e plano B). |
 | [`tests/`](tests/fixtures/README.md) | Testes unitários e de integração; fixture dbt com dados sintéticos. |
 
-O worker (processo Python no host) usa só a biblioteca padrão e o CLI do Docker. As dependências ficam na imagem.
+O worker (processo Python no host) usa só a biblioteca padrão e o CLI do Docker. As dependências ficam na imagem. O executor `chat` e o documento-base também usam só a biblioteca padrão. A exceção é o executor `agente_sdk`, que precisa do `claude-agent-sdk` no host ([`requirements-harness.txt`](../../requirements-harness.txt)); os testes funcionam sem ele.
 
 Fluxo de nível 0: **fontes brutas** (`data/synthetic/output/<empresa>`) → **ingestão** (contêiner efêmero) → **landing zone** em Parquet → **sandbox** (`/work/fontes`). A ingestão não limpa nada: duplicatas, cancelados e formatos mistos chegam intactos para o agente tratar conforme o plano. Detalhes em [`korda_ingestao/README.md`](../../infra/sandbox/korda_ingestao/README.md).
 
