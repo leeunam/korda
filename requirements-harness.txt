@@ -1,0 +1,4 @@
+# Dependências do harness do executor (host/worker), Python 3.11+.
+# Versão fixada com pelo menos duas semanas de publicação (0.2.180, 09/11/2026).
+# O pacote traz o CLI do Claude Code embutido. Instalar não chama o LLM.
+claude-agent-sdk==0.2.180
