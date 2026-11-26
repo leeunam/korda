@@ -105,6 +105,30 @@ Evidências, fontes, destino e fórmulas não entram. As respostas esperadas (`e
 
 A ligação com o worker (gravar em `revisao/<run>/medicao.json`) depende do #21.
 
+## Adaptador de eventos para o front (provisório)
+
+O worker grava `eventos.jsonl` no formato do `EmissorEventos` (steps em português, `dados`, `attempt` até 4). O front (`apps/web`) espera o [`events.schema.json`](../../../../packages/contracts/events.schema.json). [`adaptador_eventos.py`](adaptador_eventos.py) traduz um no outro e é o único ponto de contato. **O mapeamento é provisório**, pendente da K01 e do José (P4):
+
+| Worker (`step/type`) | Front (`step/type`) |
+| --- | --- |
+| `plano/run_started` | `plan/task_started` |
+| `modelos/test_failed` | `run_dbt/test_failed` |
+| `modelos/test_passed` | `run_dbt/test_passed` |
+| `modelos/fix_started` | `agent/task_started` |
+| `modelos/fix_applied` | `agent/fix_applied` |
+| `construcao/file_written` | `agent/file_written` (`dados.caminho` → `data.file`) |
+| `construcao/tool_refused` de `escrever_modelo` ou do hook | `write_hook/write_blocked` |
+| demais (`intervention_requested`, `evaluation_finished`, `run_failed`, `agent_finished`, `dbt_*`, `query_*`, recusas de leitura) | não mapeados: contados em `nao_mapeados` e fora da exportação |
+
+`attempt` fora de 1 a 3 vira `null`, com o valor original em `data.attempt_original`. A exportação tem o formato de `apps/web/src/data/seed-run.json`:
+
+```bash
+cd services/execution
+python3 -m korda_execution.harness.adaptador_eventos ../../runs/worker/revisao/<run>/eventos.jsonl --synthetic
+```
+
+Perguntas em aberto para o José: como representar o escalonamento (`intervention_requested`) e a avaliação no grafo; se `attempt` 4 vira `null` ou o schema passa a aceitar 4; se o front pode carregar esta exportação no lugar do seed.
+
 ## Contratos de que dependemos
 
 O harness depende só de pontos estreitos, definidos em [`tipos.py`](tipos.py):
