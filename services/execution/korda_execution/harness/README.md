@@ -30,6 +30,21 @@ Em ordem de autoridade:
 
 O hook é uma camada extra. Sozinho, não garante isolamento.
 
+## Ferramentas do agente
+
+O agente só enxerga seis ferramentas, descritas em [`ferramentas_agente.py`](ferramentas_agente.py) e expostas como `mcp__korda__<nome>`. Todas passam por `FerramentasRestritas`, que executa dentro da sandbox:
+
+| Ferramenta | Efeito |
+| --- | --- |
+| `ler_plano` | Projeção do plano aprovado. |
+| `inspecionar_fonte` | Perfil de uma fonte do catálogo autorizado. |
+| `ler_arquivo` | Leitura de um arquivo do projeto dbt. |
+| `escrever_modelo` | Escrita de SQL só em `editable_models`. |
+| `rodar_dbt` | dbt com subcomandos em lista branca. A saída devolvida ao agente fica nos últimos 8.000 caracteres. |
+| `consultar_sql` | SQL somente leitura no DuckDB da execução. |
+
+Entradas fora do formato (campo faltando, campo extra, valor que não é texto) são recusadas sem chamar a ferramenta.
+
 ## Contratos de que dependemos
 
 O harness depende só de pontos estreitos, definidos em [`tipos.py`](tipos.py):
