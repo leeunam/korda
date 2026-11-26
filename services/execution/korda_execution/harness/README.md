@@ -10,7 +10,7 @@ O harness substitui o `corrigir(falha, tentativa)` do worker por um **corretor**
 | --- | --- | --- | --- |
 | `roteirizado` | [`roteirizado.py`](roteirizado.py) | Não | Plano B da demo. Restaura a versão revisada do modelo, como o `corrigir` atual do #21. Não descobre nada. Custo zero. |
 | `falso` | [`falso.py`](falso.py) | Não | Testes. Segue um roteiro fixo de chamadas pelo mesmo hook e o mesmo despacho do agente. Tokens e custo são sintéticos. |
-| `agente` | `agente_sdk.py` (em construção) | **Sim** | Correção real com o Claude Agent SDK. Exige a chave e `KORDA_PERMITIR_LLM_REAL=1`. |
+| `agente` | [`agente_sdk.py`](agente_sdk.py) | **Sim** | Correção real com o Claude Agent SDK. Exige a chave e `KORDA_PERMITIR_LLM_REAL=1`. |
 
 ## Variáveis
 
@@ -27,6 +27,30 @@ Exemplo em [`.env.example`](../../../../.env.example).
 | `KORDA_TAXA_USD_BRL` | `6.00` | Conversão para `custo_centavos` (centavos de real). Suposição da equipe, não cotação. |
 
 `ConfigHarness.de_ambiente()` ([`config.py`](config.py)) valida essas variáveis. Com `KORDA_CORRETOR=agente`, ela falha com mensagem clara se faltar a chave ou a permissão explícita.
+
+## Corretor agente (Claude Agent SDK)
+
+[`agente_sdk.py`](agente_sdk.py) é o único arquivo que importa o `claude-agent-sdk` (versão fixada em [`requirements-harness.txt`](../../../../requirements-harness.txt)). **Ainda não foi executado com LLM real.** O primeiro ensaio é a Tarefa 12 do plano, depois do merge do #21 e com autorização do responsável pela chave.
+
+O SDK roda o CLI do Claude Code **no host**, onde estão o repositório e as respostas esperadas. Por isso, cada sessão:
+
+- desliga as ferramentas embutidas (`tools=[]`, que o SDK 0.2.180 passa como `--tools ""`) e lista as embutidas em `disallowed_tools`;
+- libera só as seis `mcp__korda__*`, em modo `dontAsk`, e o hook nega todo o resto;
+- roda com `cwd` numa pasta temporária vazia e `setting_sources=[]` (não lê `CLAUDE.md` nem configurações do disco);
+- é **abortada** (`ErroSegurancaHarness`) se o `init` da sessão listar qualquer ferramenta fora de `mcp__korda__*`. Se isso acontecer no primeiro ensaio real, o plano prevê trocar para a Messages API atrás do mesmo `Corretor`.
+
+O SDK herda o ambiente do processo. Rode o worker com o ambiente mínimo, sem outras credenciais.
+
+Limites por execução:
+
+| Limite | Valor | Comportamento |
+| --- | --- | --- |
+| Orçamento total | `KORDA_ORCAMENTO_EXECUCAO_USD` (3,00) | Esgotado, a tentativa devolve `ok: False` sem abrir sessão, e a etapa escala para uma pessoa. |
+| Teto por tentativa | `min(restante, total/3) × 0,9` | Folga de 10%, porque a estimativa do SDK pode passar do teto. |
+| Turnos por tentativa | `KORDA_MAX_TURNOS_TENTATIVA` (12) | O SDK encerra com `error_max_turns`. |
+| Tentativas | `limits.max_repair_attempts_per_step` do plano (3) | Controladas pelo ciclo do worker, não pelo harness. |
+
+Resultado de cada tentativa: `ok: True` só se o agente escreveu um modelo autorizado e a sessão não terminou em erro. Quem julga a correção é o rebuild. Sem escrita, devolve `ok: False` com o motivo, e o ciclo escala na hora. Custo desconhecido vira `custo_centavos: None` (o ciclo escala) e consome o teto da tentativa no controle de orçamento. Cada tentativa emite `agent_finished` com `subtype`, turnos, custo, arquivos escritos e a lista de ferramentas da sessão.
 
 ## Camadas de proteção
 
