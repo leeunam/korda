@@ -34,6 +34,7 @@ class TestTraduzir(unittest.TestCase):
             (_ev("construcao", "file_written", caminho="models/prata_ctes.sql"), ("agent", "file_written")),
             (_ev("construcao", "tool_refused", ferramenta="escrever_modelo"), ("write_hook", "write_blocked")),
             (_ev("construcao", "tool_refused", ferramenta="Bash", origem="hook"), ("write_hook", "write_blocked")),
+            (_ev("construcao", "build_started"), ("agent", "task_started")),
         ]
         for evento, esperado in casos:
             with self.subTest(evento=evento["type"]):
@@ -71,6 +72,29 @@ class TestTraduzir(unittest.TestCase):
         for evento in eventos:
             with self.subTest(evento=evento["type"]):
                 jsonschema.validate(traduzir(evento), schema)
+
+
+class TestCusto(unittest.TestCase):
+    def test_custo_acompanha_os_eventos_depois_que_e_conhecido(self):
+        custo = {"custo_total_centavos": 120, "orcamento_centavos": 4800, "custo_estimado": True, "custo_usd": 0.2}
+        eventos = [_ev("construcao", "build_started"), _ev("construcao", "file_written", caminho="models/a.sql"),
+                   _ev("construcao", "agent_finished", **custo), _ev("modelos", "test_failed")]
+        with tempfile.TemporaryDirectory() as d:
+            jsonl = Path(d) / "eventos.jsonl"
+            jsonl.write_text("".join(json.dumps(e) + "\n" for e in eventos), encoding="utf-8")
+            saida = exportar_execucao(jsonl, synthetic=False)
+        self.assertNotIn("custo_total_centavos", saida["events"][1].get("data", {}))
+        self.assertEqual(saida["events"][2]["data"]["custo_total_centavos"], 120)
+        self.assertEqual(saida["events"][2]["data"]["orcamento_centavos"], 4800)
+        self.assertTrue(saida["events"][2]["data"]["custo_estimado"])
+        self.assertEqual(saida["custo"], {"custo_total_centavos": 120, "orcamento_centavos": 4800,
+                                          "custo_estimado": True})
+
+    def test_sem_custo(self):
+        with tempfile.TemporaryDirectory() as d:
+            jsonl = Path(d) / "eventos.jsonl"
+            jsonl.write_text(json.dumps(_ev("plano", "run_started")) + "\n", encoding="utf-8")
+            self.assertIsNone(exportar_execucao(jsonl, synthetic=True)["custo"])
 
 
 class TestExportar(unittest.TestCase):

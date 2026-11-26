@@ -21,10 +21,12 @@ MAPA: dict[tuple[str, str], tuple[str, str]] = {
     ("modelos", "test_passed"): ("run_dbt", "test_passed"),
     ("modelos", "fix_started"): ("agent", "task_started"),
     ("modelos", "fix_applied"): ("agent", "fix_applied"),
+    ("construcao", "build_started"): ("agent", "task_started"),
     ("construcao", "file_written"): ("agent", "file_written"),
     # Só recusas de escrita ou do hook; ver _recusa_de_escrita.
     ("construcao", "tool_refused"): ("write_hook", "write_blocked"),
 }
+CAMPOS_CUSTO = ("custo_total_centavos", "orcamento_centavos", "custo_estimado")
 NOTA = ("Exportado de eventos.jsonl do worker pelo adaptador provisório "
         "(services/execution/korda_execution/harness/adaptador_eventos.py); contrato pendente da K01.")
 
@@ -60,13 +62,20 @@ def exportar_execucao(jsonl: Path, *, synthetic: bool) -> dict:
     if not linhas:
         raise ValueError(f"nenhum evento em {jsonl}")
     eventos, nao_mapeados = [], Counter()
+    custo: dict | None = None
     for ev in linhas:
+        dados = ev.get("dados") or {}
+        if "custo_total_centavos" in dados:
+            # Custo acumulado (estimado) mais recente: segue nos eventos seguintes para o front.
+            custo = {k: dados[k] for k in CAMPOS_CUSTO if k in dados}
         traduzido = traduzir(ev)
         if traduzido is None:
             nao_mapeados[f"{ev.get('step')}/{ev.get('type')}"] += 1
-        else:
-            eventos.append(traduzido)
-    return {"run_id": linhas[0]["run_id"], "synthetic": synthetic, "note": NOTA, "events": eventos,
+            continue
+        if custo:
+            traduzido["data"] = {**traduzido.get("data", {}), **custo}
+        eventos.append(traduzido)
+    return {"run_id": linhas[0]["run_id"], "synthetic": synthetic, "note": NOTA, "custo": custo, "events": eventos,
             "nao_mapeados": dict(sorted(nao_mapeados.items()))}
 
 

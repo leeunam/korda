@@ -120,11 +120,14 @@ O worker grava `eventos.jsonl` no formato do `EmissorEventos` (steps em portugu�
 | `modelos/test_passed` | `run_dbt/test_passed` |
 | `modelos/fix_started` | `agent/task_started` |
 | `modelos/fix_applied` | `agent/fix_applied` |
+| `construcao/build_started` | `agent/task_started` |
 | `construcao/file_written` | `agent/file_written` (`dados.caminho` → `data.file`) |
 | `construcao/tool_refused` de `escrever_modelo` ou do hook | `write_hook/write_blocked` |
 | demais (`intervention_requested`, `evaluation_finished`, `run_failed`, `agent_finished`, `dbt_*`, `query_*`, recusas de leitura) | não mapeados: contados em `nao_mapeados` e fora da exportação |
 
-`attempt` fora de 1 a 3 vira `null`, com o valor original em `data.attempt_original`. A exportação tem o formato de `apps/web/src/data/seed-run.json`:
+`attempt` fora de 1 a 3 vira `null`, com o valor original em `data.attempt_original`.
+
+**Gasto no front.** Cada `agent_finished` traz o custo acumulado. A partir dele, todo evento exportado leva em `data` os campos `custo_total_centavos`, `orcamento_centavos` e `custo_estimado: true`, e a exportação ganha um bloco `custo` no topo com o valor mais recente. Não muda o contrato, porque `data` é aberto. O valor é **estimado** pelos tokens; o gateway cobra em créditos. A exportação tem o formato de `apps/web/src/data/seed-run.json`:
 
 ```bash
 cd services/execution
