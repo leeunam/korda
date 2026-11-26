@@ -53,6 +53,18 @@ O agente só enxerga seis ferramentas, descritas em [`ferramentas_agente.py`](fe
 
 Entradas fora do formato (campo faltando, campo extra, valor que não é texto) são recusadas sem chamar a ferramenta.
 
+## O que o agente vê
+
+[`contexto.py`](contexto.py) monta o contexto de cada tentativa:
+
+- um prompt de sistema fixo, com as regras: só `editable_models`, nunca testes, fontes ou regras; se a correção exigir mudar regra, parar e explicar;
+- o número da tentativa e o limite do plano;
+- o erro do build, já cortado pelo worker;
+- a projeção do plano, só com `plan_version`, `editable_models`, `limits`, `rules` (valores) e `metrics[*].acceptance`;
+- os perfis das fontes, cortados em 12.000 caracteres.
+
+Evidências, fontes, destino e fórmulas não entram. As respostas esperadas (`evaluation/golden/`) nunca fazem parte do contexto. Se o planejador (K06) mudar, o harness depende só desses cinco campos.
+
 ## Contratos de que dependemos
 
 O harness depende só de pontos estreitos, definidos em [`tipos.py`](tipos.py):
