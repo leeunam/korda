@@ -4,7 +4,7 @@ O worker (este processo, no host) controla a sandbox pelo CLI do Docker. Código
 roda só dentro do contêiner, que não tem rede, não tem root e só enxerga montagens
 explícitas:
 
-    /work/fontes          somente leitura  (fontes sintéticas)
+    /work/fontes          somente leitura  (landing zone em Parquet das fontes sintéticas)
     /work/projeto         somente leitura  (dbt_project, profiles, definicoes/, tests/)
     /work/projeto/models  somente os SQL autorizados para escrita (diretório inteiro na fixture avulsa)
     /work/saida           escrita          (banco DuckDB, target/ e logs/ do dbt)
@@ -103,6 +103,32 @@ def imagem_existe(imagem: str = IMAGEM_PADRAO) -> bool:
     return r.returncode == 0
 
 
+def opcoes_isolamento(limites: Limites, rede: str = "none") -> list[str]:
+    """Opções de `docker run` comuns à sandbox e à ingestão: sem rede (ou só uma rede interna
+    de sistemas simulados), sem root, sem privilégios."""
+    return [
+        "--network", rede,
+        "--read-only",
+        "--tmpfs", f"/tmp:rw,noexec,nosuid,size={limites.tmp}",
+        "--cap-drop", "ALL",
+        "--security-opt", "no-new-privileges",
+        "--memory", limites.memoria,
+        "--memory-swap", limites.memoria,
+        "--cpus", limites.cpus,
+        "--pids-limit", str(limites.pids),
+        "--user", f"{os.getuid()}:{os.getgid()}",
+    ]
+
+
+def montagens_ocultas(origem: Path, destino: str, nomes: tuple[str, ...]) -> list[str]:
+    """Cobre subpastas de `origem` com um tmpfs vazio, de root e sem escrita (ex.: `_gerador/`)."""
+    argv: list[str] = []
+    for nome in nomes:
+        if (origem / nome).exists():
+            argv += ["--mount", f"type=tmpfs,dst={destino}/{nome},tmpfs-size=4k,tmpfs-mode=0555"]
+    return argv
+
+
 @dataclass
 class LocalDockerSandbox:
     """Uma execução = um diretório em runs/<run_id>/ + um contêiner."""
@@ -119,6 +145,10 @@ class LocalDockerSandbox:
     # None é a sandbox avulsa do PR #19. O worker aprovado passa uma lista explícita,
     # inclusive vazia quando nenhum modelo da versão pode receber correções.
     modelos_permitidos: tuple[str, ...] | None = None
+    # `fontes` deve ser uma landing zone (ver ingestao.py), com manifesto.json na raiz.
+    # O worker do plano aprovado ainda recebe fontes brutas e desliga esta exigência;
+    # unificar as duas ingestões é pendência registrada no README da execução.
+    exigir_manifesto: bool = True
     container_id: str | None = field(default=None, init=False)
     _diretorio_proprio: bool = field(default=False, init=False, repr=False)
 
@@ -156,6 +186,11 @@ class LocalDockerSandbox:
             raise ErroSandbox(f"projeto dbt não encontrado em {self.projeto}")
         if not self.fontes.is_dir():
             raise ErroSandbox(f"pasta de fontes não encontrada: {self.fontes}")
+        if self.exigir_manifesto and not (self.fontes / "manifesto.json").is_file():
+            raise ErroSandbox(
+                f"{self.fontes} não é uma landing zone (sem manifesto.json); "
+                "rode a ingestão: python -m korda_execution.ingestao"
+            )
         if not imagem_existe(self.imagem):
             raise ErroSandbox(
                 f"imagem {self.imagem} não encontrada; rode: docker build -t {self.imagem} infra/sandbox"
@@ -188,29 +223,17 @@ class LocalDockerSandbox:
             "docker", "run", "--detach", "--pull", "never", "--cidfile", str(self.dir_run / "container.cid"),
             "--name", self.nome_container,
             "--label", f"korda.run_id={self.run_id}",
-            "--network", "none",
-            "--read-only",
-            "--tmpfs", f"/tmp:rw,noexec,nosuid,size={self.limites.tmp}",
-            "--cap-drop", "ALL",
-            "--security-opt", "no-new-privileges",
-            "--memory", self.limites.memoria,
-            "--memory-swap", self.limites.memoria,
-            "--cpus", self.limites.cpus,
-            "--pids-limit", str(self.limites.pids),
-            "--user", f"{os.getuid()}:{os.getgid()}",
+            *opcoes_isolamento(self.limites),
             "--mount", f"type=bind,src={self.fontes},dst={DIR_FONTES},readonly",
             "--mount", f"type=bind,src={projeto_run},dst={DIR_PROJETO},readonly",
             "--mount", f"type=bind,src={saida_run},dst={DIR_SAIDA}",
+            *montagens_ocultas(self.fontes, DIR_FONTES, self.ocultar_nas_fontes),
         ]
         if self.modelos_permitidos is None:
             argv += ["--mount", f"type=bind,src={projeto_run / 'models'},dst={DIR_MODELS}"]
         else:
             for nome in self.modelos_permitidos:
                 argv += ["--mount", f"type=bind,src={projeto_run / nome},dst={caminho_modelo(nome)}"]
-        for nome in self.ocultar_nas_fontes:
-            if (self.fontes / nome).exists():
-                # tmpfs vazio, de root e sem escrita, por cima da subpasta.
-                argv += ["--mount", f"type=tmpfs,dst={DIR_FONTES}/{nome},tmpfs-size=4k,tmpfs-mode=0555"]
         argv.append(self.imagem)
         r = subprocess.run(argv, capture_output=True, text=True, timeout=90)
         if r.returncode != 0:

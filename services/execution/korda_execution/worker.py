@@ -130,7 +130,8 @@ def executar(registro, plano, run_id, *, raiz: Path, fontes: Path) -> dict:
             _snapshot(Path(fontes), snapshot)
             verificar_ativa()
             sandbox = LocalDockerSandbox(run_id, PROJETO, snapshot, raiz_runs=raiz / "sandbox",
-                                         modelos_permitidos=tuple(plano["editable_models"]))
+                                         modelos_permitidos=tuple(plano["editable_models"]),
+                                         exigir_manifesto=False)
             try:
                 sandbox.criar()
                 publico = {k: plano[k] for k in ("project_id", "plan_version", "dataset", "metrics",

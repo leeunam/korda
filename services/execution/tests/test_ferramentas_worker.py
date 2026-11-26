@@ -117,7 +117,7 @@ class TestPropriedadeDaExecucao(unittest.TestCase):
                 with self.assertRaises(ErroSandbox):
                     LocalDockerSandbox("restrita", projeto, raiz, modelos_permitidos=(nome,))
             sb = LocalDockerSandbox("restrita", projeto, raiz, raiz_runs=raiz/"runs",
-                                    modelos_permitidos=("models/aprovado.sql",))
+                                    modelos_permitidos=("models/aprovado.sql",), exigir_manifesto=False)
             with patch("korda_execution.sandbox.imagem_existe", return_value=True), \
                  patch("korda_execution.sandbox.os.getuid", return_value=1000), \
                  patch("korda_execution.sandbox.subprocess.run") as docker:
@@ -137,8 +137,8 @@ class TestPropriedadeDaExecucao(unittest.TestCase):
             raiz = Path(temp)
             (raiz / "dbt_project.yml").write_text("name: teste\n")
             runs = raiz / "runs"
-            primeira = LocalDockerSandbox("mesmo", raiz, raiz, raiz_runs=runs)
-            segunda = LocalDockerSandbox("mesmo", raiz, raiz, raiz_runs=runs)
+            primeira = LocalDockerSandbox("mesmo", raiz, raiz, raiz_runs=runs, exigir_manifesto=False)
+            segunda = LocalDockerSandbox("mesmo", raiz, raiz, raiz_runs=runs, exigir_manifesto=False)
             with patch("korda_execution.sandbox.imagem_existe", return_value=True), \
                  patch("korda_execution.sandbox.os.getuid", return_value=1000), \
                  patch.object(primeira, "_iniciar"), patch("korda_execution.sandbox.subprocess.run") as docker:
@@ -157,7 +157,7 @@ class TestPropriedadeDaExecucao(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             raiz = Path(temp)
             (raiz / "dbt_project.yml").write_text("name: teste\n")
-            sb = LocalDockerSandbox("parcial", raiz, raiz, raiz_runs=raiz / "runs")
+            sb = LocalDockerSandbox("parcial", raiz, raiz, raiz_runs=raiz / "runs", exigir_manifesto=False)
             with patch("korda_execution.sandbox.imagem_existe", return_value=True), \
                  patch("korda_execution.sandbox.os.getuid", return_value=1000), \
                  patch.object(sb, "_iniciar", side_effect=OSError("falha durante preparação")):
@@ -180,7 +180,7 @@ class TestFerramentasNaSandbox(unittest.TestCase):
             (projeto / "models/protegido.sql").write_text("select 2")
             run_id = f"ferramentas-{uuid.uuid4().hex[:12]}"
             with LocalDockerSandbox(run_id, projeto, fontes, raiz_runs=raiz / "runs",
-                                    modelos_permitidos=("models/aprovado.sql",)) as sb:
+                                    modelos_permitidos=("models/aprovado.sql",), exigir_manifesto=False) as sb:
                 ferramentas = FerramentasRestritas(sb, EmissorEventos(raiz / "eventos.jsonl", run_id))
                 sb.enviar_arquivos({"/work/projeto/models/aprovado.sql": b"select 3"})
                 with self.assertRaises(ErroSandbox):

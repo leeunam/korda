@@ -12,6 +12,8 @@ RUN pip install -r /opt/korda/requirements.txt
 
 COPY consulta.py /opt/korda/consulta.py
 COPY perfil.py /opt/korda/perfil.py
+# Ingestão de arquivos exportados para a landing zone em Parquet (ver korda_ingestao/README.md).
+COPY korda_ingestao /opt/korda/korda_ingestao
 
 # Usuário sem root. Em execução o worker passa --user <uid>:<gid> do host para casar com as montagens.
 RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin korda
@@ -22,7 +24,8 @@ ENV DBT_PROFILES_DIR=/work/projeto \
     DBT_TARGET_PATH=/work/saida/target \
     DBT_LOG_PATH=/work/saida/logs \
     DBT_SEND_ANONYMOUS_USAGE_STATS=false \
-    HOME=/tmp
+    HOME=/tmp \
+    PYTHONPATH=/opt/korda
 
 WORKDIR /work/projeto
 # O contêiner fica parado esperando `docker exec`; o worker o destrói no fim.

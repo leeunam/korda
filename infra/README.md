@@ -9,3 +9,7 @@ A sandbox local **não é isolamento de produção**: compartilha o kernel do ho
 O avaliador lê os resultados no host depois do desligamento do contêiner. A equipe ainda precisa confirmar o destino operacional da apresentação.
 
 Não expor o Docker socket ou credenciais administrativas ao agente. Toda chamada externa de voz, LLM ou eventos deve ser identificada no trajeto de dados e nos custos. A demo sintética não comprova isolamento adequado para dados de clientes.
+
+## Sistemas simulados do cliente (nível 1)
+
+[`sistemas-simulados/`](sistemas-simulados/README.md): ERP em Postgres, TMS por API HTTP e pasta diária de CT-e, numa rede Docker interna sem internet, com replay por dias. Servem só dados sintéticos e **não são conectores reais**.
