@@ -1,26 +1,22 @@
 "use client";
 
 import { useCallback, useMemo, useState, useSyncExternalStore } from "react";
+import { maxX, SIDEBAR_DEFAULT_X, SIDEBAR_MIN_X, storageKey, type Axis } from "./panelBounds";
 
-export type Axis = "x" | "y";
+export type { Axis };
 
 /** Mesmo breakpoint do `md:` do Tailwind: acima dele o painel fica ao lado do grafo. */
 const DESKTOP = "(min-width: 768px)";
 
-/** Menor largura em que a linha de controles cabe sem quebrar (294px de conteúdo + 32px de padding + folga). */
-const SIDEBAR_MIN_X = 328;
-
 const DEFAULTS: Record<Axis, (vw: number, vh: number) => number> = {
-  x: () => 340,
+  x: () => SIDEBAR_DEFAULT_X,
   y: (_, vh) => Math.round(vh * 0.5),
 };
 
 const MIN: Record<Axis, number> = { x: SIDEBAR_MIN_X, y: 160 };
 
 const maxFor = (axis: Axis, vw: number, vh: number) =>
-  axis === "x" ? Math.max(MIN.x, Math.min(720, Math.round(vw * 0.6))) : Math.max(MIN.y, Math.round(vh * 0.8));
-
-const storageKey = (axis: Axis) => `korda.panel.${axis}`;
+  axis === "x" ? maxX(vw) : Math.max(MIN.y, Math.round(vh * 0.8));
 
 function readStored(axis: Axis): number | null {
   try {

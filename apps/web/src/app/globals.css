@@ -53,6 +53,113 @@
   --animate-pop-in: pop-in 180ms cubic-bezier(0.23, 1, 0.32, 1) both;
 }
 
+/* Landing: título e texto sobem um pouco e saem do desfoque. São leves: percurso curto e rápido.
+   O atraso de cada elemento vem do `animationDelay` inline (escalonamento). */
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+    filter: blur(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}
+.rise-in {
+  animation: rise-in 900ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .rise-in {
+    animation: none;
+  }
+}
+
+/* Mesma animação, disparada ao rolar (ver components/landing/Reveal.tsx), com os filhos escalonados. */
+[data-reveal="armed"] > * {
+  opacity: 0;
+}
+[data-reveal="shown"] > * {
+  animation: rise-in 900ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+[data-reveal="shown"] > :nth-child(2) {
+  animation-delay: 120ms;
+}
+[data-reveal="shown"] > :nth-child(3) {
+  animation-delay: 240ms;
+}
+[data-reveal="shown"] > :nth-child(n + 4) {
+  animation-delay: 360ms;
+}
+
+/* Hero da landing: o braço desliza da direita, devagar (é o elemento mais pesado da cena). */
+@keyframes arm-enter {
+  from {
+    opacity: 0;
+    transform: translateX(140px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.arm-enter {
+  animation: arm-enter 2.8s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+/* Depois de pousar, o braço "respira": sobe e desce ~4 px, devagar, sem parar. Começa em 0: sem salto. */
+@keyframes arm-float {
+  0%,
+  100% {
+    transform: none;
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+.arm-float {
+  animation: arm-float 7s ease-in-out 2.8s infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .arm-enter,
+  .arm-float {
+    animation: none;
+  }
+}
+
+/* Indicador de rolagem do hero: a ponta pixelada cai em degraus de 3 px (uma célula) e some, em loop. */
+@keyframes scroll-cue {
+  0% {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  20% {
+    opacity: 1;
+    transform: none;
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(3px);
+  }
+  60% {
+    opacity: 0.5;
+    transform: translateY(6px);
+  }
+  80%,
+  100% {
+    opacity: 0;
+    transform: translateY(9px);
+  }
+}
+.scroll-cue {
+  animation: scroll-cue 1.8s steps(1, end) 2s infinite both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .scroll-cue {
+    animation: none;
+  }
+}
+
 @keyframes pop-in {
   from {
     opacity: 0;
@@ -191,25 +298,16 @@ body {
 }
 
 /*
- * Nós e arestas somem suavemente só atrás da logo (top-6 left-6, h-5 ≈ 69×20px, em x 24–93 e y 24–44).
+ * Nós e arestas somem suavemente numa faixa por toda a largura do topo, atrás da logo
+ * (top-6 left-6, h-5 ≈ 69×20px, em y 24–44).
  * A máscara fica no renderer (fora do viewport transformado), então não se move com o zoom;
  * os pontos do fundo e os controles não são afetados.
- * Camada 1: SVG com um retângulo arredondado desfocado em volta da logo (até x 140 e y 84, rx 24), que passa bem das bordas de cima e da esquerda para o canto ficar totalmente coberto;
- * o desfoque (σ 15) dá ~60px de degradê. Camada 2: preto sólido. "exclude" subtrai a camada 1 da 2:
- * o conteúdo some só onde o retângulo está.
+ * Totalmente oculto até y 48, degradê de ~60px até y 108, visível abaixo disso.
  */
 .logo-fade .react-flow__renderer {
-  --logo-fade: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='140'%3E%3Cfilter id='b' filterUnits='userSpaceOnUse' x='-100' y='-100' width='340' height='280'%3E%3CfeGaussianBlur stdDeviation='15'/%3E%3C/filter%3E%3Crect x='-60' y='-60' width='200' height='144' rx='24' filter='url(%23b)'/%3E%3C/svg%3E"), linear-gradient(#000, #000);
+  --logo-fade: linear-gradient(to bottom, transparent 0, transparent 48px, #000 108px);
   -webkit-mask-image: var(--logo-fade);
   mask-image: var(--logo-fade);
-  -webkit-mask-size: 200px 140px, 100% 100%;
-  mask-size: 200px 140px, 100% 100%;
-  -webkit-mask-repeat: no-repeat;
-  mask-repeat: no-repeat;
-  -webkit-mask-position: 0 0;
-  mask-position: 0 0;
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
 }
 
 /* Nó focado pelo teclado. */
