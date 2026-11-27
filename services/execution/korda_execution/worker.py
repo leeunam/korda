@@ -279,6 +279,7 @@ def executar(registro, plano, run_id, *, raiz: Path, fontes: Path, cfg: ConfigHa
         if not laudo["aprovado"]:
             raise FalhaExecucao(f"avaliação externa recusou os resultados ({laudo['classe']})")
         registro.finalizar(run_id, aprovado=True, manifesto=manifesto)
+        medidor.gravar(revisao / "medicao.json")  # o pacote mostra tempo e custo desta medição
         _empacotar(registro, raiz, run_id, eventos)
     except BaseException as exc:
         # Uma falha na preparação, no build, na comparação ou uma interrupção nunca autoriza entrega.

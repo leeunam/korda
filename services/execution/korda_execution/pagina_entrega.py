@@ -199,9 +199,13 @@ def _posicoes(linhagem):
         return profundidade[uid]
 
     colunas = {}
+    modelos = [uid for uid, no in nos.items() if no["tipo"] == "model"]
+    # Com nomes bronze_/prata_/ouro_, uma coluna por camada; senão, pela profundidade no grafo.
+    por_camada = bool(modelos) and all(_camada(nos[u]) in ("bronze", "prata", "ouro") for u in modelos)
+    ordem = {"bronze": 0, "prata": 1, "ouro": 2}
     for uid, no in nos.items():
         if no["tipo"] != "test":
-            colunas.setdefault(nivel(uid), []).append(uid)
+            colunas.setdefault(ordem[_camada(no)] if por_camada else nivel(uid), []).append(uid)
     ultima = max(colunas, default=0) + 1
     testes = [uid for uid, no in nos.items() if no["tipo"] == "test"]
     if testes:
@@ -514,7 +518,7 @@ table.colunas{border-collapse:collapse;width:100%;font-size:.85rem}
 table.colunas th,table.colunas td{text-align:left;border-bottom:1px solid var(--linha);padding:.3rem .4rem}
 tr.este td{background:var(--acento-claro);font-weight:600}
 .hash{word-break:break-all;font-size:.75rem;color:var(--fraco)}
-.linhagem{display:grid;grid-template-columns:minmax(0,2fr) minmax(260px,1fr);gap:1rem;align-items:start}
+.linhagem{display:grid;grid-template-columns:1fr;gap:1rem}
 .grafo-caixa{overflow-x:auto;background:var(--cartao);border:1px solid var(--linha);border-radius:14px;padding:.4rem}
 .grafo{display:block;max-width:none}
 .col-titulo{font-size:12px;fill:var(--fraco);letter-spacing:.06em;text-transform:uppercase}
@@ -530,8 +534,7 @@ tr.este td{background:var(--acento-claro);font-weight:600}
 .no-modelo rect{stroke:var(--acento)}
 .no:hover rect,.no:focus rect,.no.ativo rect{fill:var(--acento-claro)}
 .no:focus{outline:none}
-.painel{background:var(--cartao);border:1px solid var(--linha);border-radius:14px;padding:1rem;position:sticky;
-top:3rem;max-height:80vh;overflow:auto}
+.painel{background:var(--cartao);border:1px solid var(--linha);border-radius:14px;padding:1rem}
 .estats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:.7rem;margin:1rem 0 .3rem}
 .estat{background:var(--cartao);border:1px solid var(--linha);border-radius:12px;padding:.7rem .9rem;display:flex;
 flex-direction:column}

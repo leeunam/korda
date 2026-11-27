@@ -212,6 +212,10 @@ class TestWorkerDocker(unittest.TestCase):
         self.assertIn("Não gerado", self._arquivo("documento_base.md").read_text(encoding="utf-8"))
         self.assertTrue(json.loads(self._arquivo("medicao.json").read_text())["synthetic"])
         self._confere_infra(modelos)
+        # O pacote é montado depois da medição: executor e custo aparecem no registro da execução.
+        execucao = (self._arquivo("entrega") / "execucao.md").read_text(encoding="utf-8")
+        self.assertIn("executor `roteirizado`", execucao)
+        self.assertIn("US$ 0,00", execucao)
 
 
 if __name__ == "__main__":

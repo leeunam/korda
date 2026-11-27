@@ -508,6 +508,7 @@ docker run --rm -i --network none \\
   --mount type=bind,src="$PWD",dst=/work/projeto,readonly \\
   --mount type=bind,src="$FONTES",dst=/work/fontes,readonly \\
   --mount type=bind,src="$PWD/saida",dst=/work/saida \\
+  --user "$(id -u):$(id -g)" \\
   korda-sandbox:dev sh -c 'python /work/projeto/ingerir.py < /work/projeto/regras.json \\
     && dbt build && python /work/projeto/exportar.py'
 ```
