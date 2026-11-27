@@ -106,6 +106,22 @@ class TestDecisaoDoPlanejamento(unittest.TestCase):
         self.assertIn('"exemplo"', limpo)
         self.assertTrue(limpo.startswith(DOC))
 
+    def test_decisao_no_inicio(self):
+        decisao = _bloco({"pronto_para_construir": False, "perguntas": [PERGUNTA]})
+        self.assertEqual(ler_decisao(decisao + DOC), (False, [PERGUNTA]))
+        # um json de exemplo no fim não tira o lugar da decisão
+        self.assertEqual(ler_decisao(decisao + DOC + _bloco({"exemplo": 1})), (False, [PERGUNTA]))
+
+    def test_remove_decisao_do_inicio_e_mantem_exemplo(self):
+        texto = _bloco({"pronto_para_construir": True, "perguntas": []}) + DOC + _bloco({"exemplo": 1})
+        limpo = remover_bloco_decisao(texto)
+        self.assertNotIn("pronto_para_construir", limpo)
+        self.assertTrue(limpo.startswith(DOC))
+        self.assertIn('"exemplo"', limpo)
+
+    def test_sistema_pede_a_decisao_antes_das_secoes(self):
+        self.assertLess(SISTEMA_DOCUMENTO.index("```json"), SISTEMA_DOCUMENTO.index("estas seções de nível 2"))
+
     def test_sistema_pede_o_bloco_de_decisao(self):
         for trecho in ("pronto_para_construir", "perguntas", "```json"):
             self.assertIn(trecho, SISTEMA_DOCUMENTO)

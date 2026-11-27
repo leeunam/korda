@@ -2,8 +2,8 @@
 
 Entrada: o contexto validado das entrevistas (contrato context v0.1.0) e a
 projeção do plano aprovado. Saída: um documento markdown com as seções em
-SECOES, que o harness usa como base para construir o pipeline, e um bloco
-JSON final com a decisão do planejamento: se dá para construir e, se não, as
+SECOES, que o harness usa como base para construir o pipeline, precedido de um
+bloco JSON com a decisão do planejamento: se dá para construir e, se não, as
 perguntas que voltam para a descoberta. Uma única chamada, sem ferramentas.
 O que faltar no contexto vira lacuna; o modelo não pode inventar regras. O
 custo é estimado pelos tokens.
@@ -27,24 +27,24 @@ com um cliente (evidências, regras confirmadas, perfil das fontes e lacunas) e 
 Escreva, em português e em markdown, o documento-base que um engenheiro de dados (ou um agente) usará \
 para construir o pipeline dbt/DuckDB em camadas bronze, prata e ouro.
 
-Use exatamente estas seções de nível 2: {", ".join(SECOES)}.
-- Modelos: para cada modelo, camada, nome sugerido, grão, colunas principais, chaves e de quais fontes vem.
-- Regras aplicadas: cada regra do plano, como implementá-la e a evidência que a sustenta (fonte e trecho).
-- Métricas: fórmula exata, grão, filtros, exclusões e denominador, como no plano.
-- Testes de aceite: um teste verificável por decisão (unicidade, conservação do rateio, exclusões, valor da métrica).
-- Premissas e lacunas: o que foi assumido e o que falta.
-
-Não invente regras, números ou fontes. Se uma informação não estiver no contexto ou no plano, \
-registre-a como lacuna em vez de supor. Não mude regras aprovadas.
-
-Termine com um único bloco ```json com a decisão do planejamento:
+Comece a resposta com um único bloco ```json com a decisão do planejamento, antes de qualquer seção:
 {{"pronto_para_construir": true ou false, "perguntas": [{{"pergunta": "...", "lacuna": "...", \
 "metricas_afetadas": ["..."], "motivo": "..."}}]}}
 - pronto_para_construir é false só quando uma lacuna impede construir ou testar um KPI do plano. \
 Lacuna que não impede fica em Premissas e lacunas, e pronto_para_construir é true.
 - Com false, cada pergunta é dirigida ao cliente, curta e respondível, e diz qual lacuna fecha e \
 quais métricas destrava. Elas voltam para a etapa de descoberta.
-- Com true, perguntas é uma lista vazia."""
+- Com true, perguntas é uma lista vazia.
+
+Depois do bloco, use exatamente estas seções de nível 2: {", ".join(SECOES)}.
+- Modelos: para cada modelo, camada, nome, grão, colunas principais, chaves e de quais fontes vem.
+- Regras aplicadas: cada regra do plano, como implementá-la e a evidência que a sustenta.
+- Métricas: fórmula exata, grão, filtros, exclusões e denominador, como no plano.
+- Testes de aceite: um teste verificável por decisão (unicidade, conservação do rateio, exclusões, valor da métrica).
+- Premissas e lacunas: o que foi assumido e o que falta.
+
+Não invente regras, números ou fontes. Se uma informação não estiver no contexto ou no plano, \
+registre-a como lacuna em vez de supor. Não mude regras aprovadas."""
 
 
 @dataclass
@@ -72,29 +72,37 @@ def _pergunta(item) -> dict | None:
     return saida
 
 
+def _bloco_decisao(texto: str):
+    """O primeiro bloco ```json cujo objeto tem `pronto_para_construir`: (match, objeto) ou (None, None).
+
+    O prompt pede a decisão no início; blocos json de exemplo no documento são ignorados.
+    """
+    for bloco in _BLOCO_JSON.finditer(texto or ""):
+        try:
+            objeto = json.loads(bloco.group(1))
+        except ValueError:
+            continue
+        if isinstance(objeto, dict) and "pronto_para_construir" in objeto:
+            return bloco, objeto
+    return None, None
+
+
 def remover_bloco_decisao(texto: str) -> str:
-    """O documento sem o último bloco ```json (a decisão), para anexar ao plano."""
-    blocos = list(_BLOCO_JSON.finditer(texto or ""))
-    if not blocos:
+    """O documento sem o bloco ```json da decisão, para anexar ao plano."""
+    bloco, _ = _bloco_decisao(texto)
+    if bloco is None:
         return (texto or "").strip() + "\n"
-    ultimo = blocos[-1]
-    return (texto[:ultimo.start()] + texto[ultimo.end():]).strip() + "\n"
+    return (texto[:bloco.start()] + texto[bloco.end():]).strip() + "\n"
 
 
 def ler_decisao(texto: str) -> tuple[bool | None, list[dict]]:
-    """Lê o último bloco ```json do documento: (pronto_para_construir, perguntas).
+    """Lê o bloco ```json da decisão (no início ou no fim): (pronto_para_construir, perguntas).
 
     Qualquer formato inesperado devolve (None, []): sem decisão, nada é construído.
     Com pronto_para_construir false, exige ao menos uma pergunta válida.
     """
-    blocos = _BLOCO_JSON.findall(texto or "")
-    if not blocos:
-        return None, []
-    try:
-        decisao = json.loads(blocos[-1])
-    except ValueError:
-        return None, []
-    if not isinstance(decisao, dict) or type(decisao.get("pronto_para_construir")) is not bool \
+    _, decisao = _bloco_decisao(texto)
+    if decisao is None or type(decisao.get("pronto_para_construir")) is not bool \
             or not isinstance(decisao.get("perguntas"), list):
         return None, []
     if decisao["pronto_para_construir"]:
