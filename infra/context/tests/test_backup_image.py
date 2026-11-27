@@ -51,7 +51,9 @@ class BackupImage(unittest.TestCase):
                 common = ["--network", prefix, "--mount", "type=bind,source=" + directory + ",target=/backups",
                           "-e", "PGHOST=" + db, "-e", "PGUSER=korda", "-e", "PGDATABASE=korda",
                           "-e", "PGPASSWORD=" + password]
-                self.docker("run", "-d", "--name", scheduler, *common, "-e", "SOURCE_IMAGE_TAG=synthetic-test",
+                # The host runner owns this private bind mount and verifies its mode-0700 backup.
+                self.docker("run", "-d", "--name", scheduler, "--user", f"{os.getuid()}:{os.getgid()}",
+                            *common, "-e", "SOURCE_IMAGE_TAG=synthetic-test",
                             "-v", media + ":/source/media:ro", image, "bash", "/ops/schedule.sh")
                 for _ in range(60):
                     completed = [p for p in backup_dir.iterdir() if p.is_dir() and not p.name.startswith(".")]
