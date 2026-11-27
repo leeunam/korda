@@ -121,7 +121,7 @@ A chamada prévia de planejamento pode usar as evidências do contexto sintétic
 | `custo_completo` | `false` se alguma tentativa não informou o custo. |
 | `por_tentativa` | Detalhe de cada tentativa, inclusive arquivos escritos e motivo de parada. |
 
-Cada `agent_finished` em `eventos.jsonl` traz também `ferramentas` (o catálogo `mcp__korda__*` oferecido à sessão), `tokens_por_turno` (`[entrada, saída]` informados pelo gateway em cada chamada) e, quando a API falhou, `erro_api` com a mensagem do `ErroLLM` (código HTTP ou tipo de falha de rede, nunca a chave).
+Um erro HTTP do gateway inclui até 240 caracteres do corpo da resposta (com a chave trocada por `[chave]`), para mostrar o motivo, por exemplo crédito restrito a outro modelo. Cada `agent_finished` em `eventos.jsonl` traz também `ferramentas` (o catálogo `mcp__korda__*` oferecido à sessão), `tokens_por_turno` (`[entrada, saída]` informados pelo gateway em cada chamada) e, quando a API falhou, `erro_api` com a mensagem do `ErroLLM` (código HTTP ou tipo de falha de rede, nunca a chave).
 
 A construção de chat aparece como tentativa `0`. O worker grava em `revisao/<run>/medicao.json` a versão aprovada, a identificação do documento-base, o executor, as sessões, os builds e as correções. A chamada anterior de `planejar` tem seu próprio `medicao.json` em `planejamento/<versão>-<instante>/`. Para medir o custo total do processo, some os custos dos dois registros depois de conferir `custo_completo` em cada um. [Medição](medicao.py)
 
@@ -161,7 +161,7 @@ cd services/execution && python3 -m tests.harness.simulador_custo
 | Ensaio | Plano | Resultado | Turnos | Tokens (entrada / saída) | US$ estimado | Duração |
 | --- | --- | --- | ---: | ---: | ---: | ---: |
 | `ensaio-01` (27/11/2026) | `924f1ce5…` (v0.2, `planejar` real, US$ 0,139) | **Não aprovado.** Nenhum modelo escrito; a chamada do turno 19 falhou na API (`error_during_execution`, mensagem não registrada na época; provavelmente saldo esgotado, ver ensaio-02), custo incompleto, sem build nem avaliação | 18 | 338.174 / 6.417 | 1,48 + a chamada que falhou | 108 s |
-| `ensaio-02` (27/11/2026) | o mesmo, com as correções abaixo | **Não rodou.** A primeira chamada recebeu HTTP 402 do gateway (créditos esgotados), registrado em `erro_api` | 0 | 0 / 0 | 0 | 0,5 s |
+| `ensaio-02` (27/11/2026) | o mesmo, com as correções abaixo | **Não rodou.** A primeira chamada recebeu HTTP 402 do gateway, registrado em `erro_api`. O corpo da resposta (lido depois pelo teste de fumaça) diz `insufficient_credits`: o crédito restante da conta só vale para `deepseek/deepseek-v4.1-flash-1017`, não para `anthropic/claude-opus-5.5` | 0 | 0 / 0 | 0 | 0,5 s |
 
 O que o ensaio-01 mostrou, e o que mudou depois dele: o agente só investigou (~25 consultas e 5 `dbt ls`); repetiu 4 vezes a consulta ao `information_schema`, porque a compactação contava saídas e não turnos; tentou `sinteticas.bronze_documentos` em SQL direto, induzido pela redação do prompt; e o erro da API não foi registrado. Correções: compactação por turnos, colunas da bronze no prompt pelo host, regra sobre o schema `main`, lembrete para escrever e `erro_api` / `tokens_por_turno` nos eventos. Segurança no ensaio: hashes de `tests/` e `definicoes/` intactos, nenhuma recusa, só ferramentas `mcp__korda__*`. As correções ainda não foram exercidas com LLM real: o ensaio-02 parou por falta de créditos antes do primeiro turno.
 

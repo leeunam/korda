@@ -74,6 +74,15 @@ class ClienteChatHttp:
     def __repr__(self) -> str:
         return f"ClienteChatHttp(url={self.url!r}, modelo={self.modelo!r})"
 
+    def _detalhe_erro(self, erro) -> str:
+        """Trecho curto do corpo de erro do gateway (diz, por exemplo, por que houve 402), sem a chave."""
+        try:
+            texto = erro.read(2000).decode("utf-8", "replace")
+        except Exception:
+            return ""
+        texto = " ".join(texto.replace(self._chave, "[chave]").split())[:240] if self._chave else ""
+        return f": {texto}" if texto else ""
+
     def completar(self, mensagens: list[dict], ferramentas: list[dict], *, max_tokens: int | None = None) -> RespostaChat:
         dados = {"model": self.modelo, "messages": mensagens}
         if ferramentas:
@@ -88,8 +97,9 @@ class ClienteChatHttp:
             with urllib.request.urlopen(pedido, timeout=self.timeout_s) as r:
                 bruto = r.read()
         except urllib.error.HTTPError as e:
+            detalhe = self._detalhe_erro(e)
             e.close()
-            raise ErroLLM(f"API do LLM respondeu HTTP {e.code}") from None
+            raise ErroLLM(f"API do LLM respondeu HTTP {e.code}{detalhe}") from None
         except (urllib.error.URLError, TimeoutError, OSError) as e:
             raise ErroLLM(f"falha de rede ao chamar a API do LLM ({type(e).__name__})") from None
         try:
