@@ -91,6 +91,11 @@ class TestPadraoModelo(unittest.TestCase):
         self.assertFalse(caminhos.modelo_autorizado("models/ouro_kpis.sql", ["models/prata_ctes.sql"]))
         self.assertFalse(caminhos.modelo_autorizado("tests/x.sql", ["models/*"]))
         self.assertFalse(caminhos.modelo_autorizado("models/x.sql", []))
+        self.assertTrue(caminhos.modelo_autorizado("models/prata/sub/modelo.sql", ["models/prata/*.sql"]))
+        self.assertFalse(caminhos.modelo_autorizado("models/ouro/modelo.sql", ["models/prata/*.sql"]))
+        for invalido in ("models/../tests/a.sql", "models/schema.yml", "models//a.sql", "models/a.py"):
+            with self.subTest(invalido=invalido):
+                self.assertFalse(caminhos.modelo_autorizado(invalido, ["models/*"]))
 
 
 if __name__ == "__main__":

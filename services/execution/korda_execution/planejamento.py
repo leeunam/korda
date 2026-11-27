@@ -18,10 +18,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from services.planning.korda_planning import anexar_construcao, validar_plano
-from services.planning.korda_planning.plano import contrato_contexto
+from services.planning.korda_planning.plano import CAMPOS_CONTEXTO, contrato_contexto
 
 from .documento_base import gerar_documento_base, remover_bloco_decisao
-from .harness.cliente_chat import ClienteChatHttp
+from .harness.cliente_chat import ClienteChatHttp, ClienteComOrcamento, ErroLLM, cliente_offline
 from .harness.config import ConfigHarness
 from .harness.contexto import projetar_plano
 from .harness.tipos import usd_para_centavos
@@ -33,7 +33,8 @@ MAX_TOKENS_PLANEJAMENTO = 8000
 def validar_contexto(contexto: dict, plano: dict) -> None:
     """O planejamento precisa do contexto validado que originou o plano base."""
     contrato_contexto.validate_context(contexto)
-    if (contexto["context_id"], contexto["revision"]) != (plano["context_id"], plano["context_revision"]):
+    if (contexto["revision"] != plano["context_revision"] or contexto["state"] != plano["context_state"]
+            or any(contexto[c] != plano[c] for c in CAMPOS_CONTEXTO)):
         raise FalhaExecucao("o contexto informado não é a revisão que originou o plano")
 
 
@@ -49,7 +50,9 @@ def planejar(plano: dict, contexto: dict, *, raiz: Path, cfg: ConfigHarness | No
     cfg = cfg or ConfigHarness.de_ambiente()
     if cfg.executor not in ("chat", "falso"):
         raise FalhaExecucao("o planejamento usa a API da Feita: defina KORDA_EXECUTOR=chat")
-    if cfg.executor == "falso" and cliente_llm is None:
+    if cfg.executor == "chat" and (not cfg.permitir_llm_real or not cfg.chave_api):
+        raise FalhaExecucao("o planejamento por API exige autorização de LLM e credencial")
+    if cfg.executor == "falso" and not cliente_offline(cliente_llm):
         raise FalhaExecucao("KORDA_EXECUTOR=falso é só para testes: exige um cliente LLM falso")
     validar_plano(plano)
     if "construction" in plano:
@@ -60,23 +63,34 @@ def planejar(plano: dict, contexto: dict, *, raiz: Path, cfg: ConfigHarness | No
 
     carimbo = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     pasta = Path(raiz).resolve() / "planejamento" / f"{plano['plan_version'][:16]}-{carimbo}"
-    pasta.mkdir(parents=True, exist_ok=False)
+    pasta.mkdir(mode=0o700, parents=True, exist_ok=False)
     synthetic = not cfg.usa_llm
     inicio = time.monotonic()
-    doc = gerar_documento_base(cliente_llm, contexto, projetar_plano(plano),
-                               precos=(cfg.preco_entrada_usd_mtok, cfg.preco_saida_usd_mtok))
+    precos = (cfg.preco_entrada_usd_mtok, cfg.preco_saida_usd_mtok)
+    medido = ClienteComOrcamento(cliente_llm, cfg.orcamento_execucao_usd, precos, lambda: None)
+    doc = None
+    try:
+        doc = gerar_documento_base(medido, contexto, projetar_plano(plano), precos=precos)
+    except ErroLLM:
+        raise FalhaExecucao("o planejamento não concluiu a chamada autorizada ao provedor") from None
+    finally:
+        custo = round(cfg.orcamento_execucao_usd - medido.restante_usd, 6) if medido.custo_completo else None
+        _gravar(pasta / "medicao.json", {
+            "etapa": "planejamento", "executor": cfg.executor, "modelo": cfg.modelo if cfg.usa_llm else None,
+            "synthetic": synthetic, "chamadas": medido.chamadas, "tokens_entrada": medido.tokens_entrada,
+            "tokens_saida": medido.tokens_saida, "custo_usd": custo, "custo_centavos": usd_para_centavos(custo, cfg.taxa_usd_brl),
+            "orcamento_usd": cfg.orcamento_execucao_usd, "custo_completo": medido.custo_completo, "custo_estimado": True,
+            "precos": cfg.precos_medicao(),
+            "duracao_s": round(time.monotonic() - inicio, 3), "secoes_ausentes": doc.secoes_ausentes if doc else None,
+            "pronto_para_construir": doc.pronto_para_construir if doc else None, "plan_version": plano["plan_version"],
+            "finish_reason": doc.finish_reason if doc else None,
+        })
     documento = remover_bloco_decisao(doc.texto)
     aviso = "<!-- SINTÉTICO: gerado por cliente falso de teste, sem LLM. -->\n\n" if synthetic else ""
     (pasta / "documento_base.md").write_text(aviso + documento, encoding="utf-8")
-    _gravar(pasta / "resposta.json", {"texto": doc.texto})  # resposta bruta, para auditoria
-    _gravar(pasta / "medicao.json", {
-        "etapa": "planejamento", "executor": cfg.executor, "modelo": cfg.modelo if cfg.usa_llm else None,
-        "synthetic": synthetic, "chamadas": 1, "tokens_entrada": doc.tokens_entrada, "tokens_saida": doc.tokens_saida,
-        "custo_usd": doc.custo_usd, "custo_centavos": usd_para_centavos(doc.custo_usd, cfg.taxa_usd_brl),
-        "custo_estimado": True, "duracao_s": round(time.monotonic() - inicio, 3),
-        "secoes_ausentes": doc.secoes_ausentes, "pronto_para_construir": doc.pronto_para_construir,
-        "finish_reason": doc.finish_reason,
-    })
+    _gravar(pasta / "resposta.json", {"texto": doc.texto})
+    if not medido.custo_completo or medido.restante_usd < 0:
+        raise FalhaExecucao("o planejamento não comprovou uso dentro do orçamento autorizado")
     if doc.finish_reason == "length":
         raise FalhaExecucao(f"resposta cortada no limite de {MAX_TOKENS_PLANEJAMENTO} tokens; veja {pasta}")
     if doc.pronto_para_construir is None:
@@ -87,6 +101,8 @@ def planejar(plano: dict, contexto: dict, *, raiz: Path, cfg: ConfigHarness | No
             "context_id": plano["context_id"], "context_revision": plano["context_revision"],
             "perguntas": doc.perguntas})
         return {"estado": "perguntas", "perguntas": doc.perguntas, "pasta": str(pasta)}
+    if doc.secoes_ausentes:
+        raise FalhaExecucao("documento pronto sem as seções obrigatórias: " + ", ".join(doc.secoes_ausentes))
     construido = anexar_construcao(plano, {"document": documento, "model": cfg.modelo if cfg.usa_llm else "falso",
                                            "synthetic": synthetic})
     _gravar(pasta / "plano.json", construido)

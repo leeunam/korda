@@ -111,7 +111,34 @@ class TestPerfil(unittest.TestCase):
 
 
 class TestPropriedadeDaExecucao(unittest.TestCase):
-    def test_plano_comeca_com_models_vazio_e_gravavel_e_o_resto_somente_leitura(self):
+    def test_construcao_monta_apenas_os_cinco_sql_vazios_do_plano(self):
+        permitidos = ("models/prata_ctes.sql", "models/prata_rateios.sql", "models/ouro_por_pedido.sql",
+                      "models/ouro_por_viagem.sql", "models/ouro_kpis.sql")
+        with tempfile.TemporaryDirectory() as temp:
+            raiz = Path(temp)
+            projeto = raiz / "projeto"
+            (projeto / "models").mkdir(parents=True)
+            (projeto / "dbt_project.yml").write_text("name: teste")
+            (projeto / permitidos[0]).write_text("select 17")
+            (projeto / "models/outro.sql").write_text("select 18")
+            sb = LocalDockerSandbox("construcao", projeto, raiz, raiz_runs=raiz / "runs",
+                                    modelos_permitidos=permitidos, modelos_vazios=True, exigir_manifesto=False)
+            with patch("korda_execution.sandbox.imagem_existe", return_value=True), \
+                 patch("korda_execution.sandbox.os.getuid", return_value=1000), \
+                 patch("korda_execution.sandbox.subprocess.run") as docker:
+                docker.return_value.returncode = 0
+                docker.return_value.stdout = "a" * 64
+                sb.criar()
+                argv = docker.call_args.args[0]
+                gravaveis = [argv[i + 1].split("dst=")[1] for i, arg in enumerate(argv)
+                             if arg == "--mount" and "readonly" not in argv[i + 1]]
+                self.assertCountEqual(gravaveis, ["/work/saida", *("/work/projeto/" + p for p in permitidos)])
+                copia = sb.dir_run / "projeto"
+                self.assertEqual({str(p.relative_to(copia)): p.read_bytes() for p in (copia / "models").iterdir()},
+                                 dict.fromkeys(permitidos, b""))
+                sb.destruir()
+
+    def test_glob_publica_novo_sql_em_models_vazio_com_o_projeto_somente_leitura(self):
         with tempfile.TemporaryDirectory() as temp:
             raiz = Path(temp)
             projeto = raiz / "projeto"
@@ -136,10 +163,45 @@ class TestPropriedadeDaExecucao(unittest.TestCase):
                 argv = docker.call_args.args[0]
                 montagens = [argv[i + 1] for i, arg in enumerate(argv) if arg == "--mount"]
                 gravaveis = [arg.split("dst=")[1] for arg in montagens if "readonly" not in arg]
-                self.assertCountEqual(gravaveis, ["/work/saida", "/work/projeto/models"])
+                self.assertEqual(gravaveis, ["/work/saida"])
                 self.assertTrue(any(arg.endswith("dst=/work/projeto,readonly") for arg in montagens))
                 self.assertEqual(list((sb.dir_run / "projeto/models").iterdir()), [])
                 self.assertTrue((sb.dir_run / "projeto/tests/aceite.sql").is_file())
+                sb.enviar_arquivos({"/work/projeto/models/sub/novo.sql": b"select 3"})
+                self.assertEqual((sb.dir_run / "projeto/models/sub/novo.sql").read_bytes(), b"select 3")
+                with self.assertRaises(ErroSandbox):
+                    sb.enviar_arquivos({"/work/projeto/models/config.yml": b"fora do plano"})
+                sb.destruir()
+
+    def test_modelo_exato_do_plano_historico_preserva_os_demais_como_leitura(self):
+        with tempfile.TemporaryDirectory() as temp:
+            raiz = Path(temp)
+            projeto = raiz / "projeto"
+            modelos = projeto / "models"
+            modelos.mkdir(parents=True)
+            (projeto / "dbt_project.yml").write_text("name: teste")
+            (modelos / "aprovado.sql").write_text("select 7")
+            (modelos / "protegido.sql").write_text("select 9")
+            (modelos / "indireto.sql").symlink_to(modelos / "protegido.sql")
+            for nome in ("models/indireto.sql", "models/ausente.sql"):
+                with self.assertRaises(ErroSandbox):
+                    LocalDockerSandbox("restrita", projeto, raiz, modelos_permitidos=(nome,))
+            sb = LocalDockerSandbox("historica", projeto, raiz, raiz_runs=raiz / "runs",
+                                    modelos_permitidos=("models/aprovado.sql",), exigir_manifesto=False)
+            with patch("korda_execution.sandbox.imagem_existe", return_value=True), \
+                 patch("korda_execution.sandbox.os.getuid", return_value=1000), \
+                 patch("korda_execution.sandbox.subprocess.run") as docker:
+                docker.return_value.returncode = 0
+                docker.return_value.stdout = "a" * 64
+                sb.criar()
+                argv = docker.call_args.args[0]
+                gravaveis = [argv[i+1].split("dst=")[1] for i, arg in enumerate(argv)
+                              if arg == "--mount" and "readonly" not in argv[i+1]]
+                self.assertCountEqual(gravaveis, ["/work/saida", "/work/projeto/models/aprovado.sql"])
+                self.assertEqual((sb.dir_run / "projeto/models/aprovado.sql").read_text(), "select 7")
+                self.assertEqual((sb.dir_run / "projeto/models/protegido.sql").read_text(), "select 9")
+                with self.assertRaises(ErroSandbox):
+                    sb.enviar_arquivos({"/work/projeto/models/protegido.sql": b"select 4"})
                 sb.destruir()
 
     def test_duas_instancias_com_mesmo_id_preservam_o_dono(self):
@@ -193,8 +255,9 @@ class TestFerramentasNaSandbox(unittest.TestCase):
                                     modelos_permitidos=("models/aprovado.sql",), exigir_manifesto=False) as sb:
                 ferramentas = FerramentasRestritas(sb, EmissorEventos(raiz / "eventos.jsonl", run_id),
                                                    modelos_permitidos=frozenset(["models/aprovado.sql"]))
-                vazio = sb.rodar_comando(["ls", "-A", "/work/projeto/models"], timeout_s=20)
-                self.assertEqual((vazio.ok, vazio.stdout.strip()), (True, ""))
+                self.assertEqual((sb.dir_run / "projeto/models/aprovado.sql").read_text(), "select 1")
+                self.assertEqual((sb.dir_run / "projeto/models/protegido.sql").read_text(), "select 2")
+                self.assertFalse(sb.rodar_comando(["test", "-w", "/work/projeto/models/protegido.sql"]).ok)
                 sb.enviar_arquivos({"/work/projeto/models/aprovado.sql": b"select 3"})
                 with self.assertRaises(ErroSandbox):
                     sb.enviar_arquivos({"/work/projeto/tests/novo.sql": b"select 4"})

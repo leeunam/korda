@@ -27,6 +27,9 @@ CREATE TABLE IF NOT EXISTS planos (
     plano TEXT NOT NULL,
     decisao TEXT
 );
+CREATE TABLE IF NOT EXISTS operador_fontes (
+    projeto TEXT PRIMARY KEY, revisao INTEGER NOT NULL, hash TEXT NOT NULL, resumo TEXT NOT NULL, plano_id INTEGER REFERENCES planos(id)
+);
 CREATE INDEX IF NOT EXISTS idx_planos_projeto ON planos(project_id, id);
 CREATE TABLE IF NOT EXISTS runs (
     run_id TEXT PRIMARY KEY,
@@ -135,28 +138,44 @@ class Registro:
         """Ativa exatamente este documento. Reenviar a versão já ativa é idempotente."""
         plano = json.loads(_json(plano))
         validar_plano(plano)
-        projeto = plano["project_id"]
         with self._escrita() as db:
-            atual = db.execute("SELECT * FROM planos WHERE project_id=? ORDER BY id DESC LIMIT 1", (projeto,)).fetchone()
-            if atual and atual["plan_version"] == plano["plan_version"]:
-                return _resumo_plano(atual)
-            maior = db.execute("SELECT MAX(context_revision) FROM planos WHERE project_id=? AND context_id=?",
-                               (projeto, plano["context_id"])).fetchone()[0]
-            if maior is not None and plano["context_revision"] < maior:
-                raise ErroAprovacao("revisão de contexto anterior à já registrada")
-            if atual:
-                _invalidar(db, atual["id"])
-                _evento(db, atual["id"], None, "versao_substituida")
-            cursor = db.execute("""
-                INSERT INTO planos(project_id,context_id,context_revision,plan_version,plano) VALUES(?,?,?,?,?)
-            """, (projeto, plano["context_id"], plano["context_revision"], plano["plan_version"], _json(plano)))
-            _evento(db, cursor.lastrowid, None, "plano_registrado")
-            return _resumo_plano(_atual(db, projeto, plano["plan_version"]))
+            # Uma raiz usada pelo painel tem uma revisão de entrevista congelada.
+            # Uma CLI na mesma raiz deve respeitar a mesma revogação.
+            vinculo = db.execute("SELECT * FROM operador_fontes WHERE projeto=?", (plano["project_id"],)).fetchone()
+            if vinculo:
+                origem = json.loads(vinculo["resumo"])
+                referencia = f"whatsapp/v0.2.0:{vinculo['revisao']}:{vinculo['hash']}"
+                if (origem["estado"] != "pronto" or plano["context_id"] != origem["context_id"]
+                        or plano["context_revision"] != vinculo["revisao"] or not plano["sources"]
+                        or any(f["version"] != referencia for f in plano["sources"])):
+                    raise ErroAprovacao("o plano diverge da revisão de entrevista ativa neste registro")
+            return self._registrar_validado(db, plano)
+
+    def _registrar_validado(self, db, plano):
+        """Usa a mesma transação para registrar o plano e, no painel, sua revisão de origem."""
+        projeto = plano["project_id"]
+        atual = db.execute("SELECT * FROM planos WHERE project_id=? ORDER BY id DESC LIMIT 1", (projeto,)).fetchone()
+        if atual and atual["plan_version"] == plano["plan_version"] and atual["decisao"] != "contexto_substituido":
+            return _resumo_plano(atual)
+        maior = db.execute("SELECT MAX(context_revision) FROM planos WHERE project_id=? AND context_id=?",
+                           (projeto, plano["context_id"])).fetchone()[0]
+        if maior is not None and plano["context_revision"] < maior:
+            raise ErroAprovacao("revisão de contexto anterior à já registrada")
+        if atual:
+            _invalidar(db, atual["id"])
+            _evento(db, atual["id"], None, "versao_substituida")
+        cursor = db.execute("""
+            INSERT INTO planos(project_id,context_id,context_revision,plan_version,plano) VALUES(?,?,?,?,?)
+        """, (projeto, plano["context_id"], plano["context_revision"], plano["plan_version"], _json(plano)))
+        _evento(db, cursor.lastrowid, None, "plano_registrado")
+        return _resumo_plano(_atual(db, projeto, plano["plan_version"]))
 
     def decidir_plano(self, project_id, plan_version, pessoa, aprovar: bool):
         pessoa = _revisor(pessoa, aprovar)
         with self._escrita() as db:
             linha = _atual(db, project_id, plan_version)
+            if linha["decisao"] == "contexto_substituido":
+                raise ErroAprovacao("a revisão de entrevista deste plano já foi substituída")
             plano = json.loads(linha["plano"])
             if aprovar and plano["state"] != "aguardando_aprovacao":
                 raise ErroAprovacao("o plano ainda está em rascunho")

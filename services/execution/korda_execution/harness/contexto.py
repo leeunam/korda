@@ -13,12 +13,20 @@ import json
 CAMPOS_PLANO = ("plan_version", "editable_models", "limits", "rules", "metrics", "tasks")
 CAMPOS_METRICA_OMITIDOS = ("state", "blocking_gaps")
 LIMITE_PERFIS = 12_000
-LIMITE_DOCUMENTO = 20_000
+LIMITE_DOCUMENTO = 60_000
 
 _REGRAS = """Regras:
 - Você só pode criar ou alterar modelos SQL permitidos por editable_models do plano, usando escrever_modelo.
 - Você não pode alterar testes, fontes, definições, macros, configuração do dbt nem as regras do plano. \
 Os testes em tests/ e definicoes/ estão certos por definição: eles fixam nomes de modelos e colunas esperados.
+- No pipeline 01_demo, a bronze já foi materializada pelo adaptador protegido ingerir.py. Leia \
+definicoes/fontes.yml para os nomes das tabelas. A lista de colunas e tipos da entrega está em \
+dbt_project.yml, na variável contrato_exportacao, e exportar.py especifica a linhagem por pedido e viagem. \
+Leia tests/conservacao.sql, tests/chave_fiscal_unica.sql, tests/documentos_conflitantes.sql e tests/integridade_fontes.sql \
+para conferir as relações exigidas. tests/rastreabilidade_cte.sql confere as NF-e associadas ao CT-e. \
+tests/contrato_exportacao.sql valida nomes e tipos da saída. Se houver divergência de tipo, consulte \
+main_dbt_test__audit.contrato_exportacao para identificar tabela, campo, esperado e encontrado. \
+macros/meio_par.sql fornece o arredondamento compartilhado.
 - O contrato de saída está em exportar.py (leia com ler_arquivo): as tabelas ouro_kpis, ouro_por_pedido, \
 ouro_por_viagem e prata_rateios, com as colunas que ele seleciona. A exportação faz parte da verificação.
 - Investigue antes de escrever: ler_plano, ler_arquivo, inspecionar_fonte e consultar_sql.
@@ -29,7 +37,7 @@ explique o motivo em uma frase e pare. Uma pessoa decide o próximo passo.
 
 SISTEMA_CONSTRUCAO = f"""Você é o executor da Korda. Uma pessoa aprovou um plano de dados construído \
 a partir de entrevistas com o cliente. Sua tarefa é construir o pipeline dbt/DuckDB que implementa esse plano: \
-modelos bronze (fontes com origem), prata (tipagem, chaves, deduplicação, regras) e ouro (as métricas exatamente \
+use as tabelas bronze (fontes com origem) e construa os modelos prata (tipagem, chaves, deduplicação, regras) e ouro (as métricas exatamente \
 como especificadas), seguindo as tarefas do plano na ordem dada.
 
 {_REGRAS}"""
@@ -104,9 +112,11 @@ def montar_prompt_construcao(plano_publico: dict, perfis: dict, documento_base: 
     )
 
 
-def montar_prompt(falha: dict, tentativa: int, limite: int, plano_publico: dict, perfis: dict) -> str:
+def montar_prompt(falha: dict, tentativa: int, limite: int, plano_publico: dict, perfis: dict,
+                 documento_base: str | None = None) -> str:
     return (
         f"Correção: tentativa {tentativa} de {limite}.\n\n"
+        f"Especificação aprovada: {documento_base or '(consultar plano)'}\n\n"
         f"Falha do build (código {falha.get('codigo', 'desconhecido')}):\n{falha.get('erro', '')}\n\n"
         f"Plano aprovado (projeção):\n{_json(plano_publico)}\n\n"
         f"Perfis das fontes:\n{_perfis(perfis)}\n"

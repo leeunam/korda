@@ -256,6 +256,9 @@ class TestSandboxDeConstrucao(unittest.TestCase):
         self.assertEqual(r.stdout.strip(), "")
         self.sb.enviar_arquivos({"/work/projeto/models/ouro_kpis.sql": b"select 1"})
         self.assertEqual((self.sb.dir_run / "projeto/models/ouro_kpis.sql").read_text(), "select 1")
+        leitura = self.sb.rodar_comando(["cat", "/work/projeto/models/ouro_kpis.sql"])
+        self.assertEqual((leitura.ok, leitura.stdout), (True, "select 1"))
+        self.assertFalse(self.sb.rodar_comando(["test", "-w", "/work/projeto/models"]).ok)
 
     def test_escrita_direta_em_tests_e_recusada_pelo_kernel(self):
         alvo = PROJETO_DEMO / "tests/chave_fiscal_unica.sql"

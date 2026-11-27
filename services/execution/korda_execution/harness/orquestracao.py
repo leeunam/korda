@@ -1,8 +1,8 @@
 """Ponto único que o worker chama: construir, testar e corrigir até o limite.
 
-O worker só orquestra: gera o documento-base, prepara a sandbox, chama esta
-função e depois avalia e entrega. `executar_etapa` (ciclo K10 do #21) entra
-por parâmetro, para este módulo não depender do merge.
+O planejamento anexa o documento-base antes da primeira aprovação. O worker
+prepara a sandbox e fornece a especificação aprovada e o ciclo limitado de
+correção. A avaliação independente e a revisão da entrega seguem no host.
 """
 
 from __future__ import annotations

@@ -14,6 +14,6 @@ validos as (
             and ev.cstat = '135' and ev.chave_cte = d.chave_cte
       )
 )
-select chave_cte, chave_nfe, valor_centavos, arquivo, sha256
+select chave_cte, chave_nfe, valor_centavos, arquivo, sha256, carga
 from validos
 where copia = 1

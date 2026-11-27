@@ -87,6 +87,10 @@ PERGUNTA = {"pergunta": "O OTIF conta entregas parciais?", "lacuna": "completude
 class TestDecisaoDoPlanejamento(unittest.TestCase):
     """A LLM do planejamento diz se dá para construir; se não, gera as perguntas para a descoberta."""
 
+    def test_decisao_pronta_com_perguntas_pendentes_e_invalida(self):
+        texto = DOC + _bloco({"pronto_para_construir": True, "perguntas": [PERGUNTA]})
+        self.assertEqual(ler_decisao(texto), (None, []))
+
     def test_pronto_sem_perguntas(self):
         self.assertEqual(ler_decisao(DOC + _bloco({"pronto_para_construir": True, "perguntas": []})), (True, []))
 

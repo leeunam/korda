@@ -24,7 +24,7 @@ MAX_PERGUNTAS = 20
 _BLOCO_JSON = re.compile(r"```json\s*\n(.*?)\n\s*```", re.DOTALL)
 
 SISTEMA_DOCUMENTO = f"""Você é o planejador técnico da Korda. Recebe o contexto validado de entrevistas \
-com um cliente (evidências, regras confirmadas, perfil das fontes e lacunas) e o plano aprovado. \
+com um cliente (evidências, regras confirmadas, perfil das fontes e lacunas) e o plano proposto para a primeira revisão humana. \
 Escreva, em português e em markdown, o documento-base que um engenheiro de dados (ou um agente) usará \
 para construir o pipeline dbt/DuckDB em camadas bronze, prata e ouro.
 
@@ -112,7 +112,7 @@ def ler_decisao(texto: str) -> tuple[bool | None, list[dict]]:
             or not isinstance(decisao.get("perguntas"), list):
         return None, []
     if decisao["pronto_para_construir"]:
-        return True, []
+        return (None, []) if decisao["perguntas"] else (True, [])
     perguntas = [_pergunta(item) for item in decisao["perguntas"][:MAX_PERGUNTAS]]
     if not perguntas or None in perguntas:
         return None, []
@@ -150,7 +150,7 @@ def gerar_documento_base(cliente: ClienteChat, contexto: dict, plano_publico: di
                          precos: tuple[float, float]) -> DocumentoBase:
     mensagens = [
         {"role": "system", "content": SISTEMA_DOCUMENTO},
-        {"role": "user", "content": f"Contexto validado:\n{_json(contexto_para_planejar(contexto))}\n\nPlano aprovado (projeção):\n"
+        {"role": "user", "content": f"Contexto validado:\n{_json(contexto_para_planejar(contexto))}\n\nPlano proposto (projeção):\n"
                                     f"{_json(plano_publico)}\n\n{texto_contrato()}\n"},
     ]
     resposta = cliente.completar(mensagens, [])

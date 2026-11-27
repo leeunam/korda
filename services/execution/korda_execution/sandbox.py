@@ -5,8 +5,8 @@ roda só dentro do contêiner, que não tem rede, não tem root e só enxerga mo
 explícitas:
 
     /work/fontes          somente leitura  (landing zone em Parquet das fontes sintéticas)
-    /work/projeto         somente leitura  (dbt_project, profiles, definicoes/, tests/, ingerir.py, exportar.py)
-    /work/projeto/models  escrita          (no worker começa vazio: quem constrói os modelos é o harness)
+    /work/projeto         somente leitura  (dbt_project, profiles, definicoes/, tests/, ingerir.py, exportar*.py)
+    /work/projeto/models  escrita limitada aos SQL da aprovação; a fixture avulsa admite o diretório inteiro
     /work/saida           escrita          (banco DuckDB, target/ e logs/ do dbt)
 
 Isto é isolamento de demo, não de produção: o kernel é compartilhado com o host.
@@ -18,12 +18,13 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
-from .caminhos import DIR_PROJETO, CaminhoRecusado, padrao_modelo
+from .caminhos import DIR_PROJETO, CaminhoRecusado, caminho_modelo, modelo_autorizado, padrao_modelo
 
 RAIZ_REPO = Path(__file__).resolve().parents[3]
 IMAGEM_PADRAO = os.environ.get("KORDA_SANDBOX_IMAGE", "korda-sandbox:dev")
@@ -143,15 +144,13 @@ class LocalDockerSandbox:
     # anomalias foram plantadas: seria uma folha de respostas.
     ocultar_nas_fontes: tuple[str, ...] = ("_gerador",)
     # None é a sandbox avulsa do PR #19: models/ do projeto é copiado e fica gravável.
-    # O worker passa os padrões de editable_models do plano (ex.: ("models/*",)): models/
-    # começa vazio e gravável, porque quem constrói é o harness; o pipeline feito à mão
-    # não é copiado. Quais arquivos em models/ podem ser escritos é decidido pelas
-    # ferramentas e pelo hook; o kernel protege todo o resto do projeto.
+    # Caminhos exatos recebem montagens por arquivo. Para glob, o host publica os
+    # novos nomes pela ferramenta e o contêiner só lê a árvore de modelos.
     modelos_permitidos: tuple[str, ...] | None = None
     # `fontes` deve ser uma landing zone (ver ingestao.py), com manifesto.json na raiz.
-    # O worker do plano aprovado ainda recebe fontes brutas e desliga esta exigência;
-    # unificar as duas ingestões é pendência registrada no README da execução.
+    # A versão de construção recebe a landing. Fixtures avulsas podem optar por fontes mínimas.
     exigir_manifesto: bool = True
+    modelos_vazios: bool = False
     container_id: str | None = field(default=None, init=False)
     _diretorio_proprio: bool = field(default=False, init=False, repr=False)
 
@@ -161,6 +160,8 @@ class LocalDockerSandbox:
         self.projeto = Path(self.projeto).resolve()
         self.fontes = Path(self.fontes).resolve()
         self.raiz_runs = Path(self.raiz_runs).resolve()
+        if self.modelos_vazios and not self.modelos_permitidos:
+            raise ErroSandbox("construção exige uma lista explícita dos modelos autorizados")
         if self.modelos_permitidos is not None:
             self.modelos_permitidos = tuple(self.modelos_permitidos)
             if len(set(self.modelos_permitidos)) != len(self.modelos_permitidos):
@@ -170,6 +171,16 @@ class LocalDockerSandbox:
                     padrao_modelo(padrao)
                 except CaminhoRecusado as e:
                     raise ErroSandbox(str(e)) from None
+
+            if not self.modelos_vazios and not self._tem_glob:
+                for nome in self.modelos_permitidos:
+                    modelo = self.projeto / nome
+                    if modelo.resolve() != modelo or not modelo.is_file():
+                        raise ErroSandbox(f"modelo autorizado ausente ou indireto no projeto: {nome}")
+
+    @property
+    def _tem_glob(self) -> bool:
+        return any("*" in padrao for padrao in self.modelos_permitidos or ())
 
     @property
     def dir_run(self) -> Path:
@@ -218,16 +229,22 @@ class LocalDockerSandbox:
     def _iniciar(self) -> None:
         projeto_run = self.dir_run / "projeto"
         saida_run = self.dir_run / "saida"
-        dir_models = self.projeto / "models"
-
-        def sem_modelos(diretorio: str, nomes: list[str]) -> list[str]:
-            # No worker, o conteúdo de models/ (pipeline feito à mão) nunca entra na sandbox.
-            if self.modelos_permitidos is not None and Path(diretorio) == dir_models:
-                return nomes
-            return [n for n in nomes if n == "__pycache__"]
-
-        shutil.copytree(self.projeto, projeto_run, symlinks=False, ignore=sem_modelos)
-        (projeto_run / "models").mkdir(exist_ok=True)
+        if self.modelos_vazios or self._tem_glob:
+            # O construtor recebe só os arquivos de infraestrutura do projeto.
+            protegidos = {"dbt_project.yml", "profiles.yml", "macros", "definicoes", "tests", "exportar.py",
+                          "exportar_prata.py", "ingerir.py"}
+            shutil.copytree(self.projeto, projeto_run, ignore=lambda path, nomes: (
+                set(nomes) - protegidos if Path(path) == self.projeto else {n for n in nomes if n == "__pycache__"}
+            ))
+            (projeto_run / "models").mkdir()
+            if not self._tem_glob:
+                for nome in self.modelos_permitidos:
+                    modelo = projeto_run / nome
+                    modelo.parent.mkdir(parents=True, exist_ok=True)
+                    modelo.touch(exist_ok=False)
+        else:
+            shutil.copytree(self.projeto, projeto_run, symlinks=False)
+            (projeto_run / "models").mkdir(exist_ok=True)
         saida_run.mkdir(parents=True)
 
         argv = [
@@ -240,7 +257,11 @@ class LocalDockerSandbox:
             "--mount", f"type=bind,src={saida_run},dst={DIR_SAIDA}",
             *montagens_ocultas(self.fontes, DIR_FONTES, self.ocultar_nas_fontes),
         ]
-        argv += ["--mount", f"type=bind,src={projeto_run / 'models'},dst={DIR_MODELS}"]
+        if self.modelos_permitidos is None:
+            argv += ["--mount", f"type=bind,src={projeto_run / 'models'},dst={DIR_MODELS}"]
+        elif not self._tem_glob:
+            for nome in self.modelos_permitidos:
+                argv += ["--mount", f"type=bind,src={projeto_run / nome},dst={caminho_modelo(nome)}"]
         argv.append(self.imagem)
         r = subprocess.run(argv, capture_output=True, text=True, timeout=90)
         if r.returncode != 0:
@@ -284,10 +305,18 @@ class LocalDockerSandbox:
     def enviar_arquivos(self, arquivos: dict[str, bytes]) -> None:
         """Grava arquivos por caminho absoluto **dentro** do contêiner.
 
-        A escrita acontece lá dentro, então montagens somente leitura recusam o que estiver
-        fora de models/ e saida/, e um symlink criado na sandbox não alcança o host.
+        No glob a ferramenta cria SQL na cópia privada visível ao contêiner. Com
+        arquivos exatos a atualização ocorre no mesmo inode da montagem autorizada.
         """
         for destino, conteudo in arquivos.items():
+            if self.modelos_permitidos is not None:
+                relativo = destino.removeprefix(DIR_PROJETO + "/")
+                if destino != DIR_PROJETO + "/" + relativo or not modelo_autorizado(relativo, self.modelos_permitidos):
+                    raise ErroSandbox(f"escrita fora dos modelos autorizados: {destino}")
+                if self._tem_glob:
+                    self._exigir_ativa()
+                    self._publicar_modelo(relativo, conteudo)
+                    continue
             r = self.rodar_comando(
                 ["sh", "-c", 'mkdir -p -- "$(dirname -- "$1")" && cat > "$1"', "sh", destino],
                 timeout_s=30,
@@ -295,6 +324,24 @@ class LocalDockerSandbox:
             )
             if not r.ok:
                 raise ErroSandbox(f"escrita recusada em {destino}: {r.stderr.strip()}")
+
+    def _publicar_modelo(self, relativo: str, conteudo: bytes) -> None:
+        # Com glob, o projeto inteiro é uma montagem somente leitura. A única
+        # entidade que cria entradas nesta árvore privada é o próprio worker.
+        alvo = self.dir_run / "projeto" / relativo
+        if alvo.resolve() != alvo:
+            raise ErroSandbox("destino de modelo indireto")
+        try:
+            alvo.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(dir=alvo.parent, prefix=".korda-", delete=False) as temp:
+                try:
+                    temp.write(conteudo)
+                    temp.flush()
+                    os.replace(temp.name, alvo)
+                finally:
+                    Path(temp.name).unlink(missing_ok=True)
+        except OSError as exc:
+            raise ErroSandbox(f"falha ao publicar modelo {relativo}: {exc}") from exc
 
     def destruir(self, apagar_diretorio: bool = True) -> None:
         if not self._diretorio_proprio:

@@ -1,0 +1,48 @@
+[
+  {
+    "id": "chain",
+    "text": "Qual é a cadeia de relações entre os sistemas declarados e o custo do frete? Use nomes TMS, ERP, CT-e e custo_frete na ordem da cadeia.",
+    "answer_fields": [
+      "chain"
+    ]
+  },
+  {
+    "id": "owner",
+    "text": "Qual papel confirmou o rateio do frete e qual é a regra atual? Use o identificador peso_bruto para a regra.",
+    "answer_fields": [
+      "role",
+      "rateio"
+    ]
+  },
+  {
+    "id": "units",
+    "text": "Qual unidade mede a ocupação e qual critério divide o frete? Não infira um do outro.",
+    "answer_fields": [
+      "ocupacao_unit",
+      "rateio"
+    ]
+  },
+  {
+    "id": "conflict",
+    "text": "Já sabemos se o prazo de entrega conta sábado? Se houver conflito, devolva null em prazo_sabado e informe o estado.",
+    "answer_fields": [
+      "prazo_sabado",
+      "state"
+    ]
+  },
+  {
+    "id": "history",
+    "text": "O rateio por volumes ainda é a regra atual? Informe a regra atual e o estado da declaração sobre volumes.",
+    "answer_fields": [
+      "rateio",
+      "volumes_state"
+    ]
+  },
+  {
+    "id": "missing",
+    "text": "Qual economia financeira foi comprovada comercialmente? Use null se não existe essa informação.",
+    "answer_fields": [
+      "economia_comprovada"
+    ]
+  }
+]

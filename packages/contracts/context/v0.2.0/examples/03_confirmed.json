@@ -1,0 +1,105 @@
+{
+  "schema_version": "0.2.0",
+  "project_id": "transportadora-sintetica",
+  "revision": 2,
+  "created_at": "2026-11-27T12:00:00Z",
+  "synthetic": true,
+  "interview_status": "ativa",
+  "state": "pronto",
+  "required_topics": {
+    "frete": "financeiro"
+  },
+  "processed_input_ids": [
+    "mensagem-sintetica-1",
+    "mensagem-sintetica-2"
+  ],
+  "pending_input_ids": [],
+  "evidence": [
+    {
+      "id": "ev_748fca823e2d5ff9b9c64cc4322f48ff",
+      "input_id": "mensagem-sintetica-1",
+      "participant_id": "operacao-sintetica",
+      "participant_role": "operacao",
+      "kind": "text",
+      "source_id": "mensagem-sintetica-1",
+      "input_timestamp": "2026-11-27T12:01:00Z",
+      "quote": "O frete é rateado pelo peso bruto do pedido.",
+      "start_offset": 0,
+      "end_offset": 44,
+      "transcription_version": null
+    },
+    {
+      "id": "ev_5ca3942b669f5cc3a7b36dae2f2a52f6",
+      "input_id": "mensagem-sintetica-2",
+      "participant_id": "financeiro-sintetico",
+      "participant_role": "financeiro",
+      "kind": "text",
+      "source_id": "mensagem-sintetica-2",
+      "input_timestamp": "2026-11-27T12:02:00Z",
+      "quote": "Confirmo o rateio pelo peso bruto do pedido.",
+      "start_offset": 0,
+      "end_offset": 44,
+      "transcription_version": null
+    }
+  ],
+  "claims": [
+    {
+      "id": "claim_828ed4ff4a135e279e1cc4ff0336c509",
+      "topic": "frete",
+      "key": "rateio",
+      "kind": "rule",
+      "statement": "O rateio do frete usa peso bruto do pedido.",
+      "value": "peso_bruto",
+      "unit": null,
+      "time_scope": null,
+      "state": "confirmada",
+      "critical": true,
+      "evidence_ids": [
+        "ev_748fca823e2d5ff9b9c64cc4322f48ff",
+        "ev_5ca3942b669f5cc3a7b36dae2f2a52f6"
+      ],
+      "confirmation": {
+        "evidence_id": "ev_5ca3942b669f5cc3a7b36dae2f2a52f6",
+        "participant_id": "financeiro-sintetico",
+        "role": "financeiro"
+      },
+      "superseded_by": null,
+      "source_verification": null,
+      "inspected": false
+    }
+  ],
+  "entities": [],
+  "relations": [],
+  "gaps": [
+    {
+      "id": "gap_3b0f8c9aa56b577c9439c49ee01a634e",
+      "topic": "frete",
+      "key": "required",
+      "question": "O que precisamos saber sobre frete?",
+      "blocking": true,
+      "state": "respondida",
+      "claim_ids": [
+        "claim_828ed4ff4a135e279e1cc4ff0336c509"
+      ],
+      "evidence_ids": [
+        "ev_748fca823e2d5ff9b9c64cc4322f48ff",
+        "ev_5ca3942b669f5cc3a7b36dae2f2a52f6"
+      ]
+    },
+    {
+      "id": "gap_f74db4893e045bc8b079bed1a4ccad5f",
+      "topic": "frete",
+      "key": "claim:rateio",
+      "question": "Confirme ou esclareça: O rateio do frete usa peso bruto do pedido.",
+      "blocking": true,
+      "state": "respondida",
+      "claim_ids": [
+        "claim_828ed4ff4a135e279e1cc4ff0336c509"
+      ],
+      "evidence_ids": [
+        "ev_748fca823e2d5ff9b9c64cc4322f48ff",
+        "ev_5ca3942b669f5cc3a7b36dae2f2a52f6"
+      ]
+    }
+  ]
+}

@@ -2,12 +2,14 @@
 
 import errno
 import hashlib
+import io
 import json
 import os
 import re
 import shutil
 import stat
 import uuid
+import zipfile
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
 
@@ -334,6 +336,51 @@ def _conferir_pacote(lote, aprovado):
         if infra != aprovado["infra"]:
             raise ValueError("modelos ou target do pacote diferem do manifesto aprovado")
     return inventario
+
+
+def _ler_relativo(raiz_fd, caminho: str, limite: int) -> bytes:
+    """Lê `a/b/c` a partir de um diretório aberto, sem seguir links em nenhum segmento."""
+    *pastas, nome = caminho.split("/")
+    with ExitStack() as abertos:
+        atual = raiz_fd
+        for pasta in pastas:
+            atual = os.open(pasta, DIR, dir_fd=atual)
+            abertos.callback(os.close, atual)
+        fd = os.open(nome, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=atual)
+        abertos.callback(os.close, fd)
+        meta = os.fstat(fd)
+        if not stat.S_ISREG(meta.st_mode) or not 0 < meta.st_size <= limite:
+            raise ValueError(f"arquivo do pacote irregular ou acima do limite: {caminho}")
+        dados = os.read(fd, limite + 1)
+        while len(dados) < meta.st_size:
+            bloco = os.read(fd, limite + 1 - len(dados))
+            if not bloco:
+                break
+            dados += bloco
+        return dados
+
+
+def zip_entrega(pasta: Path, aprovado: dict, limite: int) -> bytes:
+    """ZIP do pacote promovido, conferido contra o manifesto.json selado e a aprovação 2.
+
+    Os bytes de cada arquivo são conferidos pelo hash do inventário antes de entrar no ZIP;
+    horário fixo e ordem fixa deixam o ZIP reproduzível.
+    """
+    with _diretorio(pasta) as fd:
+        inventario = _conferir_pacote(fd, aprovado)
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", allowZip64=False) as arquivo:
+            for caminho in sorted(inventario):
+                meta = inventario[caminho]
+                dados = _ler_relativo(fd, caminho, meta["bytes"])
+                if len(dados) != meta["bytes"] or hashlib.sha256(dados).hexdigest() != meta["sha256"]:
+                    raise ValueError(f"arquivo do pacote difere do inventário: {caminho}")
+                info = zipfile.ZipInfo(caminho, date_time=(1980, 1, 1, 0, 0, 0))
+                info.compress_type = zipfile.ZIP_DEFLATED
+                arquivo.writestr(info, dados)
+                if buffer.tell() > limite:
+                    raise ValueError("pacote de entrega acima do limite para download")
+        return buffer.getvalue()
 
 
 def entregar(registro, raiz: Path, run_id: str, destino: str) -> Path:

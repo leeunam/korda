@@ -1,4 +1,4 @@
-"""Contrato de saída: nomes fixos lidos dos testes protegidos e do exportar.py (sem LLM)."""
+"""Contrato de saída: nomes fixos lidos dos testes protegidos e do dbt_project.yml (sem LLM)."""
 
 import shutil
 import tempfile
@@ -21,22 +21,22 @@ class TestContratoSaida(unittest.TestCase):
         self.assertIn("bronze_documentos", c["fontes"])
         self.assertNotIn("count", c["modelos"]["prata_ctes"])  # funções e apelidos SQL não são colunas
 
-    def test_muda_quando_o_exportar_muda(self):
+    def test_muda_quando_o_contrato_de_exportacao_muda(self):
         with tempfile.TemporaryDirectory() as tmp:
             copia = Path(tmp) / "projeto"
             shutil.copytree(PROJETO / "tests", copia / "tests")
-            exportar = (PROJETO / "exportar.py").read_text(encoding="utf-8")
-            (copia / "exportar.py").write_text(exportar.replace('"otif_pct"', '"otif_novo_pct"'), encoding="utf-8")
+            projeto = (PROJETO / "dbt_project.yml").read_text(encoding="utf-8")
+            (copia / "dbt_project.yml").write_text(projeto.replace("otif_pct:", "otif_novo_pct:"), encoding="utf-8")
             kpis = contrato_saida(copia)["modelos"]["ouro_kpis"]
         self.assertIn("otif_novo_pct", kpis)
         self.assertNotIn("otif_pct", kpis)
 
-    def test_exportar_sem_a_origem_esperada_e_erro(self):
+    def test_projeto_sem_contrato_de_exportacao_e_erro(self):
         with tempfile.TemporaryDirectory() as tmp:
             copia = Path(tmp) / "projeto"
             shutil.copytree(PROJETO / "tests", copia / "tests")
-            (copia / "exportar.py").write_text("PEDIDO = ('a',)\n", encoding="utf-8")
-            with self.assertRaisesRegex(ValueError, "exportar.py"):
+            (copia / "dbt_project.yml").write_text("name: x\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "contrato_exportacao"):
                 contrato_saida(copia)
 
     def test_texto_lista_cada_modelo(self):

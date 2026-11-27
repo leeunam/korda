@@ -47,3 +47,23 @@ class ConstrutorRoteirizado:
                 return {"ok": False, "erro": f"{caminho}: {resultado.get('erro', 'escrita recusada')}",
                         "custo_centavos": 0}
         return {"ok": True, "custo_centavos": 0}
+
+
+class RestauradorRoteirizado:
+    """Restaura apenas os modelos autorizados que diferem da referência desta execução."""
+
+    def __init__(self, ferramentas: FerramentasAgente, modelos: dict[str, str]):
+        self.ferramentas = ferramentas
+        self.modelos = modelos
+
+    def __call__(self, falha: dict, tentativa: int) -> dict:
+        alterados = {}
+        for nome, correto in self.modelos.items():
+            atual = self.ferramentas.ler_arquivo(nome)
+            if not atual.get("ok"):
+                return {"ok": False, "erro": f"não foi possível ler {nome}", "custo_centavos": 0}
+            if atual["conteudo"] != correto:
+                alterados[nome] = correto
+        if not alterados:
+            return {"ok": False, "erro": "os modelos já correspondem à referência", "custo_centavos": 0}
+        return ConstrutorRoteirizado(self.ferramentas, alterados).construir(None)
