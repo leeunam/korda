@@ -7,7 +7,7 @@ from pathlib import Path
 
 from jsonschema.exceptions import ValidationError
 
-from . import gerar_plano, validar_plano
+from . import ContextoPendente, gerar_plano, preparar_contexto, validar_plano
 
 
 def main():
@@ -15,6 +15,8 @@ def main():
     grupo = parser.add_mutually_exclusive_group(required=True)
     grupo.add_argument("contexto", type=Path, nargs="?")
     grupo.add_argument("--validar", type=Path, metavar="PLANO")
+    grupo.add_argument("--diagnosticar", type=Path, metavar="CONTEXTO",
+                       help="exibe regras, evidências e perguntas para uma revisão da entrevista")
     parser.add_argument("--dataset", choices=["01_demo", "02_variacao", "03_reservada"], help="lote sintético associado pelo operador")
     parser.add_argument("--nivel-ingestao", choices=["n0", "n1"], help="n0 para arquivos ou n1 para o simulador")
     parser.add_argument("--proposta-ingestao", type=Path, help="documento JSON ingestion_plan/0.1.0 para n1")
@@ -24,10 +26,14 @@ def main():
     args = parser.parse_args()
     opcoes_proposta = (args.destino, args.custo_estimado_centavos, args.dataset, args.nivel_ingestao,
                        args.proposta_ingestao, args.ate_dia)
-    if args.validar and any(opcao is not None for opcao in opcoes_proposta):
+    if (args.validar or args.diagnosticar) and any(opcao is not None for opcao in opcoes_proposta):
         parser.error("opções de proposta só podem ser usadas ao gerar um plano")
     try:
-        documento = json.loads((args.validar or args.contexto).read_text(encoding="utf-8"))
+        documento = json.loads((args.validar or args.diagnosticar or args.contexto).read_text(encoding="utf-8"))
+        if args.diagnosticar:
+            diagnostico = preparar_contexto(documento)
+            print(json.dumps(diagnostico, ensure_ascii=False, indent=2))
+            return 0 if diagnostico["estado"] == "pronto" else 3
         if args.validar:
             validar_plano(documento)
             print(f"Plano válido: {documento['plan_version']}")
@@ -42,6 +48,9 @@ def main():
                 proposta_ingestao=proposta, janela_ingestao=janela,
             )
             print(json.dumps(plano, ensure_ascii=False, indent=2))
+    except ContextoPendente as exc:
+        print(json.dumps(exc.diagnostico, ensure_ascii=False, indent=2), file=sys.stderr)
+        return 3
     except (OSError, ValueError, ValidationError) as exc:
         print(f"Erro de planejamento: {exc.message if isinstance(exc, ValidationError) else exc}", file=sys.stderr)
         return 1

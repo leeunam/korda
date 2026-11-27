@@ -78,6 +78,16 @@ agregação. Confirmar somente o prazo não fecha OTIF. Rateio exige financeiro;
 demais tópicos padrão exigem operacao. --topics-json permite outro roteiro explícito,
 sem embutir respostas esperadas.
 
+No roteiro logístico, a entrevista registra separadamente nove regras e quatro dados
+de origem: relação pedido–entrega, unidade das quantidades, fuso e vínculo do frete.
+Por exemplo, ao responder “Pelo peso expedido de cada pedido” à pergunta de rateio,
+o financeiro gera uma declaração. O serviço a apresenta para conferência. Somente
+uma nova resposta explícita, como “confirmo”, após o envio dessa pergunta, confirma
+o valor. A declaração e a confirmação guardam trechos e identificadores distintos.
+Quem não souber pode explicar o que falta. Uma resposta em linguagem livre passa
+pelo organizador e volta para conferência. Um ponto ainda em aberto fica visível.
+A informação sobre os arquivos nessa etapa vem do participante cadastrado.
+
 ## Canal e processamento
 
 GET/POST /webhooks/whatsapp verificam respectivamente CONTEXT_META_VERIFY_TOKEN e
@@ -103,7 +113,7 @@ recuperados sem roubar heartbeat recente; envios interrompidos ficam incertos.
 ## Leitura por IA e frontend futuro
 
 O contrato [v0.2.0](../../packages/contracts/context/v0.2.0/README.md) coexiste com
-v0.1.0. O planejador atual continua usando v0.1.0; não há conversão silenciosa.
+v0.1.0. O planejador pode consumir uma revisão imutável pela [ponte do planejamento](../planning/README.md).
 O [OpenAPI versionado](openapi.json) descreve quatro operações GET após
 /v1/projects/{project_id}/context/revisions/{revision}:
 

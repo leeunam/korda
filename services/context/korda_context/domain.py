@@ -7,6 +7,8 @@ import json
 from typing import Annotated, Literal
 from uuid import NAMESPACE_URL, uuid5
 
+from . import logistics
+
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, JsonValue, model_validator
 
 
@@ -208,9 +210,16 @@ def ready(context: ContextDocument) -> bool:
     )
 
 
+def logistics_gaps(project_id, required_topics):
+    return [Gap(id=identifier(project_id, "gap", f"{field.topic}:claim:{key}"),
+                topic=field.topic, key="claim:" + key, question=field.question, blocking=True)
+            for key, field in logistics.vocabulary(required_topics).items()]
+
+
 def new_context(project_id: str, required_topics: dict[str, str]) -> ContextDocument:
     gaps = [Gap(
         id=identifier(project_id, "gap", "required:" + topic), topic=topic, key="required",
         question=f"O que precisamos saber sobre {topic}?", blocking=True,
     ) for topic in required_topics]
+    gaps.extend(logistics_gaps(project_id, required_topics))
     return ContextDocument(project_id=project_id, required_topics=required_topics, gaps=gaps)

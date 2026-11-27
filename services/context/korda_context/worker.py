@@ -55,7 +55,7 @@ class Pipeline:
             return
         # The interviewer owns phrasing; the application stores the binding.
         session.create_outbox(participant["id"], context.revision, question.text,
-            question_data={"claim_ids": question.claim_ids, "topic": question.topic},
+            question_data={"claim_ids": question.claim_ids, "topic": question.topic, "capture_key": question.capture_key},
             dedupe_key=f"question:{context.revision}:{participant['id']}")
 
     def _notice(self, session, row, message):
@@ -107,6 +107,7 @@ class Pipeline:
                         source = session.get_input(row["correction_of_input_id"]) if row.get("correction_of_input_id") else row
                         new = Organizer(self._model(session, self.organizer_model)).organize(
                             context, row["id"], text, participant, project["required_topics"], pending,
+                            capture_key=challenge["question_data"].get("capture_key") if challenge else None,
                             input_kind=row["kind"], transcription_version=transcription["version"] if transcription else None,
                             source_id=source["message_id"], input_timestamp=source["sent_at"],
                             correction_input_ids=[source["id"]] if row.get("correction_of_input_id") else [])

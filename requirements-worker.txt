@@ -4,3 +4,5 @@
 pyarrow==24.0.0
 duckdb==1.5.6
 Jinja2==3.1.6
+# Validação das revisões da entrevista pelo contrato da descoberta.
+pydantic==2.14.4

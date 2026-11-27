@@ -9,11 +9,12 @@ from datetime import datetime, timezone
 from typing import Callable, Literal
 
 from pydantic import Field, JsonValue
+from . import logistics
 from .participants import registered_roles
 
 from .domain import (
     Claim, Confirmation, ContextDocument, Entity, Evidence, Gap, Model,
-    NonEmpty, Relation, identifier, ready,
+    NonEmpty, Relation, identifier, logistics_gaps, ready,
 )
 
 
@@ -118,6 +119,13 @@ def apply_proposal(
     data["state"] = "rascunho"
     evidence_by_id = {item["id"]: item for item in data["evidence"]}
     claims = {item["id"]: item for item in data["claims"]}
+    # Older immutable revisions used one gap for all sources. Complete only the new revision.
+    gap_ids = {g["id"] for g in data["gaps"]}
+    for gap in logistics_gaps(original.project_id, required_topics):
+        if gap.id not in gap_ids:
+            gap.claim_ids = [c["id"] for c in claims.values() if c["topic"] == gap.topic
+                             and "claim:" + c["key"] == gap.key and c["state"] != "substituida"]
+            data["gaps"].append(gap.model_dump(mode="python"))
     original_claim_ids = set(claims)
     refs: dict[str, str] = {}
     timestamp = input_timestamp or datetime.now(timezone.utc)
@@ -327,14 +335,43 @@ esclarecem, usando o mesmo topic e key da lacuna. Não descarte contradições n
 """
 
 
+LOGISTICS_PROMPT = """
+O vocabulário para planejamento descreve opções possíveis, não fatos da empresa.
+Use topic, key, kind e value exatamente como no vocabulário apenas se o texto atual
+afirmar aquela regra ou característica. Não converta suposições ou semelhanças em
+declarações. Se houver capture_key, a pergunta enviada trata daquele campo. A fala
+continua sendo a única fonte para a resposta. Preserve outros fatos e contradições.
+Nunca infira o valor pelo número de opções oferecidas. Dúvida, ressalva ou uma opção
+diferente produz uma lacuna. Quem responde ainda precisará confirmar em outro turno.
+"""
+
+
 class Organizer:
     def __init__(self, generate_json: Callable[[str, str], dict]):
         self.generate_json = generate_json
 
     def propose(self, context: ContextDocument | dict, text: str, participant: dict,
                 pending_confirmation_ids: tuple[str, ...] | list[str] = (), *,
-                correction_input_ids: tuple[str, ...] | list[str] = ()) -> Proposal:
+                correction_input_ids: tuple[str, ...] | list[str] = (), capture_key: str | None = None) -> Proposal:
         document = ContextDocument.model_validate(context)
+        vocabulary = logistics.vocabulary(document.required_topics)
+        field = vocabulary.get(capture_key)
+        if capture_key and (field is None or document.required_topics[field.topic] not in registered_roles(participant)):
+            raise ValueError("pergunta de captura incompatível com o projeto ou participante")
+        if field and (pending_confirmation_ids or correction_input_ids):
+            raise ValueError("captura, confirmação e correção exigem vínculos distintos")
+        if vocabulary and len(pending_confirmation_ids) == 1 and not correction_input_ids:
+            cid = pending_confirmation_ids[0]
+            pending = next((c for c in document.claims if c.id == cid), None)
+            if (pending and pending.key in vocabulary and explicit_confirmation(text, 1, pending.value)):
+                return Proposal(base_revision=document.revision, confirm_claim_ids=[cid])
+        if field:
+            selected = logistics.choice(field, text)
+            if selected is not None:
+                label, value = selected
+                return Proposal(base_revision=document.revision, claims=[ProposedClaim(
+                    ref="answer", topic=field.topic, key=capture_key, kind=field.kind,
+                    statement=label, value=value, quote=text)])
         payload = {
             "context": document.model_dump(mode="json"),
             "participant": {"id": participant["id"], "role": registered_roles(participant)[0],
@@ -343,12 +380,42 @@ class Organizer:
             "trusted_transcription_correction_input_ids": list(correction_input_ids),
         }
         system = SYSTEM_PROMPT + "\nSchema JSON obrigatório:\n" + json.dumps(Proposal.model_json_schema(), ensure_ascii=False)
-        return Proposal.model_validate(self.generate_json(system, json.dumps(payload, ensure_ascii=False)))
+        if vocabulary:
+            payload["planning_vocabulary"] = {
+                key: {"topic": f.topic, "kind": f.kind, "choices": list(f.choices)}
+                for key, f in vocabulary.items()}
+            payload["capture_key"] = capture_key
+            system += LOGISTICS_PROMPT
+        proposal = Proposal.model_validate(self.generate_json(system, json.dumps(payload, ensure_ascii=False)))
+        if field is not None:
+            valid = []
+            discarded = set()
+            understood = False
+            values = {json.dumps(value, sort_keys=True): label for label, value in field.choices}
+            for c in proposal.claims:
+                if c.topic == field.topic and c.key == capture_key:
+                    label = values.get(json.dumps(c.value, sort_keys=True))
+                    if c.kind != field.kind or label is None:
+                        discarded.add(c.ref)
+                        continue
+                    c = c.model_copy(update={"statement": label})
+                    understood = True
+                valid.append(c)
+            for gap in proposal.gaps:
+                gap.claim_refs = [ref for ref in gap.claim_refs if ref not in discarded]
+            if not understood:
+                # A bare acknowledgement, uncertainty or another rule cannot fill this field.
+                # The quotation preserves the actual reply for follow-up even with an empty proposal.
+                proposal.gaps.append(ProposedGap(topic=field.topic, key="claim:" + capture_key,
+                                                 question=field.question, quote=text, blocking=True))
+            proposal.claims = valid
+        return proposal
 
     def organize(self, context: ContextDocument | dict, input_id: str, text: str,
                  participant: dict, required_topics: dict[str, str],
-                 pending_confirmation_ids: tuple[str, ...] | list[str] = (), **metadata) -> ContextDocument:
+                 pending_confirmation_ids: tuple[str, ...] | list[str] = (), *,
+                 capture_key: str | None = None, **metadata) -> ContextDocument:
         proposal = self.propose(context, text, participant, pending_confirmation_ids,
-                                correction_input_ids=metadata.get("correction_input_ids", ()))
+                                correction_input_ids=metadata.get("correction_input_ids", ()), capture_key=capture_key)
         return apply_proposal(context, input_id, text, participant, proposal, required_topics,
                               pending_confirmation_ids, **metadata)

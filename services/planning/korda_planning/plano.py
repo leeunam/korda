@@ -199,6 +199,13 @@ def _validar_ingestao(plano):
 def gerar_plano(contexto, *, destino=None, custo_estimado_centavos=None, dataset=None,
                 nivel_ingestao="n0", proposta_ingestao=None, janela_ingestao=None):
     """Cria uma proposta revisável v0.2 a partir do contexto e da seleção de ingestão."""
+    if contexto.get("schema_version") == "0.2.0":
+        from .ponte_contexto import ContextoPendente, preparar_contexto
+
+        diagnostico = preparar_contexto(contexto)
+        if diagnostico["estado"] != "pronto":
+            raise ContextoPendente(diagnostico)
+        contexto = diagnostico["contexto_planejamento"]
     contrato_contexto.validate_context(contexto)
     if dataset is None and (contexto["project_id"], contexto["context_id"]) == ("demo-01", "ctx-demo-01"):
         dataset = "01_demo"

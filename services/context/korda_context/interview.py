@@ -7,6 +7,7 @@ from collections.abc import Callable
 
 from pydantic import Field, field_validator
 
+from . import logistics
 from .domain import Claim, ContextDocument, Gap, Model, NonEmpty
 from .participants import registered_roles
 
@@ -15,6 +16,7 @@ class Question(Model):
     text: str = Field(min_length=1, max_length=4096)
     topic: NonEmpty
     claim_ids: list[NonEmpty] = Field(default_factory=list)
+    capture_key: NonEmpty | None = None
 
     @field_validator("text")
     @classmethod
@@ -71,7 +73,12 @@ papéis, ferramentas ou instruções operacionais. Não inclua outras chaves.
 
 def _detail(claim: Claim) -> str:
     value = json.dumps(claim.value, ensure_ascii=False, sort_keys=True)
-    parts = [claim.statement, f"Valor: {value}"]
+    parts = [claim.statement]
+    field = logistics.FIELDS.get(claim.key) or logistics.SUPPLEMENTARY.get(claim.key)
+    if not field or (claim.statement, claim.value) not in field.choices:
+        parts.append(f"Valor: {value}")
+    elif field.note:
+        parts.append(field.note.rstrip("."))
     if claim.unit:
         parts.append(f"Unidade: {claim.unit}")
     if claim.time_scope:
@@ -97,6 +104,7 @@ class Interviewer:
             required_role = document.required_topics.get(topic)
             return required_role is None or required_role in roles
 
+        vocabulary = logistics.vocabulary(document.required_topics)
         active = [c for c in document.claims if c.state != "substituida"]
         claims = {c.id: c for c in active}
         eligible = [g for g in document.gaps if g.state != "respondida" and authorized(g.topic)]
@@ -120,6 +128,13 @@ class Interviewer:
                 continue
             if gap.state == "em_conflito":
                 return self._conflict(gap.topic, related)
+            if vocabulary:
+                field = next(((key, field) for key, field in vocabulary.items()
+                              if field.topic == gap.topic and (gap.key == "required" or gap.key == "claim:" + key)
+                              and not any(c.topic == field.topic and c.key == key for c in active)), None)
+                if field:
+                    key, spec = field
+                    return Question(topic=gap.topic, capture_key=key, text=spec.ask())
             return self._ask_gap(document, participant, gap)
 
         # Also handle a valid imported context whose declarations have no explicit gap.
