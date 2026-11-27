@@ -1,0 +1,72 @@
+name: korda_logistica
+version: "0.1.0"
+profile: korda
+config-version: 2
+model-paths: ["models", "definicoes"]
+test-paths: ["tests"]
+models:
+  korda_logistica:
+    +materialized: table
+
+# Ordenação das colunas dos CSVs e tipos aceitos pelo exportador e pelo teste do dbt.
+vars:
+  contrato_exportacao:
+    ouro_kpis:
+      custo_frete_por_entrega: numero
+      otif_pct: numero
+      ocupacao_pct: numero
+    ouro_por_pedido:
+      pedido_id: texto
+      viagem_id: texto
+      tipo_viagem: texto
+      elegivel_custo: flag
+      custo_frete_rateado: numero
+      ctes: texto
+      data_prevista: data_iso
+      data_realizada: data_iso
+      elegivel_otif: flag
+      no_prazo: flag
+      completo: flag
+      otif: flag
+      entrega_id: texto
+      arquivo_pedido: texto
+      linha_pedido: inteiro
+      arquivo_entrega: texto
+      linha_entrega: inteiro
+      chave_nfe: texto
+      qt_itens: inteiro
+      qt_entregue: inteiro
+      peso_decimos_kg: inteiro
+      origem_pedido: texto
+      carga_pedido: inteiro
+      origem_entrega: texto
+      carga_entrega: inteiro
+    ouro_por_viagem:
+      viagem_id: texto
+      veiculo_id: texto
+      tipo_viagem: texto
+      n_entregas: inteiro
+      n_entregas_elegiveis_custo: inteiro
+      carga: numero
+      capacidade: numero
+      unidade: texto
+      ocupacao: numero
+      acima_capacidade: flag
+      custo_frete_total: numero
+      custo_por_entrega: numero
+      arquivo_viagem: texto
+      linha_viagem: inteiro
+      arquivo_veiculo: texto
+      linha_veiculo: inteiro
+      origem_viagem: texto
+      carga_viagem: inteiro
+      origem_veiculo: texto
+      carga_veiculo: inteiro
+    prata_rateios:
+      pedido_id: texto
+      chave_cte: texto
+      arquivo: texto
+      sha256: texto
+      valor_centavos: inteiro
+      centavos: inteiro
+      carga: inteiro

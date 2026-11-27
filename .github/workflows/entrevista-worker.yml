@@ -1,0 +1,98 @@
+name: Interview, worker and operator panel
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: entrevista-worker-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  entrevista-worker:
+    name: Interview to delivery (Postgres, Docker and Chromium)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:17.6-alpine
+        env:
+          POSTGRES_USER: entrevista
+          POSTGRES_PASSWORD: local_ci_disposable
+          POSTGRES_DB: entrevista
+        ports:
+          - "127.0.0.1:5432:5432"
+        options: >-
+          --health-cmd "pg_isready -U entrevista -d entrevista"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Set up Python for the operator and the interview service
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+
+      - name: Install the interview backend and worker in separate environments
+        run: |
+          python -m pip install uv==0.13.10
+          uv sync --locked --project services/context
+          python -m venv "$RUNNER_TEMP/worker"
+          uv pip install --python "$RUNNER_TEMP/worker/bin/python" -r requirements-worker.txt
+          uv pip check --python "$RUNNER_TEMP/worker/bin/python"
+          echo "$RUNNER_TEMP/worker/bin" >> "$GITHUB_PATH"
+
+      - name: Set up Node for the operator panel
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22.22.1'
+
+      - name: Install the locked frontend and browser test dependencies
+        run: |
+          npm install --global pnpm@10.29.3
+          pnpm --dir apps/web install --frozen-lockfile
+          npm install --prefix integration/entrevista_worker --no-save --no-package-lock --ignore-scripts playwright@1.62.1
+          integration/entrevista_worker/node_modules/.bin/playwright install --with-deps chromium
+
+      - name: Check the frontend and build Next.js for the browser test
+        working-directory: apps/web
+        run: |
+          pnpm test
+          pnpm lint
+          pnpm build
+
+      - name: Build the worker sandbox for N0
+        run: docker build --tag korda-sandbox:dev infra/sandbox
+
+      - name: Capture the interview and verify the worker and approval panels
+        env:
+          CONTEXT_DATABASE_URL: postgresql://entrevista:local_ci_disposable@127.0.0.1:5432/entrevista
+          CONTEXT_REAL_PROVIDERS: '0'
+          KORDA_EXECUTOR: roteirizado
+          KORDA_PERMITIR_LLM_REAL: '0'
+          KORDA_EXIGIR_DOCKER: '1'
+          KORDA_ENTREVISTA_URL: http://127.0.0.1:8091
+        run: |
+          export CONTEXT_PROJECT_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
+          export CONTEXT_META_APP_SECRET="$(python -c 'import secrets; print(secrets.token_hex(32))')"
+          export KORDA_ENTREVISTA_MANIFEST="$RUNNER_TEMP/entrevista.json"
+          export PYTHONPATH="$GITHUB_WORKSPACE/services/context:$GITHUB_WORKSPACE/services/execution:$GITHUB_WORKSPACE"
+          context_python="$GITHUB_WORKSPACE/services/context/.venv/bin/python"
+          "$context_python" -m korda_context.cli migrate
+          "$context_python" -m uvicorn korda_context.api:create_app --factory --host 127.0.0.1 --port 8091 --no-access-log &
+          api_pid=$!
+          trap 'kill "$api_pid" 2>/dev/null || true' EXIT
+          curl --silent --show-error --fail --retry 20 --retry-delay 1 --retry-connrefused "$KORDA_ENTREVISTA_URL/readyz"
+          "$context_python" -m integration.entrevista_worker.seed --url "$KORDA_ENTREVISTA_URL" --project entrevista-01 --manifest "$KORDA_ENTREVISTA_MANIFEST"
+          python -m unittest discover -s integration/entrevista_worker -p 'test_*.py' -v
+          python integration/entrevista_worker/painel_real.py

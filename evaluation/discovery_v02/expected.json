@@ -1,0 +1,84 @@
+{
+  "chain": {
+    "facts": {
+      "chain": [
+        "TMS",
+        "ERP",
+        "CT-e",
+        "custo_frete"
+      ]
+    },
+    "required_relation_ids": [
+      "r_tms_erp",
+      "r_erp_cte",
+      "r_cte_frete"
+    ],
+    "required_evidence_ids": [
+      "ev_sources"
+    ]
+  },
+  "owner": {
+    "facts": {
+      "role": "financeiro",
+      "rateio": "peso_bruto"
+    },
+    "required_relation_ids": [
+      "r_frete_finance"
+    ],
+    "required_claim_ids": [
+      "c_rateio"
+    ],
+    "required_evidence_ids": [
+      "ev_confirm"
+    ]
+  },
+  "units": {
+    "facts": {
+      "ocupacao_unit": "kg",
+      "rateio": "peso_bruto"
+    },
+    "required_claim_ids": [
+      "c_occupancy",
+      "c_rateio"
+    ],
+    "required_evidence_ids": [
+      "ev_confirm",
+      "ev_occupancy"
+    ]
+  },
+  "conflict": {
+    "facts": {
+      "prazo_sabado": null,
+      "state": "em_conflito"
+    },
+    "abstained": true,
+    "required_claim_ids": [
+      "c_otif_a",
+      "c_otif_b"
+    ],
+    "required_evidence_ids": [
+      "ev_otif_a",
+      "ev_otif_b"
+    ]
+  },
+  "history": {
+    "facts": {
+      "rateio": "peso_bruto",
+      "volumes_state": "substituida"
+    },
+    "required_claim_ids": [
+      "c_rateio",
+      "c_rateio_old"
+    ],
+    "required_evidence_ids": [
+      "ev_old",
+      "ev_confirm"
+    ]
+  },
+  "missing": {
+    "facts": {
+      "economia_comprovada": null
+    },
+    "abstained": true
+  }
+}

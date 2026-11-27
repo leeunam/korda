@@ -1,0 +1,30 @@
+{
+  "empresa_id": "03_reservada",
+  "uso": "medicao",
+  "status": "RASCUNHO: regras_referencia pendentes de K02",
+  "regras_referencia": {
+    "status": "proposta_pendente_k02",
+    "rateio_cte": "valor",
+    "sem_data_realizada": "excluir",
+    "ocupacao_unidade": "m3",
+    "prazo_conta_sabado": false,
+    "excluir_tipos_viagem": [],
+    "no_prazo": "data(dt_realizada) <= dt_emissao + prazo_dias úteis (seg-sex)",
+    "completo": "qt_entregue >= qt_itens"
+  },
+  "kpis": {
+    "custo_frete_por_entrega": 229.3508,
+    "otif_pct": 85.2973,
+    "ocupacao_pct": 74.7979
+  },
+  "contagens": {
+    "entregas_elegiveis_custo": 8587,
+    "frete_total_elegivel": 1969435.62,
+    "pedidos_otif_denominador": 8393,
+    "pedidos_otif": 7159,
+    "viagens": 708,
+    "ctes_considerados": 8097,
+    "ctes_cancelados": 88,
+    "arquivos_cte": 8360
+  }
+}

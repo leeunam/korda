@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Korda · plano logístico sintético v0.1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "plan_version", "synthetic", "project_id", "context_id", "context_revision",
+    "context_state", "last_processed_turn_id", "sources", "evidence", "source_profile", "rules", "gaps",
+    "state", "period", "dataset", "editable_models", "metrics", "tasks", "limits", "destination", "cost_estimate_brl_cents"
+  ],
+  "properties": {
+    "schema_version": {"const": "0.1.0"},
+    "plan_version": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "synthetic": {"const": true},
+    "project_id": {"$ref": "../../context/v0.1.0/context.schema.json#/properties/project_id"},
+    "context_id": {"$ref": "../../context/v0.1.0/context.schema.json#/properties/context_id"},
+    "context_revision": {"$ref": "../../context/v0.1.0/context.schema.json#/properties/revision"},
+    "context_state": {"$ref": "../../context/v0.1.0/context.schema.json#/properties/state"},
+    "last_processed_turn_id": {"$ref": "../../context/v0.1.0/context.schema.json#/properties/last_processed_turn_id"},
+    "sources": {"$ref": "../../context/v0.1.0/context.schema.json#/properties/sources"},
+    "evidence": {"$ref": "../../context/v0.1.0/context.schema.json#/properties/evidence"},
+    "source_profile": {"$ref": "../../context/v0.1.0/context.schema.json#/properties/source_profile"},
+    "rules": {"$ref": "../../context/v0.1.0/context.schema.json#/properties/rules"},
+    "gaps": {"$ref": "../../context/v0.1.0/context.schema.json#/properties/gaps"},
+    "state": {"enum": ["rascunho", "aguardando_aprovacao"]},
+    "dataset": {"enum": ["01_demo", "02_variacao", "03_reservada", null]},
+    "editable_models": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^models/(?:[A-Za-z0-9_][A-Za-z0-9_.-]*/)*(?:[A-Za-z0-9_][A-Za-z0-9_.-]*\\.sql|\\*|\\*\\.sql)$"}},
+    "period": {"type": "string", "minLength": 1},
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["custo_frete_por_entrega", "otif_pct", "ocupacao_pct"],
+      "properties": {
+        "custo_frete_por_entrega": {"$ref": "#/$defs/metric"},
+        "otif_pct": {"$ref": "#/$defs/metric"},
+        "ocupacao_pct": {"$ref": "#/$defs/metric"}
+      }
+    },
+    "tasks": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["id", "depends_on", "output", "verify"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "depends_on": {"$ref": "#/$defs/strings"},
+          "output": {"type": "string", "minLength": 1},
+          "verify": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "limits": {
+      "type": "object", "additionalProperties": false, "required": ["max_repair_attempts_per_step"],
+      "properties": {"max_repair_attempts_per_step": {"const": 3}}
+    },
+    "destination": {
+      "type": ["string", "null"], "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9]",
+      "not": {"type": "string", "pattern": "[^a-zA-Z0-9._-]"}
+    },
+    "cost_estimate_brl_cents": {"type": ["integer", "null"], "minimum": 0},
+    "construction": {
+      "type": "object", "additionalProperties": false, "required": ["document", "model", "synthetic"],
+      "properties": {
+        "document": {"type": "string", "minLength": 1, "maxLength": 60000},
+        "model": {"type": "string", "minLength": 1, "maxLength": 200},
+        "synthetic": {"type": "boolean"}
+      }
+    }
+  },
+  "$defs": {
+    "strings": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+    "metric": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "grain", "unit", "formula", "denominator", "input_files", "joins", "acceptance",
+        "rule_keys", "blocking_gaps", "state"
+      ],
+      "properties": {
+        "grain": {"type": "string", "minLength": 1},
+        "unit": {"enum": ["BRL/entrega", "%"]},
+        "formula": {"type": "string", "minLength": 1},
+        "denominator": {"type": "string", "minLength": 1},
+        "input_files": {"$ref": "#/$defs/strings"},
+        "joins": {"$ref": "#/$defs/strings"},
+        "acceptance": {"$ref": "#/$defs/strings"},
+        "rule_keys": {"$ref": "#/$defs/strings"},
+        "blocking_gaps": {"$ref": "#/$defs/strings"},
+        "state": {"enum": ["bloqueada", "planejada"]}
+      }
+    }
+  }
+}

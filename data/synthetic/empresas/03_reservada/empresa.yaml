@@ -1,0 +1,115 @@
+# Empresa 03_reservada: RASCUNHO para K03 (Refs #3).
+# Uso: SÓ MEDIÇÃO. Nunca usar para ajustar prompts, playbook ou agente (ver README.md).
+# Regras e nomes próprios: rateio por valor da mercadoria, ocupação por m³,
+# entrega sem data fora do denominador, prazo em dias úteis sem sábado,
+# nomes de coluna (conjunto C), CSV separado por "|".
+#
+# Mesmas convenções da 01: `origem` marca procedência; suposicao:equipe = sem fonte.
+# regras_referencia são PROPOSTA pendente de K02.
+
+versao: 0.2-rascunho
+empresa_id: 03_reservada
+uso: medicao
+semente: 20261103
+
+empresa:
+  razao_social: "Expresso Araucária Distribuição Ltda (fictícia)"
+  nome_curto: EXPARAUCARIA
+  cnpj_base: "33444555"          # DV do CNPJ propositalmente inválido
+  ie: "3456789012"
+  area_atendimento: area_atendimento.csv
+  fuso_horario: America/Sao_Paulo
+  origem: suposicao:equipe
+
+periodo:
+  inicio: 2026-07-06
+  dias_corridos: 45
+  dias_operacao: [0, 1, 2, 3, 4, 5]
+  fracao_frota_sabado: 0.4
+  origem: suposicao:equipe
+
+frota:
+  origem: suposicao:equipe
+  veiculos:
+    - {tipo: VUC,   quantidade: 6, capacidade_kg: 3000,  capacidade_m3: 16, consumo_km_l: 8.0}
+    - {tipo: TOCO,  quantidade: 8, capacidade_kg: 6000,  capacidade_m3: 32, consumo_km_l: 5.0}
+    - {tipo: TRUCK, quantidade: 6, capacidade_kg: 12000, capacidade_m3: 50, consumo_km_l: 3.8}
+
+clientes:
+  quantidade: 80
+  origem: suposicao:equipe
+
+viagens:
+  viagens_por_veiculo_dia: 1
+  entregas_por_viagem: {min: 9, max: 15}
+  ocupacao_alvo: {min: 0.55, max: 0.95}
+  origem: suposicao:equipe
+
+pedido:
+  densidade_kg_m3: {min: 90, max: 220}
+  itens: {min: 1, max: 12}
+  valor_mercadoria_r_por_kg: {min: 10, max: 150}
+  prazo_dias_uteis: {ate_100_km: 2, acima_100_km: 3}
+  folga_entrega_dias_uteis: {zero: 0.6, um: 0.4}
+  campo_prazo: prazo_dias         # o ERP traz só o prazo em dias úteis
+  origem: suposicao:equipe
+
+frete:
+  r_por_kg_por_faixa_km: [{ate_km: 50, r_kg: 0.33}, {ate_km: 150, r_kg: 0.52}, {ate_km: 9999, r_kg: 0.90}]
+  frete_minimo_r: 130.00
+  ad_valorem_pct: 0.35
+  fator_margem_km: 2.5
+  origem: suposicao:equipe
+
+custos_operacao:
+  diesel_r_por_litro: {fonte: calibration.yaml, chave: diesel_preco_medio_consumidor.por_uf, uf: sede, origem: calibracao:anp_anuario_2026_t3_21}
+  fator_estrada: {valor: 1.30, origem: suposicao:equipe}
+
+anomalias:
+  origem: suposicao:equipe
+  cte_duplicado_pct: {min: 2, max: 3}
+  cte_cancelado_pct: {min: 1, max: 2}
+  cte_multi_pedido_pct: {min: 5, max: 10}
+  entrega_atrasada_pct: {min: 8, max: 12}
+  entrega_incompleta_pct: {min: 3, max: 5}
+  entrega_sem_data_pct: {min: 2, max: 3}
+  data_formato_misto_pct: {min: 8, max: 12}
+  viagem_acima_capacidade_pct: {min: 1, max: 2}
+
+caso_explicavel: {ativo: false}
+
+transferencias: {ativo: false}
+
+fatos_fora_da_entrevista:
+  - id: sabado_fora_do_prazo
+    descricao: "O prazo prometido (em dias úteis) conta só de segunda a sexta, embora a frota rode aos sábados."
+    esperado_do_planejamento: "perguntar como contar dias úteis antes de calcular a data prevista"
+    origem: suposicao:equipe
+
+formato:
+  csv: {separador: "|", decimal: ".", encoding: utf-8}
+  data: "%Y%m%d"
+  data_hora_tms: "%Y-%m-%dT%H:%M:%S"
+  formatos_mistos: ["%d/%m/%Y %H:%M", "%d.%m.%Y"]
+
+colunas:        # conjunto C
+  erp_clientes: {id: clienteId, razao: nomeFantasia, cnpj: docCliente, municipio_ibge: ibgeMun, ativo: ativo}
+  erp_pedidos: {id: pedidoId, cliente_id: clienteId, dt_emissao: dtPedido, dt_prevista: dtCompromisso, prazo_dias: prazoDU, qt_itens: volumes, peso_kg: pesoBrutoKg, volume_m3: cubagem, valor_mercadoria: valorNota, chave_nfe: chaveAcessoNfe}
+  tms_veiculos: {id: veiculoId, placa: placaVeiculo, tipo: modeloFrota, cap_kg: capacidadePeso, cap_m3: capacidadeCubica}
+  tms_viagens: {id: manifestoId, veiculo_id: veiculoId, dt_saida: dtInicio, km: kmPercorrido, tipo: tipoOperacao}
+  tms_entregas: {id: entregaId, viagem_id: manifestoId, pedido_id: pedidoRef, seq: ordemParada, qt_entregue: volumesEntregues, dt_realizada: dtEntregaReal, status: statusEntrega}
+
+regras_referencia:    # PROPOSTA pendente de K02
+  status: proposta_pendente_k02
+  rateio_cte: valor
+  sem_data_realizada: excluir
+  ocupacao_unidade: m3
+  prazo_conta_sabado: false
+  excluir_tipos_viagem: []
+  no_prazo: "data(dt_realizada) <= dt_emissao + prazo_dias úteis (seg-sex)"
+  completo: "qt_entregue >= qt_itens"
+
+tolerancias:
+  custo_rel: 0.005
+  otif_pp: 0.5
+  ocupacao_pp: 0.5

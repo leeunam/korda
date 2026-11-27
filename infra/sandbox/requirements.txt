@@ -1,0 +1,10 @@
+# Dependências da imagem da sandbox de execução (P3, K08).
+# Versões fixadas e publicadas há mais de duas semanas em 23/11/2026.
+# duckdb fica em 1.5.x: dbt-duckdb 1.11.1 ainda não foi verificado com duckdb 2.x.
+dbt-core==1.11.16
+dbt-duckdb==1.11.1
+duckdb==1.5.6
+# Ingestão (korda_ingestao): parser de XML do CT-e. Mesma versão de requirements-synthetic.txt.
+lxml==5.3.0
+# Ingestão de nível 1: driver do Postgres (ERP simulado). Wheel binário, sem compilar na imagem.
+psycopg[binary]==3.2.10

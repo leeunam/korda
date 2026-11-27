@@ -1,0 +1,2 @@
+# Validação de desenvolvimento dos contratos JSON Schema (Python 3.11+).
+jsonschema==4.23.0

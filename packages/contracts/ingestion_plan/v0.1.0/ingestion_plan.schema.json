@@ -1,0 +1,434 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://korda.example/contracts/ingestion_plan/v0.1.0",
+  "title": "Seção de ingestão do plano (proposta v0.1.0, dados sintéticos)",
+  "description": "Como cada fonte do cliente entra na landing zone. Proposta para K01/K06; o plano completo ainda não tem contrato. Credenciais aparecem só como nomes de variáveis de ambiente, nunca como valor.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "synthetic",
+    "project_id",
+    "company_id",
+    "state",
+    "context_ref",
+    "landing",
+    "sources",
+    "gaps",
+    "acceptance_tests",
+    "limits"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "ingestion_plan/0.1.0"
+    },
+    "synthetic": {
+      "const": true
+    },
+    "project_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "company_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "state": {
+      "enum": [
+        "rascunho",
+        "pronto_para_aprovacao"
+      ]
+    },
+    "context_ref": {
+      "description": "Revisão do contexto (P1) de onde vêm as evidências; null se ainda não houver.",
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "context_id",
+            "revision"
+          ],
+          "properties": {
+            "context_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "revision": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        }
+      ]
+    },
+    "landing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "format"
+      ],
+      "properties": {
+        "format": {
+          "const": "korda.landing/v0"
+        }
+      }
+    },
+    "sources": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "system",
+          "kind",
+          "method",
+          "frequency",
+          "incremental_key",
+          "acceptable_latency",
+          "credentials_env",
+          "objects",
+          "resilience",
+          "on_schema_change",
+          "evidence_ids",
+          "gap_ids"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$"
+          },
+          "system": {
+            "enum": [
+              "erp",
+              "tms",
+              "cte"
+            ]
+          },
+          "kind": {
+            "enum": [
+              "postgres",
+              "api_http",
+              "pasta_entrega",
+              "arquivos_exportados"
+            ]
+          },
+          "method": {
+            "enum": [
+              "snapshot_completo",
+              "incremental_campo",
+              "novos_arquivos"
+            ]
+          },
+          "frequency": {
+            "enum": [
+              "diaria",
+              "horaria",
+              "sob_demanda"
+            ]
+          },
+          "incremental_key": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "field",
+                  "comparison"
+                ],
+                "properties": {
+                  "field": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "comparison": {
+                    "enum": [
+                      "maior_que",
+                      "maior_ou_igual"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "acceptable_latency": {
+            "type": "string",
+            "pattern": "^P(T?[0-9]+[DHM])+$",
+            "description": "Duração ISO 8601 (ex.: PT24H)."
+          },
+          "credentials_env": {
+            "description": "Nomes das variáveis de ambiente que a execução recebe. Nunca o valor.",
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^KORDA_[A-Z0-9_]+$"
+            }
+          },
+          "objects": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "name",
+                "locator",
+                "key",
+                "expected_volume",
+                "sensitive_columns"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "locator": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Onde o objeto está na fonte: tabela (postgres), caminho do recurso relativo à URL base (api_http, ex.: /entregas) ou padrão de arquivo (pasta_entrega, ex.: **/*.xml)."
+                },
+                "key": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "expected_volume": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "per_day_min",
+                    "per_day_max",
+                    "basis"
+                  ],
+                  "properties": {
+                    "per_day_min": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "per_day_max": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "basis": {
+                      "enum": [
+                        "evidencia",
+                        "perfil_das_fontes",
+                        "suposicao"
+                      ]
+                    }
+                  }
+                },
+                "sensitive_columns": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "column",
+                      "category",
+                      "treatment"
+                    ],
+                    "properties": {
+                      "column": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "category": {
+                        "enum": [
+                          "cnpj",
+                          "cpf",
+                          "nome",
+                          "endereco",
+                          "placa",
+                          "outro"
+                        ]
+                      },
+                      "treatment": {
+                        "enum": [
+                          "mascarar_na_prata",
+                          "excluir_na_prata",
+                          "manter_justificado"
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "resilience": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "max_retries",
+              "backoff_seconds",
+              "retry_on",
+              "timeout_seconds"
+            ],
+            "properties": {
+              "max_retries": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 10
+              },
+              "backoff_seconds": {
+                "type": "array",
+                "items": {
+                  "type": "number",
+                  "minimum": 0
+                }
+              },
+              "retry_on": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "enum": [
+                    "429",
+                    "500",
+                    "502",
+                    "503",
+                    "504",
+                    "timeout",
+                    "conexao"
+                  ]
+                }
+              },
+              "timeout_seconds": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 300
+              }
+            }
+          },
+          "on_schema_change": {
+            "const": "escalar"
+          },
+          "evidence_ids": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "gap_ids": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
+    "gaps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "source_id",
+          "question",
+          "blocking",
+          "state",
+          "responsible_role"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "question": {
+            "type": "string",
+            "minLength": 1
+          },
+          "blocking": {
+            "type": "boolean"
+          },
+          "state": {
+            "enum": [
+              "aberta",
+              "respondida"
+            ]
+          },
+          "responsible_role": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "acceptance_tests": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "kind",
+          "source_ids",
+          "criterion"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "kind": {
+            "enum": [
+              "completude",
+              "idempotencia",
+              "incremental",
+              "resiliencia",
+              "mudanca_esquema"
+            ]
+          },
+          "source_ids": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string"
+            }
+          },
+          "criterion": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_correction_attempts"
+      ],
+      "properties": {
+        "max_correction_attempts": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3
+        }
+      }
+    }
+  }
+}

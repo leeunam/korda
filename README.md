@@ -15,7 +15,7 @@ A primeira demonstração usa uma transportadora fictícia, dados sintéticos de
 
 ## Estado atual
 
-Estrutura inicial e organização do trabalho. **O produto ainda será implementado.** Os diretórios descrevem responsabilidades; não são integrações funcionando.
+A demo logística tem fontes sintéticas, contrato de descoberta, planejador versionado e um worker local para os três indicadores. O operador revisa o plano, executa o lote e autoriza a promoção dos resultados avaliados. A descoberta ao vivo, a interface e a demonstração pública ainda dependem de integração. [Guia do worker](services/execution/README.md) · [Plano das 17 issues](docs/plano-integracao-worker.md)
 
 - **Demo pública:** pendente.
 - **Vídeo de até 3 minutos:** pendente.
@@ -34,7 +34,7 @@ Estrutura inicial e organização do trabalho. **O produto ainda será implement
 | `services/planning/` | Regras, plano e primeira aprovação |
 | `services/execution/` | Execução, testes e entrega autorizada |
 | `packages/contracts/` | Contratos compartilhados entre frentes |
-| `data/synthetic/` | Fontes fictícias reproduzíveis |
+| `data/synthetic/` | Fontes fictícias reproduzíveis: 3 empresas, gerador ERP/TMS/CT-e e calibração (rascunho para K03); [detalhes](data/synthetic/README.md) |
 | `evaluation/golden/` | Avaliação independente com respostas conhecidas |
 | `infra/` | Ambiente de execução e publicação |
 | `docs/` | Escopo, arquitetura, fluxo de trabalho e evento |
@@ -51,7 +51,7 @@ Para verificar a estrutura local, com Python 3.11 ou superior:
 python3 scripts/check_repo.py
 ```
 
-Essa verificação não testa o produto. Comandos de execução e testes funcionais serão acrescentados junto das implementações.
+O comando verifica a estrutura e os links. Os testes de cálculo, aprovações, permissões e entrega estão no [guia de execução](services/execution/README.md).
 
 ## Licença
 

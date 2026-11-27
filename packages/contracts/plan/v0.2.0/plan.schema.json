@@ -1,0 +1,223 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Korda · plano logístico e ingestão sintética v0.2.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "plan_version",
+    "synthetic",
+    "project_id",
+    "context_id",
+    "context_revision",
+    "context_state",
+    "last_processed_turn_id",
+    "sources",
+    "evidence",
+    "source_profile",
+    "rules",
+    "gaps",
+    "state",
+    "dataset",
+    "editable_models",
+    "period",
+    "metrics",
+    "tasks",
+    "limits",
+    "destination",
+    "cost_estimate_brl_cents",
+    "ingestion"
+  ],
+  "properties": {
+    "construction": {
+      "$ref": "../v0.1.0/plan.schema.json#/properties/construction"
+    },
+    "schema_version": {
+      "const": "0.2.0"
+    },
+    "plan_version": {
+      "$ref": "../v0.1.0/plan.schema.json#/properties/plan_version"
+    },
+    "synthetic": {
+      "$ref": "../v0.1.0/plan.schema.json#/properties/synthetic"
+    },
+    "project_id": {
+      "$ref": "../v0.1.0/plan.schema.json#/properties/project_id"
+    },
+    "context_id": {
+      "$ref": "../v0.1.0/plan.schema.json#/properties/context_id"
+    },
+    "context_revision": {
+      "$ref": "../v0.1.0/plan.schema.json#/properties/context_revision"
+    },
+    "context_state": {
+      "$ref": "../v0.1.0/plan.schema.json#/properties/context_state"
+    },
+    "last_processed_turn_id": {
+      "$ref": "../v0.1.0/plan.schema.json#/properties/last_processed_turn_id"
+    },
+    "sources": {
+      "$ref": "../v0.1.0/plan.schema.json#/properties/sources"
+    },
+    "evidence": {
+      "$ref": "../v0.1.0/plan.schema.json#/properties/evidence"
+    },
+    "source_profile": {
+      "$ref": "../v0.1.0/plan.schema.json#/properties/source_profile"
+    },
+    "rules": {
+      "$ref": "../v0.1.0/plan.schema.json#/properties/rules"
+    },
+    "gaps": {
+      "$ref": "../v0.1.0/plan.schema.json#/properties/gaps"
+    },
+    "state": {
+      "$ref": "../v0.1.0/plan.schema.json#/properties/state"
+    },
+    "dataset": {
+      "$ref": "../v0.1.0/plan.schema.json#/properties/dataset"
+    },
+    "editable_models": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "models/prata_ctes.sql",
+          "models/prata_rateios.sql",
+          "models/ouro_por_pedido.sql",
+          "models/ouro_por_viagem.sql",
+          "models/ouro_kpis.sql"
+        ]
+      }
+    },
+    "period": {
+      "$ref": "../v0.1.0/plan.schema.json#/properties/period"
+    },
+    "metrics": {
+      "$ref": "../v0.1.0/plan.schema.json#/properties/metrics"
+    },
+    "tasks": {
+      "$ref": "../v0.1.0/plan.schema.json#/properties/tasks"
+    },
+    "limits": {
+      "$ref": "../v0.1.0/plan.schema.json#/properties/limits"
+    },
+    "destination": {
+      "$ref": "../v0.1.0/plan.schema.json#/properties/destination"
+    },
+    "cost_estimate_brl_cents": {
+      "$ref": "../v0.1.0/plan.schema.json#/properties/cost_estimate_brl_cents"
+    },
+    "ingestion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "level",
+        "window",
+        "proposal",
+        "proposal_sha256"
+      ],
+      "properties": {
+        "level": {
+          "enum": [
+            "n0",
+            "n1"
+          ]
+        },
+        "window": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/full_batch"
+            },
+            {
+              "$ref": "#/$defs/simulated_as_of"
+            }
+          ]
+        },
+        "proposal": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "../../ingestion_plan/v0.1.0/ingestion_plan.schema.json"
+            }
+          ]
+        },
+        "proposal_sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 64,
+          "maxLength": 64,
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "if": {
+        "properties": {
+          "level": {
+            "const": "n0"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "window": {
+            "$ref": "#/$defs/full_batch"
+          },
+          "proposal": {
+            "type": "null"
+          },
+          "proposal_sha256": {
+            "type": "null"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "proposal": {
+            "type": "object"
+          },
+          "proposal_sha256": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "full_batch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "const": "full_batch"
+        }
+      }
+    },
+    "simulated_as_of": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "as_of"
+      ],
+      "properties": {
+        "kind": {
+          "const": "simulated_as_of"
+        },
+        "as_of": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 10,
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+          "format": "date"
+        }
+      }
+    }
+  }
+}
