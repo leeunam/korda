@@ -15,6 +15,7 @@ import json
 import re
 from dataclasses import dataclass, field
 
+from .contrato_saida import texto_contrato
 from .harness.cliente_chat import ClienteChat
 
 SECOES = ("Modelos", "Regras aplicadas", "Métricas", "Testes de aceite", "Premissas e lacunas")
@@ -121,7 +122,8 @@ def gerar_documento_base(cliente: ClienteChat, contexto: dict, plano_publico: di
                          precos: tuple[float, float]) -> DocumentoBase:
     mensagens = [
         {"role": "system", "content": SISTEMA_DOCUMENTO},
-        {"role": "user", "content": f"Contexto validado:\n{_json(contexto)}\n\nPlano aprovado (projeção):\n{_json(plano_publico)}\n"},
+        {"role": "user", "content": f"Contexto validado:\n{_json(contexto)}\n\nPlano aprovado (projeção):\n"
+                                    f"{_json(plano_publico)}\n\n{texto_contrato()}\n"},
     ]
     resposta = cliente.completar(mensagens, [])
     texto = (resposta.conteudo or "").strip()

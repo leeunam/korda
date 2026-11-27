@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 from korda_execution.documento_base import SECOES, SISTEMA_DOCUMENTO, gerar_documento_base, ler_decisao, remover_bloco_decisao
+from korda_execution.contrato_saida import texto_contrato
 from korda_execution.harness.cliente_chat import ClienteChatFalso, ErroLLM, RespostaChat
 
 RAIZ = Path(__file__).resolve().parents[3]
@@ -23,6 +24,7 @@ class TestDocumentoBase(unittest.TestCase):
         self.assertEqual(mensagens[0], {"role": "system", "content": SISTEMA_DOCUMENTO})
         self.assertIn("ctx-demo-01", mensagens[1]["content"])
         self.assertIn("no prazo e completo", mensagens[1]["content"])
+        self.assertIn(texto_contrato(), mensagens[1]["content"])  # nomes fixos dos testes protegidos
         self.assertEqual(doc.texto, DOC)
         self.assertAlmostEqual(doc.custo_usd, (10_000 * 4 + 2_000 * 20) / 1e6)
         self.assertEqual(doc.secoes_ausentes, [])
