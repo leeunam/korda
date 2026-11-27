@@ -34,6 +34,12 @@ class TestAprovacoes(unittest.TestCase):
         self.reg.iniciar(*self.identidade, "run-um")
         self.reg.finalizar("run-um", aprovado=True, manifesto=self.manifesto)
 
+    def test_plano_da_execucao_e_o_documento_aprovado(self):
+        with self.assertRaises(ErroAprovacao):
+            self.reg.plano_da_execucao("run-um")
+        self.preparar_resultado()
+        self.assertEqual(self.reg.plano_da_execucao("run-um"), self.plano)
+
     def test_duas_decisoes_reabertura_e_promocao(self):
         with self.assertRaises(ErroAprovacao):
             self.reg.iniciar(*self.identidade, "run-um")

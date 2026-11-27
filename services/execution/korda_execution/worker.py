@@ -148,7 +148,11 @@ def _tentar(ferramentas, sandbox, verificar_ativa):
 def _documentar(sandbox, eventos, verificar_ativa):
     """Gera manifest e catalog do dbt (sem rede) para a entrega. Falhar aqui não reprova o build."""
     verificar_ativa()
+    # docs generate sobrescreve run_results.json; o da entrega é o do build (status dos testes).
+    resultados, guardado = "/work/saida/target/run_results.json", "/work/saida/run_results_build.json"
+    sandbox.rodar_comando(["cp", resultados, guardado], timeout_s=30)
     docs = sandbox.rodar_comando(["dbt", "--no-use-colors", "docs", "generate"], timeout_s=180)
+    sandbox.rodar_comando(["mv", "-f", guardado, resultados], timeout_s=30)
     if docs.ok:
         eventos.emit_event("entrega", "docs_generated", "dbt docs generate gerou manifest e catalog")
     else:

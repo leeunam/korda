@@ -202,6 +202,12 @@ def _meta_valida(meta, limite):
             and isinstance(meta["sha256"], str) and re.fullmatch("[a-f0-9]{64}", meta["sha256"]))
 
 
+def inventario(pasta: Path, limite: int = 64 * 1024**2) -> dict:
+    """{caminho: {bytes, sha256}} de uma árvore, sem seguir links (usado para conferir o pacote)."""
+    with _diretorio(pasta) as fd:
+        return _arvore(fd, lambda _relativo: limite)
+
+
 def _validar(manifesto):
     """`arquivos` são os três resultados; `infra` (opcional em runs antigas) os modelos e o target."""
     if not isinstance(manifesto, dict) or set(manifesto) not in ({"arquivos"}, {"arquivos", "infra"}):

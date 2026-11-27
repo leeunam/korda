@@ -108,6 +108,11 @@ class TestWorkerDocker(unittest.TestCase):
         catalogo = json.loads((infra / "target/catalog.json").read_text(encoding="utf-8"))
         self.assertIn("model.korda_logistica.ouro_kpis", catalogo["nodes"])
         self.assertIn("docs_generated", [e["type"] for e in self._eventos()])
+        # run_results é o do build (testes com status pass), não o do docs generate.
+        build = json.loads((infra / "target/run_results.json").read_text(encoding="utf-8"))
+        testes = {r["unique_id"]: r["status"] for r in build["results"] if r["unique_id"].startswith("test.")}
+        self.assertTrue(testes)
+        self.assertEqual(set(testes.values()), {"pass"})
 
     def tearDown(self):
         self.assertFalse((self.base / "sandbox" / self.run_id).exists(), "a sandbox temporária deve ser removida")
