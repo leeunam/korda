@@ -135,23 +135,27 @@ class Registro:
         """Ativa exatamente este documento. Reenviar a versão já ativa é idempotente."""
         plano = json.loads(_json(plano))
         validar_plano(plano)
-        projeto = plano["project_id"]
         with self._escrita() as db:
-            atual = db.execute("SELECT * FROM planos WHERE project_id=? ORDER BY id DESC LIMIT 1", (projeto,)).fetchone()
-            if atual and atual["plan_version"] == plano["plan_version"]:
-                return _resumo_plano(atual)
-            maior = db.execute("SELECT MAX(context_revision) FROM planos WHERE project_id=? AND context_id=?",
-                               (projeto, plano["context_id"])).fetchone()[0]
-            if maior is not None and plano["context_revision"] < maior:
-                raise ErroAprovacao("revisão de contexto anterior à já registrada")
-            if atual:
-                _invalidar(db, atual["id"])
-                _evento(db, atual["id"], None, "versao_substituida")
-            cursor = db.execute("""
-                INSERT INTO planos(project_id,context_id,context_revision,plan_version,plano) VALUES(?,?,?,?,?)
-            """, (projeto, plano["context_id"], plano["context_revision"], plano["plan_version"], _json(plano)))
-            _evento(db, cursor.lastrowid, None, "plano_registrado")
-            return _resumo_plano(_atual(db, projeto, plano["plan_version"]))
+            return self._registrar_validado(db, plano)
+
+    def _registrar_validado(self, db, plano):
+        """Usa a mesma transação para registrar o plano e, no painel, sua revisão de origem."""
+        projeto = plano["project_id"]
+        atual = db.execute("SELECT * FROM planos WHERE project_id=? ORDER BY id DESC LIMIT 1", (projeto,)).fetchone()
+        if atual and atual["plan_version"] == plano["plan_version"]:
+            return _resumo_plano(atual)
+        maior = db.execute("SELECT MAX(context_revision) FROM planos WHERE project_id=? AND context_id=?",
+                           (projeto, plano["context_id"])).fetchone()[0]
+        if maior is not None and plano["context_revision"] < maior:
+            raise ErroAprovacao("revisão de contexto anterior à já registrada")
+        if atual:
+            _invalidar(db, atual["id"])
+            _evento(db, atual["id"], None, "versao_substituida")
+        cursor = db.execute("""
+            INSERT INTO planos(project_id,context_id,context_revision,plan_version,plano) VALUES(?,?,?,?,?)
+        """, (projeto, plano["context_id"], plano["context_revision"], plano["plan_version"], _json(plano)))
+        _evento(db, cursor.lastrowid, None, "plano_registrado")
+        return _resumo_plano(_atual(db, projeto, plano["plan_version"]))
 
     def decidir_plano(self, project_id, plan_version, pessoa, aprovar: bool):
         pessoa = _revisor(pessoa, aprovar)

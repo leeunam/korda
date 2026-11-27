@@ -157,6 +157,8 @@ def _lacunas_do_plano(documento, regras, candidatos):
 
 def preparar_contexto(contexto):
     """Valida uma revisão e devolve sua projeção P1 ou pendências com referências de origem."""
+    if not isinstance(contexto, dict):
+        raise ValueError("a revisão de contexto deve ser um objeto JSON")
     digest = _id_revisao(contexto)
     if contexto.get("schema_version") == "0.1.0":
         contrato_contexto.validate_context(contexto)
@@ -193,7 +195,9 @@ def preparar_contexto(contexto):
     ordem_inputs = {entrada: i for i, entrada in enumerate(doc["processed_input_ids"])}
     ordem_evidencias = {e["id"]: ordem_inputs[e["input_id"]] for e in doc["evidence"]}
     regras, perfil, evidencias_perfil, vinculos = {}, {}, set(), {}
-    for chave in (*CHAVES, *(k for k in COMPLEMENTARES if k in candidatos)):
+    adicionais = [k for k, (topico, _, _) in COMPLEMENTARES.items()
+                  if k in candidatos or topico in doc["required_topics"]]
+    for chave in (*CHAVES, *adicionais):
         if chave in COMPLEMENTARES:
             topico = COMPLEMENTARES[chave][0]
             pergunta = "Essa condição corresponde à fórmula e aos limites aprováveis da demo?"

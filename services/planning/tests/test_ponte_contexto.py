@@ -156,6 +156,20 @@ class Ponte(unittest.TestCase):
         primeiro["value"]["regra_da_filial"] = 123
         self.assertIn("source_profile", {p["campo"] for p in preparar_contexto(doc)["pendencias"]})
 
+    def test_restricao_ou_agregacao_adicional_exige_a_regra_correspondente(self):
+        doc = entrevista_completa()
+        doc["required_topics"]["ocupacao_agregacao"] = "operacao"
+        claim = copy.deepcopy(next(c for c in doc["claims"] if c["key"] == "ocupacao_unidade"))
+        claim.update(id="claim-agregacao", topic="ocupacao_agregacao", key="objetivo_ocupacao", kind="goal")
+        doc["claims"].append(claim)
+        self.assertIn("agregacao_ocupacao", {p["campo"] for p in preparar_contexto(doc)["pendencias"]})
+        claim.update(key="agregacao_ocupacao", kind="rule", value="media_das_porcentagens")
+        self.assertIsNone(preparar_contexto(doc)["contexto_planejamento"])
+        claim["value"] = "soma_carga_por_viagem_dividida_pela_soma_capacidade_incluindo_vazias"
+        d = preparar_contexto(doc)
+        self.assertEqual(d["estado"], "pronto")
+        self.assertEqual(d["vinculos"]["agregacao_ocupacao"]["confirmation"]["role"], "operacao")
+
     def test_lacuna_bloqueante_geral_e_inputs_pendentes(self):
         doc = entrevista_completa()
         doc["state"] = "rascunho"

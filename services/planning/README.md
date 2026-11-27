@@ -53,6 +53,8 @@ python3 -m services.planning.korda_planning revisao.json \
 
 O diagnóstico retorna código 0 quando a revisão atende ao planejamento e código 3 quando ainda há perguntas. `pendencias` identifica o campo, a pergunta e os IDs das afirmações e evidências relacionadas. `lacunas` conserva as lacunas da entrevista. Um tópico pode estar pronto para a descoberta enquanto faltam outros assuntos necessários aos três indicadores. O [exemplo confirmado do WhatsApp](../../packages/contracts/context/v0.2.0/examples/03_confirmed.json) confirma o rateio por peso. As oito regras restantes e o perfil logístico ainda precisam de esclarecimento. A interface Python é `preparar_contexto(revisao)`. A função `gerar_plano` também aceita a revisão original.
 
+Os papéis da demo são financeiro para o rateio e operação para as outras oito regras. A confirmação de perfil usa o tópico `fontes` e o papel configurado nesse tópico, operação ou dados. Cada chave é aceita no tópico que a captura guiada atribuiu a ela. `vinculos` identifica a afirmação, todas as suas evidências e a evidência exata de confirmação.
+
 O organizador registra as respostas em campos estruturados. O operador configura os tópicos e os papéis autorizados no projeto de entrevista. O planejador localiza a declaração e a confirmação explícita em turnos distintos, com participante e papel vinculados à evidência. Na entrevista da demo, as perguntas de retorno solicitam as seguintes informações.
 
 | Assunto | Chaves estruturadas |
