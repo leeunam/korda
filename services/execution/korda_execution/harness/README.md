@@ -24,7 +24,7 @@ plano base + contexto ─▶ planejar: 1 chamada de API, sem ferramentas
                  3. falhou? ExecutorChat(falha, tentativa)  → até 3 correções; depois, pede ajuda
                                         │
                                         ▼
-                         worker: avaliador independente → aprovação 2 → entrega
+                         worker: captura com hash → pacote de entrega → aprovação 2 → promoção
 ```
 
 O modelo nunca executa nada: ele só pede ferramentas. Cada pedido passa pela política ([`politica.py`](politica.py)) e só então vira um comando na sandbox. A chave fica no processo do host.
