@@ -12,6 +12,7 @@ from jsonschema import ValidationError
 
 from .aprovacoes import Registro
 from .artefatos import entregar
+from .entrega import empacotar
 from .sandbox import ErroSandbox, RAIZ_REPO
 from .harness.cliente_chat import ErroLLM
 from .harness.config import ErroConfiguracao
@@ -41,7 +42,8 @@ def main(argv=None):
     for decisao in (decidir, entrega):
         decisao.add_argument("decisao", choices=("aprovar", "rejeitar"))
         decisao.add_argument("--pessoa", required=True, help="identificação do operador responsável pela decisão")
-    promover = sub.add_parser("promover", help="materializar os arquivos no destino local autorizado")
+    sub.add_parser("empacotar", help="(re)montar o pacote de entrega de uma execução avaliada").add_argument("run_id")
+    promover = sub.add_parser("promover", help="publicar o pacote de entrega no destino local autorizado")
     promover.add_argument("run_id")
     promover.add_argument("destino")
     args = parser.parse_args(argv)
@@ -74,6 +76,8 @@ def main(argv=None):
             resultado = registro.decidir_plano(args.projeto, args.versao, args.pessoa, args.decisao == "aprovar")
         elif args.comando == "decidir-entrega":
             resultado = registro.decidir_entrega(args.run_id, args.pessoa, args.decisao == "aprovar")
+        elif args.comando == "empacotar":
+            resultado = {"pacote": str(empacotar(registro, raiz, args.run_id))}
         elif args.comando == "promover":
             resultado = {"destino": str(entregar(registro, raiz, args.run_id, args.destino))}
         else:

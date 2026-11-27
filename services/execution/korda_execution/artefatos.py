@@ -2,6 +2,7 @@
 
 import errno
 import hashlib
+import json
 import os
 import re
 import shutil
@@ -235,23 +236,18 @@ def _validar(manifesto):
             raise ValueError(f"tamanho, hash ou caminho de infra inválido: {caminho!r}")
 
 
-def _publicar(origem, destino, *, esperado=None):
+def _publicar(origem, destino):
     destino = Path(destino)
     if destino.name in ("", ".", ".."):
         raise ValueError("nome de diretório de artefatos inválido")
     temporario = ".parcial-" + uuid.uuid4().hex
     with _diretorio(origem) as src, _diretorio(destino.parent, criar=True) as pai:
-        # As saídas extras internas da sandbox nunca são copiadas. Em revisão, só os
-        # três artefatos congelados são aceitos para a segunda aprovação.
-        if esperado is not None and set(os.listdir(src)) != set(LIMITES):
-            raise ValueError("a lista de resultados para promoção mudou")
+        # As saídas extras internas da sandbox nunca são copiadas.
         os.mkdir(temporario, mode=0o700, dir_fd=pai)
         lote = os.open(temporario, DIR, dir_fd=pai)
         publicado = False
         try:
             manifesto = _ler_arquivos(src, lote)
-            if esperado is not None and manifesto != esperado:
-                raise ValueError("integridade dos resultados difere do manifesto aprovado")
             os.fsync(lote)
             try:
                 existente = os.open(destino.name, DIR, dir_fd=pai)
@@ -288,14 +284,59 @@ def capturar(origem: Path, staging: Path) -> dict:
     return _publicar(origem, staging)
 
 
+LIMITE_PACOTE = 512 * 1024**2
+
+
+def _conferir_pacote(lote, aprovado):
+    """O pacote copiado bate com o próprio manifesto.json e com os bytes da aprovação 2."""
+    inventario = _arvore(lote, lambda _relativo: 64 * 1024**2)
+    if sum(m["bytes"] for m in inventario.values()) > LIMITE_PACOTE:
+        raise ValueError("pacote de entrega acima do limite")
+    fd = os.open("manifesto.json", os.O_RDONLY | os.O_NOFOLLOW, dir_fd=lote)
+    with os.fdopen(fd, "rb") as arquivo:
+        selado = json.loads(arquivo.read(4 * 1024**2 + 1))
+    if not isinstance(selado, dict) or selado.get("aprovado") != aprovado:
+        raise ValueError("manifesto.json do pacote não corresponde à aprovação 2")
+    if {c: m for c, m in inventario.items() if c != "manifesto.json"} != selado.get("arquivos"):
+        raise ValueError("pacote difere do próprio manifesto.json")
+
+    def secao(prefixo, novo):
+        return {novo + c.removeprefix(prefixo): m for c, m in inventario.items() if c.startswith(prefixo)}
+
+    if secao("dados/", "") != aprovado["arquivos"]:
+        raise ValueError("resultados do pacote diferem do manifesto aprovado")
+    if "infra" in aprovado:
+        infra = secao("projeto_dbt/models/", "models/") | secao("docs_dbt/", "target/")
+        if infra != aprovado["infra"]:
+            raise ValueError("modelos ou target do pacote diferem do manifesto aprovado")
+    return inventario
+
+
 def entregar(registro, raiz: Path, run_id: str, destino: str) -> Path:
-    """Publica exatamente os bytes revisados sob a autorização da transação do registro."""
+    """Publica o pacote de entrega (revisao/<run>/entrega) sob a autorização da aprovação 2.
+
+    Dados e infra do pacote têm que ser exatamente os bytes aprovados; o resto (página,
+    decisões, projeto) tem que bater com o manifesto.json selado pelo empacotar.
+    """
     if not isinstance(run_id, str) or not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", run_id):
         raise ValueError("identificador de execução inválido")
     if not isinstance(destino, str) or not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}", destino):
         raise ValueError("identificador de destino inválido")
     pasta = Path(raiz) / "entregas" / destino / run_id
-    with registro.promover(run_id, destino) as manifesto:
-        _validar(manifesto)
-        _publicar(Path(raiz) / "revisao" / run_id / "resultados", pasta, esperado=manifesto)
+    pacote = Path(raiz) / "revisao" / run_id / "entrega"
+    with registro.promover(run_id, destino) as aprovado:
+        _validar(aprovado)
+
+        def preencher(lote):
+            with _diretorio(pacote) as src:
+                _arvore(src, lambda _relativo: 64 * 1024**2, lote)
+            return _conferir_pacote(lote, aprovado)
+
+        def comparar(existente):
+            try:
+                return _conferir_pacote(existente, aprovado)
+            except (OSError, ValueError):
+                raise ValueError("o destino já existe com conteúdo divergente") from None
+
+        _lote(pasta, preencher, comparar=comparar)
     return pasta

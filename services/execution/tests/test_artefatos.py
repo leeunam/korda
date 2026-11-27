@@ -1,5 +1,7 @@
 import hashlib
+import json
 import os
+import shutil
 import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
@@ -38,7 +40,22 @@ class TestArtefatos(unittest.TestCase):
         for nome, dados in self.conteudo.items():
             (self.origem / nome).write_bytes(dados)
         self.staging = self.raiz / "revisao" / "run-1" / "resultados"
+        self.pacote = self.raiz / "revisao" / "run-1" / "entrega"
         self.final = self.raiz / "entregas" / "demo" / "run-1"
+
+    def _aprovar(self):
+        """Captura os resultados e monta um pacote mínimo com manifesto.json, como o empacotar faz."""
+        manifesto = capturar(self.origem, self.staging)
+        shutil.copytree(self.staging, self.pacote / "dados")
+        (self.pacote / "index.html").write_text("<p>pagina</p>")
+        self._selar(manifesto)
+        return RegistroTeste(manifesto)
+
+    def _selar(self, aprovado):
+        arquivos = {str(p.relative_to(self.pacote)): {"bytes": p.stat().st_size,
+                                                      "sha256": hashlib.sha256(p.read_bytes()).hexdigest()}
+                    for p in sorted(self.pacote.rglob("*")) if p.is_file() and p.name != "manifesto.json"}
+        (self.pacote / "manifesto.json").write_text(json.dumps({"arquivos": arquivos, "aprovado": aprovado}))
 
     def test_captura_so_resultados_inteiros_e_publicacao_concorrente_coincide(self):
         (self.origem / "privado.log").write_text("interno")
@@ -78,7 +95,7 @@ class TestArtefatos(unittest.TestCase):
         link.symlink_to(self.origem.parent, target_is_directory=True)
         with self.assertRaises(OSError):
             capturar(link / "resultados", self.staging)
-        registro = RegistroTeste(capturar(self.origem, self.staging))
+        registro = self._aprovar()
         registro.autorizado = False
         with self.assertRaises(ValueError):
             entregar(registro, self.raiz, "run-1", "demo")
@@ -92,7 +109,7 @@ class TestArtefatos(unittest.TestCase):
         self.assertFalse((self.origem / "demo").exists())
 
     def test_erro_na_janela_entre_rename_e_commit_e_retomavel(self):
-        registro = RegistroTeste(capturar(self.origem, self.staging))
+        registro = self._aprovar()
         registro.falhar_commit = True
         with self.assertRaises(RuntimeError):
             entregar(registro, self.raiz, "run-1", "demo")
@@ -104,27 +121,63 @@ class TestArtefatos(unittest.TestCase):
         self.assertTrue(registro.promovido)
         self.assertEqual(self.final.stat().st_ino, inode)
 
+    def test_promove_o_pacote_inteiro(self):
+        registro = self._aprovar()
+        self.assertEqual(entregar(registro, self.raiz, "run-1", "demo"), self.final)
+        self.assertEqual({str(p.relative_to(self.final)) for p in self.final.rglob("*") if p.is_file()},
+                         {"dados/kpis.json", "dados/por_pedido.csv", "dados/por_viagem.csv", "index.html",
+                          "manifesto.json"})
+
     def test_divergencia_de_manifesto_conteudo_ou_inventario_bloqueia_promocao(self):
-        manifesto = capturar(self.origem, self.staging)
-        registro = RegistroTeste({"arquivos": {"invalido": {}}})
+        registro = self._aprovar()
+        manifesto = registro.manifesto
+        registro.manifesto = {"arquivos": {"invalido": {}}}
         with self.assertRaises(ValueError):
             entregar(registro, self.raiz, "run-1", "demo")
         registro.manifesto = manifesto
-        (self.staging / "kpis.json").write_text("alterado")
+        # Dado alterado no pacote, mesmo com o manifesto.json do pacote refeito.
+        (self.pacote / "dados" / "kpis.json").write_text("alterado")
+        self._selar(manifesto)
         with self.assertRaises(ValueError):
             entregar(registro, self.raiz, "run-1", "demo")
-        (self.staging / "kpis.json").write_bytes(self.conteudo["kpis.json"])
-        (self.staging / "extra.log").write_text("extra")
+        (self.pacote / "dados" / "kpis.json").write_bytes(self.conteudo["kpis.json"])
+        self._selar(manifesto)
+        # Arquivo extra fora do manifesto.json do pacote.
+        (self.pacote / "extra.log").write_text("extra")
         with self.assertRaises(ValueError):
             entregar(registro, self.raiz, "run-1", "demo")
+        (self.pacote / "extra.log").unlink()
+        # Página alterada depois de selada.
+        (self.pacote / "index.html").write_text("<p>outra</p>")
+        with self.assertRaises(ValueError):
+            entregar(registro, self.raiz, "run-1", "demo")
+        self._selar(manifesto)
         self.assertFalse(self.final.exists())
-        (self.staging / "extra.log").unlink()
         self.final.mkdir(parents=True, exist_ok=True)
         (self.final / "preexistente").write_text("preservar")
         with self.assertRaises(ValueError):
             entregar(registro, self.raiz, "run-1", "demo")
         self.assertFalse(registro.promovido)
         self.assertEqual({p.name for p in self.final.iterdir()}, {"preexistente"})
+
+    def test_modelo_do_pacote_tem_que_bater_com_a_infra_aprovada(self):
+        registro = self._aprovar()
+        modelo = b"select 1\n"
+        registro.manifesto = {**registro.manifesto, "infra": {
+            "models/ouro_kpis.sql": {"bytes": len(modelo), "sha256": hashlib.sha256(modelo).hexdigest()},
+            "target/manifest.json": {"bytes": 2, "sha256": hashlib.sha256(b"{}").hexdigest()},
+            "target/run_results.json": {"bytes": 2, "sha256": hashlib.sha256(b"{}").hexdigest()}}}
+        (self.pacote / "projeto_dbt" / "models").mkdir(parents=True)
+        (self.pacote / "docs_dbt").mkdir()
+        (self.pacote / "docs_dbt" / "manifest.json").write_text("{}")
+        (self.pacote / "docs_dbt" / "run_results.json").write_text("{}")
+        (self.pacote / "projeto_dbt" / "models" / "ouro_kpis.sql").write_text("select 0\n")
+        self._selar(registro.manifesto)
+        with self.assertRaises(ValueError):
+            entregar(registro, self.raiz, "run-1", "demo")
+        (self.pacote / "projeto_dbt" / "models" / "ouro_kpis.sql").write_bytes(modelo)
+        self._selar(registro.manifesto)
+        self.assertEqual(entregar(registro, self.raiz, "run-1", "demo"), self.final)
 
 
 class TestCapturaInfra(unittest.TestCase):

@@ -108,6 +108,10 @@ class TestWorkerDocker(unittest.TestCase):
         catalogo = json.loads((infra / "target/catalog.json").read_text(encoding="utf-8"))
         self.assertIn("model.korda_logistica.ouro_kpis", catalogo["nodes"])
         self.assertIn("docs_generated", [e["type"] for e in self._eventos()])
+        pacote = self._arquivo("entrega")
+        self.assertEqual(self._eventos()[-1]["type"], "package_built")
+        self.assertIn("DADOS SINTÉTICOS", (pacote / "index.html").read_text(encoding="utf-8"))
+        self.assertEqual({f"models/{p.name}" for p in (pacote / "projeto_dbt/models").iterdir()}, set(modelos))
         # run_results é o do build (testes com status pass), não o do docs generate.
         build = json.loads((infra / "target/run_results.json").read_text(encoding="utf-8"))
         testes = {r["unique_id"]: r["status"] for r in build["results"] if r["unique_id"].startswith("test.")}
@@ -143,7 +147,7 @@ class TestWorkerDocker(unittest.TestCase):
                      "intervention_requested"}
         self.assertEqual([e["type"] for e in eventos if e["type"] in sequencia],
                          ["build_started", "agent_finished", "dbt_passed", "test_passed", "evaluation_finished"])
-        self.assertTrue(eventos[-1]["dados"]["aprovado"])
+        self.assertTrue([e for e in eventos if e["type"] == "evaluation_finished"][0]["dados"]["aprovado"])
         custo = [e for e in eventos if e["type"] == "agent_finished"][0]["dados"]
         self.assertEqual(custo["custo_total_centavos"], custo["custo_centavos"])  # o planejamento é medido à parte
 

@@ -160,6 +160,19 @@ def _documentar(sandbox, eventos, verificar_ativa):
                            erro=(docs.stdout + "\n" + docs.stderr)[-1500:], estourou_tempo=docs.estourou_tempo)
 
 
+def _empacotar(registro, raiz, run_id, eventos):
+    """Pacote de entrega automático. Falhar aqui não desfaz a execução: `empacotar` pode ser rodado depois."""
+    from .entrega import empacotar
+
+    try:
+        pacote = empacotar(registro, raiz, run_id)
+    except (OSError, ValueError) as exc:
+        eventos.emit_event("entrega", "package_failed", f"pacote de entrega não gerado: {exc}"[:500])
+    else:
+        eventos.emit_event("entrega", "package_built", "pacote de entrega montado",
+                           pasta=str(pacote.relative_to(raiz)))
+
+
 def executar(registro, plano, run_id, *, raiz: Path, fontes: Path, cfg: ConfigHarness | None = None,
              cliente_llm=None) -> dict:
     """Reserva a execução, chama o harness para construir, congela o resultado e o entrega ao avaliador.
@@ -266,6 +279,7 @@ def executar(registro, plano, run_id, *, raiz: Path, fontes: Path, cfg: ConfigHa
         if not laudo["aprovado"]:
             raise FalhaExecucao(f"avaliação externa recusou os resultados ({laudo['classe']})")
         registro.finalizar(run_id, aprovado=True, manifesto=manifesto)
+        _empacotar(registro, raiz, run_id, eventos)
     except BaseException as exc:
         # Uma falha na preparação, no build, na comparação ou uma interrupção nunca autoriza entrega.
         if registro.consultar(run_id)["state"] == "executando":

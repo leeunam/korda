@@ -43,6 +43,19 @@ class TestOperador(unittest.TestCase):
         eventos = (self.raiz / "revisao/teste/eventos.jsonl").read_text().splitlines()
         self.assertEqual(json.loads(eventos[-1])["type"], "run_failed")
 
+    def test_cli_empacotar_monta_o_pacote_da_execucao(self):
+        raiz = ["--raiz", str(self.raiz)]
+        saida = io.StringIO()
+        with patch("korda_execution.__main__.empacotar", return_value=self.raiz / "revisao/r1/entrega") as emp, \
+                redirect_stdout(saida):
+            self.assertEqual(main([*raiz, "empacotar", "r1"]), 0)
+        registro, raiz_usada, run_id = emp.call_args.args
+        self.assertEqual((raiz_usada, run_id), (self.raiz.resolve(), "r1"))
+        self.assertEqual(json.loads(saida.getvalue())["pacote"], str(self.raiz / "revisao/r1/entrega"))
+        with redirect_stderr(io.StringIO()) as erro:
+            self.assertEqual(main([*raiz, "empacotar", "desconhecida"]), 1)
+        self.assertIn("execução desconhecida", erro.getvalue())
+
     def test_so_arquivos_aprovados_entram_no_snapshot(self):
         origem = self.raiz / "bruto"
         for pasta, nomes in {**FONTE_CSV, "cte": ["documento.xml"]}.items():

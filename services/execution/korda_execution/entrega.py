@@ -78,6 +78,8 @@ ROTULOS_EVENTO = {
     "docs_failed": ("Documentação dbt falhou", "falha"),
     "evaluation_finished": ("Avaliador independente", "ok"),
     "run_failed": ("Execução falhou", "falha"),
+    "package_built": ("Pacote de entrega montado", "ok"),
+    "package_failed": ("Pacote de entrega não gerado", "falha"),
 }
 
 
