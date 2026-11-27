@@ -24,6 +24,7 @@ def overview(context: ContextDocument | dict) -> dict:
     return {
         **_identity(document), "state": document["state"], "interview_status": document["interview_status"],
         "pending_input_ids": document["pending_input_ids"],
+        "cutoff_sequence": document["cutoff_sequence"],
         "goals": [c for c in document["claims"] if c["kind"] == "goal" and c["state"] != "substituida"],
         "decisions": [c for c in document["claims"] if c["kind"] == "decision" and c["state"] != "substituida"],
         "topics": [{"id": topic_id, "claim_ids": [c["id"] for c in document["claims"] if c["topic"] == topic_id],

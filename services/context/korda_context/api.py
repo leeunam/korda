@@ -9,7 +9,7 @@ from starlette.concurrency import run_in_threadpool
 
 from .config import Settings
 from .domain import ContextDocument
-from .channel import normalize_webhook, verify_signature
+from .channel import PermanentChannelError, normalize_webhook, verify_signature
 from .persistence import NotFound, Repository, UnknownParticipant
 from . import retrieval
 
@@ -80,7 +80,7 @@ def create_app(settings: Settings | None = None, *, repository=None, enqueue=Non
     def receive(payload):
         try:
             normalized = normalize_webhook(payload)
-        except (KeyError, ValueError, TypeError):
+        except (KeyError, ValueError, TypeError, PermanentChannelError):
             raise HTTPException(400, "Evento inválido") from None
         counts = {"accepted": 0, "duplicates": 0, "unknown": 0,
                   "unsupported": len(normalized["unsupported"])}
@@ -92,6 +92,9 @@ def create_app(settings: Settings | None = None, *, repository=None, enqueue=Non
                 continue
             counts["accepted" if item["inserted"] else "duplicates"] += 1
         for status in normalized["statuses"]:
+            if status["status"] not in {"sent", "delivered", "read", "failed"}:
+                counts["unsupported"] += 1
+                continue
             repository.record_delivery(status["phone_number_id"], status["message_id"],
                                        status["status"], status["timestamp"], status.get("error"))
         return counts

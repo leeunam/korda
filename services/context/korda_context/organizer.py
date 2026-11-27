@@ -67,13 +67,20 @@ def _normalized(text: str) -> str:
     return "".join(c for c in unicodedata.normalize("NFKD", text.lower()) if not unicodedata.combining(c))
 
 
-def explicit_confirmation(text: str, pending_count: int = 1) -> bool:
-    normalized = _normalized(text).strip().strip(".! ")
-    if re.search(r"\b(nao|discordo|incorret[oa]|talvez|mas|porem|exceto|corrig\w*)\b", normalized):
+def explicit_confirmation(text: str, pending_count: int = 1, value=None) -> bool:
+    normalized = _normalized(text).strip().strip(".,!;: \n\r")
+    # A quoted/incidental 'confirmo' is not consent. The challenge requests this exact answer.
+    if pending_count != 1:
         return False
-    return bool(re.search(r"\b(confirmo|confirmado|confirmada|esta correto|esta correta)\b", normalized)) or (
-        pending_count == 1 and normalized in {"sim", "correto", "correta"}
-    )
+    if re.fullmatch(r"(?:sim[,! .]+)?(?:sim|confirmo|confirmado|confirmada|esta correto|esta correta|correto|correta)", normalized):
+        return True
+    if not normalized.startswith("confirmo ") or re.search(
+        r"\b(nao|se|caso|quando|desde|depende|dependendo|talvez|mas|porem|exceto|ainda|verificar|palavra|exemplo|frase|termo)\b",
+        normalized) or any(mark in normalized for mark in ('"', "'", "?", "\n", ";")):
+        return False
+    # A longer affirmation must repeat the pending scalar value, not just say 'confirmo'.
+    scalar = _normalized(str(value)).replace("_", " ") if isinstance(value, (str, int, float)) and not isinstance(value, bool) else ""
+    return bool(scalar and re.search(r"(?<!\w)" + re.escape(scalar) + r"(?!\w)", normalized))
 
 
 def apply_proposal(
@@ -89,6 +96,7 @@ def apply_proposal(
     transcription_version: int | None = None,
     source_id: str | None = None,
     input_timestamp: datetime | str | None = None,
+    correction_input_ids: tuple[str, ...] | list[str] = (),
 ) -> ContextDocument:
     original = ContextDocument.model_validate(context)
     changes = Proposal.model_validate(proposal)
@@ -174,10 +182,25 @@ def apply_proposal(
             prior = claims.get(candidate.replaces_claim_id)
             if prior is None or prior not in active:
                 raise ValueError("correction must reference an active claim with the same topic and key")
-            if required_topics.get(candidate.topic, participant["role"]) != participant["role"]:
+            transcript_correction = any(
+                ev["id"] in prior["evidence_ids"] and ev["input_id"] in correction_input_ids
+                and ev["kind"] == "audio_transcript" and ev["participant_id"] == participant["id"]
+                for ev in data["evidence"])
+            if not transcript_correction and required_topics.get(candidate.topic, participant["role"]) != participant["role"]:
                 raise ValueError("participant is not authorized to replace this rule")
-            if not re.search(r"\b(corrig\w*|retific\w*|substitu\w*|na verdade|correcao)\b", _normalized(text)):
+            if not transcript_correction and not re.search(r"\b(corrig\w*|retific\w*|substitu\w*|na verdade|correcao)\b", _normalized(text)):
                 raise ValueError("replacement requires an explicit correction")
+            if same and same["id"] != prior["id"]:
+                prior.update(state="substituida", superseded_by=same["id"])
+                remaining = [c for c in active if c["id"] != prior["id"]]
+                for item in remaining:
+                    item.update(state="em_conflito" if len(remaining) > 1 else "declarada", confirmation=None)
+                refs[candidate.ref] = same["id"]
+                add_evidence(same, eid)
+                gap_for(candidate.topic, "claim:" + candidate.key,
+                        f"Confirme ou esclareça: {same['statement']}", [c["id"] for c in remaining],
+                        "em_conflito" if len(remaining) > 1 else "a_confirmar", [eid])
+                continue
             prior.update(state="substituida", superseded_by=cid)
             # All other conflicting alternatives remain visible until explicitly superseded.
             active = [c for c in active if c["id"] != prior["id"]]
@@ -201,7 +224,7 @@ def apply_proposal(
             raise ValueError("resolve the conflict before confirming")
         if required_topics.get(claim["topic"], participant["role"]) != participant["role"]:
             raise ValueError("participant role cannot confirm this topic")
-        if not explicit_confirmation(text, len(pending_confirmation_ids)):
+        if not explicit_confirmation(text, len(pending_confirmation_ids), claim["value"]):
             raise ValueError("confirmation requires an explicit answer to the pending challenge")
         eid = evidence(text)
         add_evidence(claim, eid)
@@ -288,7 +311,11 @@ Não deduza rateio de frete a partir da unidade de ocupação. Fontes são apena
 nunca inspecionadas. Não invente IDs persistidos, autoridade, confirmações ou revisão.
 Use refs locais para novas entidades/afirmações. IDs existentes só podem ser referenciados.
 Mantenha chaves estáveis para o mesmo assunto. Proponha replaces_claim_id apenas diante
-de correção explícita. Confirmações só referenciam desafios pendentes do participante.
+de correção explícita. Confirmações só referenciam um desafio pendente do participante
+e exigem resposta afirmativa isolada como 'sim' ou 'confirmo', sem ressalvas ou outras frases.
+Quando a aplicação fornecer trusted_transcription_correction_input_ids, o texto atual
+é uma nova versão técnica de áudio: pode substituir afirmações apoiadas nesses inputs,
+sem exigir a palavra 'corrigindo' na fala. Isso nunca confirma regras de negócio.
 Se houver ambiguidade, proponha lacuna. Vincule lacunas antigas às afirmações que as
 esclarecem, usando o mesmo topic e key da lacuna. Não descarte contradições nem histórico.
 """
@@ -299,12 +326,14 @@ class Organizer:
         self.generate_json = generate_json
 
     def propose(self, context: ContextDocument | dict, text: str, participant: dict,
-                pending_confirmation_ids: tuple[str, ...] | list[str] = ()) -> Proposal:
+                pending_confirmation_ids: tuple[str, ...] | list[str] = (), *,
+                correction_input_ids: tuple[str, ...] | list[str] = ()) -> Proposal:
         document = ContextDocument.model_validate(context)
         payload = {
             "context": document.model_dump(mode="json"),
             "participant": {"id": participant["id"], "role": participant["role"]},
             "pending_confirmation_ids": list(pending_confirmation_ids), "current_text": text,
+            "trusted_transcription_correction_input_ids": list(correction_input_ids),
         }
         system = SYSTEM_PROMPT + "\nSchema JSON obrigatório:\n" + json.dumps(Proposal.model_json_schema(), ensure_ascii=False)
         return Proposal.model_validate(self.generate_json(system, json.dumps(payload, ensure_ascii=False)))
@@ -312,6 +341,7 @@ class Organizer:
     def organize(self, context: ContextDocument | dict, input_id: str, text: str,
                  participant: dict, required_topics: dict[str, str],
                  pending_confirmation_ids: tuple[str, ...] | list[str] = (), **metadata) -> ContextDocument:
-        proposal = self.propose(context, text, participant, pending_confirmation_ids)
+        proposal = self.propose(context, text, participant, pending_confirmation_ids,
+                                correction_input_ids=metadata.get("correction_input_ids", ()))
         return apply_proposal(context, input_id, text, participant, proposal, required_topics,
                               pending_confirmation_ids, **metadata)

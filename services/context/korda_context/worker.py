@@ -1,5 +1,6 @@
 """Durable project pipeline. Provider effects never run in the webhook."""
 from datetime import datetime, timezone
+from contextlib import contextmanager
 from pathlib import Path
 import logging
 
@@ -88,8 +89,11 @@ class Pipeline:
                         if row["kind"] == "audio":
                             transcription = session.get_transcription(row["id"])
                             if transcription is None:
-                                media = self.channel.download_audio(project["phone_number_id"], row["media_id"],
-                                    self.settings.media_dir / project_id)
+                                root = self.settings.media_dir.resolve()
+                                destination = (root / project_id).resolve()
+                                if not destination.is_relative_to(root):
+                                    raise ValueError("Invalid media project path")
+                                media = self.channel.download_audio(project["phone_number_id"], row["media_id"], destination)
                                 saved = session.add_media(row["id"], str(media["path"]), media["sha256"],
                                                           media["mime_type"], media["size_bytes"])
                                 result = self.transcriber.transcribe(Path(media["path"]), media["mime_type"])
@@ -97,15 +101,18 @@ class Pipeline:
                                     result.get("model_version") or result["model"], saved["id"], result.get("words", []))
                             text = transcription["text"]
                         challenge = session.latest_question(participant["id"])
-                        if challenge and challenge["sent_at"] > row["received_at"]:
+                        if challenge and (challenge["sent_at"] >= row["sent_at"] or row.get("correction_of_input_id")):
                             challenge = None
                         pending = challenge["question_data"].get("claim_ids", []) if challenge else []
+                        source = session.get_input(row["correction_of_input_id"]) if row.get("correction_of_input_id") else row
                         new = Organizer(self._model(session, self.organizer_model)).organize(
                             context, row["id"], text, participant, project["required_topics"], pending,
                             input_kind=row["kind"], transcription_version=transcription["version"] if transcription else None,
-                            source_id=row["message_id"], input_timestamp=row["sent_at"])
+                            source_id=source["message_id"], input_timestamp=source["sent_at"],
+                            correction_input_ids=[source["id"]] if row.get("correction_of_input_id") else [])
                         data = new.model_dump(mode="python")
-                        data["pending_input_ids"] = [i for i in session.pending_inputs() if i != row["id"]]
+                        data["pending_input_ids"] = [i for i in session.pending_inputs(project["cutoff"]) if i != row["id"]]
+                        data["cutoff_sequence"] = project["cutoff"]
                         data["interview_status"] = STATUS[project["status"]]
                         data["state"] = "rascunho"
                         new = ContextDocument.model_validate(data)
@@ -131,19 +138,49 @@ class Pipeline:
                         stop = True
                     else:
                         if not session.pending_inputs() and project["status"] == "active":
-                            try:
-                                self._question(session, participant, new)
-                            except (ModelError, ValueError) as exc:
-                                # Input is already committed logically; never organize it twice.
-                                self._notice(session, row, "Sua resposta foi registrada. "
-                                    "A próxima pergunta está aguardando revisão do operador.")
-                                logger.warning("question_failed", extra={"project_id": project_id, "error_type": type(exc).__name__})
+                            session.request_question(participant["id"], new.revision)
             if stop:
                 break
         else:
             with self.repository.transaction(project_id) as session:
                 self.enqueue(session.conn, project_id)
+        self.generate_questions(project_id)
         self.send_pending(project_id)
+
+    def generate_questions(self, project_id):
+        for _ in range(30):
+            with self.repository.transaction(project_id) as session:
+                if session.project()["status"] == "paused" or session.pending_inputs():
+                    return
+                request = session.next_question_request()
+                if request is None:
+                    return
+                project = session.project()
+                if project["status"] != "active":
+                    session.update_question_request(request["id"], "cancelled")
+                    continue
+                if request["revision"] != project["current_revision"]:
+                    session.update_question_request(request["id"], "cancelled", error="stale_revision")
+                    session.request_question(request["participant_id"], project["current_revision"])
+                    continue
+                if request["attempts"] >= 3:
+                    session.update_question_request(request["id"], "failed", error="retry_limit")
+                    continue
+                session.update_question_request(request["id"], "pending", increase_attempts=True)
+                participant = next(p for p in session.participants() if p["id"] == request["participant_id"])
+                try:
+                    self._question(session, participant, self._context(session))
+                except TransientModelError:
+                    exhausted = request["attempts"] + 1 >= 3
+                    session.update_question_request(request["id"], "failed" if exhausted else "pending", error="transient_model")
+                    if not exhausted:
+                        self.enqueue(session.conn, project_id, delay=10 * (request["attempts"] + 1))
+                    return
+                except (ModelError, ValueError) as exc:
+                    session.update_question_request(request["id"], "failed", error=type(exc).__name__)
+                    logger.warning("question_failed", extra={"project_id": project_id, "error_type": type(exc).__name__})
+                else:
+                    session.update_question_request(request["id"], "generated")
 
     def send_pending(self, project_id):
         for _ in range(30):
@@ -162,11 +199,8 @@ class Pipeline:
                         continue
                     if out["revision"] != project["current_revision"]:
                         session.set_outbox_state(out["id"], "cancelled", error="stale_revision")
-                        participant = next(p for p in session.participants() if p["id"] == out["participant_id"])
-                        try:
-                            self._question(session, participant, self._context(session))
-                        except (ModelError, ValueError):
-                            logger.warning("stale_question_regeneration_failed", extra={"project_id": project_id})
+                        session.request_question(out["participant_id"], project["current_revision"])
+                        self.enqueue(session.conn, project_id)
                         continue
                 if not within_service_window(out["last_customer_at"]):
                     session.set_outbox_state(out["id"], "waiting_window")
@@ -224,13 +258,43 @@ def main():
     settings.check_providers()
     repo = Repository(settings.database_url.get_secret_value())
     app, enqueue = make_queue(settings)
-    with app.open():
+    with worker_lease(repo) as lease, app.open():
+        recover_stalled_jobs(lease)
         # On restart, never repeat sends that might already have reached Meta.
         for project_id in repo.list_project_ids():
             repo.reconcile_sending(project_id)
             with repo.transaction(project_id) as session:
                 enqueue(session.conn, project_id)
         app.run_worker(queues=["context"], concurrency=3)
+
+
+@contextmanager
+def worker_lease(repository):
+    """One worker process per database; the connection lock is released on crash."""
+    with repository.connect() as connection:
+        connection.autocommit = True
+        acquired = connection.execute("SELECT pg_try_advisory_lock(734108004) AS acquired").fetchone()["acquired"]
+        if not acquired:
+            raise RuntimeError("Já existe um worker de contexto ativo neste banco")
+        try:
+            yield connection
+        finally:
+            connection.execute("SELECT pg_advisory_unlock(734108004)")
+
+
+def recover_stalled_jobs(connection):
+    """Run only under worker_lease; never steal work with a recent heartbeat."""
+    live = connection.execute(
+        """SELECT 1 FROM procrastinate_jobs j JOIN procrastinate_workers w ON w.id=j.worker_id
+           WHERE j.task_name='context.process' AND j.status='doing'
+           AND w.last_heartbeat >= clock_timestamp()-interval '30 seconds' LIMIT 1""").fetchone()
+    if live:
+        raise RuntimeError("Aguarde o heartbeat anterior expirar antes de recuperar o worker")
+    jobs = connection.execute(
+        "SELECT id FROM procrastinate_jobs WHERE task_name='context.process' AND status='doing'").fetchall()
+    for job in jobs:
+        connection.execute("SELECT procrastinate_retry_job_v2(%s,clock_timestamp(),NULL,NULL,NULL)", (job["id"],))
+    return len(jobs)
 
 
 if __name__ == "__main__":

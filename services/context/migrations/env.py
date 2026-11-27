@@ -20,12 +20,15 @@ if context.is_offline_mode():
     with context.begin_transaction():
         context.run_migrations()
 elif context.config.attributes.get("connection") is not None:
-    context.configure(connection=context.config.attributes["connection"])
+    connection = context.config.attributes["connection"]
+    context.configure(connection=connection,
+                      version_table_schema=connection.exec_driver_sql("SELECT current_schema()").scalar())
     with context.begin_transaction():
         context.run_migrations()
 else:
-    with create_engine(database_url(), poolclass=pool.NullPool).connect() as connection:
-        context.configure(connection=connection)
+    with create_engine(database_url(), poolclass=pool.NullPool).begin() as connection:
+        context.configure(connection=connection,
+                          version_table_schema=connection.exec_driver_sql("SELECT current_schema()").scalar())
         with context.begin_transaction():
             context.run_migrations()
 

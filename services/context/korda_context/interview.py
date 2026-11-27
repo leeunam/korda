@@ -36,6 +36,16 @@ class _Wording(Model):
 
 
 GUIDE = {
+    "frete_deduplicacao": "Esclarecer como identificar e tratar fretes ou CT-e duplicados.",
+    "frete_cancelamento": "Esclarecer quais cancelamentos invalidam o frete e como tratar reemissão.",
+    "frete_elegibilidade": "Esclarecer quais entregas e tipos de viagem entram no custo e as exceções.",
+    "frete_rateio": "Perguntar ao financeiro como dividir um frete compartilhado entre pedidos, sem deduzir da ocupação.",
+    "otif_prazo": "Esclarecer qual data ou prazo determina a pontualidade da entrega.",
+    "otif_completude": "Esclarecer o que é entrega completa e qual quantidade é comparada; OTIF exige prazo e completude.",
+    "otif_data_ausente": "Esclarecer o tratamento de datas ausentes, sem escolher silenciosamente uma regra.",
+    "otif_sabado": "Esclarecer calendário, dias úteis e tratamento dos sábados no prazo.",
+    "ocupacao_unidade": "Esclarecer unidade da carga e capacidade: peso, volume ou outra unidade acordada.",
+    "ocupacao_agregacao": "Esclarecer viagem ou trecho, viagens vazias e como agregar carga e capacidade.",
     "objetivo": "Entender a decisão ou resultado que a empresa quer alcançar.",
     "processo": "Entender o processo do pedido à entrega e seus responsáveis.",
     "fontes": "Identificar sistemas e arquivos declarados; não alegar inspeção.",

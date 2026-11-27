@@ -124,6 +124,7 @@ class ContextDocument(Model):
     required_topics: dict[str, str] = Field(default_factory=dict)
     processed_input_ids: list[NonEmpty] = Field(default_factory=list)
     pending_input_ids: list[NonEmpty] = Field(default_factory=list)
+    cutoff_sequence: int | None = Field(default=None, ge=0)
     evidence: list[Evidence] = Field(default_factory=list)
     claims: list[Claim] = Field(default_factory=list)
     entities: list[Entity] = Field(default_factory=list)

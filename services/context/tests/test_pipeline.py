@@ -71,7 +71,7 @@ class Transcriber:
 
 def event(identifier="wamid.synthetic-01", *, text="O rateio usa peso bruto.", wa_id="synthetic-finance", **changes):
     return {"phone_number_id": "phone-01", "message_id": identifier, "wa_id": wa_id,
-        "timestamp": datetime.now(timezone.utc) - timedelta(seconds=1), "kind": "text", "text": text, **changes}
+        "timestamp": datetime.now(timezone.utc), "kind": "text", "text": text, **changes}
 
 
 def declare(body):

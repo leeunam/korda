@@ -24,6 +24,7 @@ class JsonModel:
         self.last_usage: dict = {}
 
     def __call__(self, system: str, data: str) -> dict:
+        self.last_usage = {}
         started = time.monotonic()
         try:
             response = self.client.post(self.base_url + "/chat/completions",

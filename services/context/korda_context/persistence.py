@@ -10,6 +10,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from hashlib import sha256
 from hmac import compare_digest
+import re
 from typing import Callable, Iterator
 from uuid import uuid4
 
@@ -68,6 +69,8 @@ class Repository:
 
     def create_project(self, project_id: str, name: str, phone_number_id: str,
                        token: str, required_topics: dict[str, str]) -> dict:
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", project_id):
+            raise ValueError("project_id must contain 1-80 letters, digits, underscores or hyphens")
         if not all((project_id, name, phone_number_id)) or len(token) < 24:
             raise ValueError("project identity is required and token must contain at least 24 characters")
         if not isinstance(required_topics, dict) or any(
@@ -112,8 +115,13 @@ class Repository:
             ).fetchone()
 
     def read_revision(self, project_id: str, revision: int | None = None) -> dict | None:
-        with self.transaction(project_id) as session:
-            return session.load_context(revision)
+        # Immutable snapshots are safe to read under MVCC while a model holds the writer lock.
+        with self.connect() as conn:
+            row = conn.execute(
+                """SELECT r.document FROM ctx_revisions r JOIN ctx_projects p ON p.id=r.project_id
+                   WHERE p.id=%s AND r.revision=COALESCE(%s,p.current_revision)""", (project_id, revision)
+            ).fetchone()
+        return row["document"] if row else None
 
     def ingest(self, event: dict, enqueue: Callable[[psycopg.Connection, str], None]) -> dict:
         """Insert one registered participant's message and enqueue atomically.
@@ -232,10 +240,11 @@ class ProjectSession:
                ORDER BY received_sequence LIMIT 1""", (self.project_id,)
         ).fetchone()
 
-    def pending_inputs(self) -> list[str]:
+    def pending_inputs(self, cutoff: int | None = None) -> list[str]:
         return [r["id"] for r in self.conn.execute(
             """SELECT id FROM ctx_inbox WHERE project_id=%s AND status NOT IN ('processed','cancelled')
-               ORDER BY received_sequence""", (self.project_id,))]
+               AND (%s::bigint IS NULL OR received_sequence<=%s) ORDER BY received_sequence""",
+            (self.project_id, cutoff, cutoff))]
 
     def mark_input(self, input_id: str, status: str, *, error: str | None = None,
                    text: str | None = None, increase_attempts: bool = False) -> dict:
@@ -304,10 +313,39 @@ class ProjectSession:
         return row
 
     def get_transcription(self, input_id: str) -> dict | None:
+        source = self.get_input(input_id)
+        if source.get("correction_of_input_id"):
+            return self.conn.execute(
+                "SELECT * FROM ctx_transcriptions WHERE project_id=%s AND input_id=%s AND version=%s",
+                (self.project_id, source["correction_of_input_id"], source["transcription_version"])
+            ).fetchone()
         return self.conn.execute(
             """SELECT * FROM ctx_transcriptions WHERE project_id=%s AND input_id=%s
                ORDER BY version DESC LIMIT 1""", (self.project_id, input_id)
         ).fetchone()
+
+    def correct_transcript(self, input_id: str, text: str, reason: str,
+                           enqueue: Callable[[psycopg.Connection, str], None]) -> dict:
+        """Append a transcript version and a new derived input; keep old evidence."""
+        original = self.get_input(input_id)
+        if original.get("correction_of_input_id"):
+            original = self.get_input(original["correction_of_input_id"])
+        if original["kind"] != "audio" or not reason.strip() or not 0 < len(text.strip()) <= 16384:
+            raise ValueError("audio, bounded corrected text and correction reason are required")
+        transcript = self.add_transcription(original["id"], text, "operator-correction",
+                                             correction_reason=reason)
+        correction = self.conn.execute(
+            """INSERT INTO ctx_inbox(id,project_id,participant_id,phone_number_id,message_id,
+               sent_at,kind,media_id,mime_type,resolved_text,correction_of_input_id,transcription_version)
+               VALUES (%s,%s,%s,%s,%s,clock_timestamp(),'audio',%s,%s,%s,%s,%s) RETURNING *""",
+            (_id(), self.project_id, original["participant_id"], original["phone_number_id"],
+             "transcript-correction:" + _id(), original["media_id"], original["mime_type"], text,
+             original["id"], transcript["version"])
+        ).fetchone()
+        if original["status"] not in {"processed", "cancelled"}:
+            self.resolve_input(original["id"], "transcript corrected: " + reason)
+        enqueue(self.conn, self.project_id)
+        return correction
 
     def load_context(self, revision: int | None = None) -> dict | None:
         if revision is None:
@@ -418,7 +456,7 @@ class ProjectSession:
             raise ValueError("only a sent question can be answered")
         if row["consumed_by_input_id"] not in {None, input_id}:
             raise ValueError("question already answered")
-        if received["participant_id"] != row["participant_id"] or received["received_at"] <= row["sent_at"]:
+        if received["participant_id"] != row["participant_id"] or received["sent_at"] <= row["sent_at"]:
             raise ValueError("answer must come from the question recipient after the question was sent")
         self.conn.execute(
             """UPDATE ctx_outbox SET consumed_by_input_id=%s,updated_at=clock_timestamp()
@@ -432,6 +470,25 @@ class ProjectSession:
             """UPDATE ctx_projects SET model_calls=model_calls+1
                WHERE id=%s AND model_calls<%s RETURNING model_calls""", (self.project_id, limit)
         ).fetchone() is not None
+
+    def request_question(self, participant_id: str, revision: int) -> None:
+        self.conn.execute(
+            """INSERT INTO ctx_question_requests(id,project_id,participant_id,revision)
+               VALUES (%s,%s,%s,%s) ON CONFLICT (project_id,participant_id,revision) DO NOTHING""",
+            (_id(), self.project_id, participant_id, revision))
+
+    def next_question_request(self) -> dict | None:
+        return self.conn.execute(
+            """SELECT * FROM ctx_question_requests WHERE project_id=%s AND state='pending'
+               ORDER BY created_at,id LIMIT 1""", (self.project_id,)).fetchone()
+
+    def update_question_request(self, request_id: str, state: str, *, error: str | None = None,
+                                increase_attempts: bool = False) -> None:
+        if state not in {"pending", "generated", "failed", "cancelled"}:
+            raise ValueError("invalid question request state")
+        self.conn.execute(
+            """UPDATE ctx_question_requests SET state=%s,error=%s,attempts=attempts+%s
+               WHERE project_id=%s AND id=%s""", (state, error, int(increase_attempts), self.project_id, request_id))
 
     def record_model_usage(self, model: str, usage: dict, latency_ms: int) -> dict:
         if not model or not isinstance(usage, dict) or latency_ms < 0:

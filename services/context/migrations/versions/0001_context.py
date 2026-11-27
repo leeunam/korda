@@ -50,6 +50,8 @@ CREATE TABLE ctx_inbox (
     resolved_text text,
     media_id text,
     mime_type text,
+    correction_of_input_id text,
+    transcription_version integer,
     status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','processing','processed','failed','cancelled')),
     attempts integer NOT NULL DEFAULT 0 CHECK (attempts BETWEEN 0 AND 3),
     error text,
@@ -57,6 +59,7 @@ CREATE TABLE ctx_inbox (
     UNIQUE (phone_number_id,message_id),
     UNIQUE (project_id,id),
     FOREIGN KEY (project_id,participant_id) REFERENCES ctx_participants(project_id,id),
+    FOREIGN KEY (project_id,correction_of_input_id) REFERENCES ctx_inbox(project_id,id),
     CHECK ((kind='text' AND original_text IS NOT NULL) OR (kind='audio' AND media_id IS NOT NULL))
 );
 CREATE INDEX ctx_inbox_project_sequence ON ctx_inbox(project_id,received_sequence);
@@ -140,6 +143,18 @@ CREATE TABLE ctx_model_usage (
     latency_ms integer NOT NULL CHECK (latency_ms >= 0),
     created_at timestamptz NOT NULL DEFAULT clock_timestamp()
 );
+CREATE TABLE ctx_question_requests (
+    id text PRIMARY KEY,
+    project_id text NOT NULL REFERENCES ctx_projects(id),
+    participant_id text NOT NULL,
+    revision integer NOT NULL,
+    state text NOT NULL DEFAULT 'pending' CHECK (state IN ('pending','generated','failed','cancelled')),
+    attempts integer NOT NULL DEFAULT 0 CHECK (attempts BETWEEN 0 AND 3),
+    error text,
+    created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+    FOREIGN KEY (project_id,participant_id) REFERENCES ctx_participants(project_id,id),
+    UNIQUE (project_id,participant_id,revision)
+);
 CREATE FUNCTION ctx_reject_mutation() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
     RAISE EXCEPTION 'context history is append-only';
@@ -157,10 +172,12 @@ CREATE TRIGGER ctx_model_usage_immutable BEFORE UPDATE OR DELETE ON ctx_model_us
 CREATE FUNCTION ctx_preserve_inbox_original() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
     IF (NEW.project_id,NEW.participant_id,NEW.phone_number_id,NEW.message_id,NEW.received_sequence,
-        NEW.sent_at,NEW.received_at,NEW.kind,NEW.original_text,NEW.media_id,NEW.mime_type)
+        NEW.sent_at,NEW.received_at,NEW.kind,NEW.original_text,NEW.media_id,NEW.mime_type,
+        NEW.correction_of_input_id,NEW.transcription_version)
        IS DISTINCT FROM
        (OLD.project_id,OLD.participant_id,OLD.phone_number_id,OLD.message_id,OLD.received_sequence,
-        OLD.sent_at,OLD.received_at,OLD.kind,OLD.original_text,OLD.media_id,OLD.mime_type) THEN
+        OLD.sent_at,OLD.received_at,OLD.kind,OLD.original_text,OLD.media_id,OLD.mime_type,
+        OLD.correction_of_input_id,OLD.transcription_version) THEN
         RAISE EXCEPTION 'original inbox evidence is immutable';
     END IF;
     RETURN NEW;

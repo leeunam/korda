@@ -485,6 +485,19 @@
       "title": "Pending Input Ids",
       "type": "array"
     },
+    "cutoff_sequence": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Cutoff Sequence"
+    },
     "evidence": {
       "items": {
         "$ref": "#/$defs/Evidence"
@@ -522,24 +535,8 @@
     }
   },
   "required": [
-    "schema_version",
-    "project_id",
-    "revision",
-    "created_at",
-    "synthetic",
-    "interview_status",
-    "state",
-    "required_topics",
-    "processed_input_ids",
-    "pending_input_ids",
-    "evidence",
-    "claims",
-    "entities",
-    "relations",
-    "gaps"
+    "project_id"
   ],
-  "title": "Korda contexto de entrevista sintética v0.2.0",
-  "type": "object",
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://korda.local/contracts/context/0.2.0"
+  "title": "ContextDocument",
+  "type": "object"
 }
