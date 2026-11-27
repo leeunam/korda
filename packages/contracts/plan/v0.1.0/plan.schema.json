@@ -56,7 +56,15 @@
       "type": ["string", "null"], "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9]",
       "not": {"type": "string", "pattern": "[^a-zA-Z0-9._-]"}
     },
-    "cost_estimate_brl_cents": {"type": ["integer", "null"], "minimum": 0}
+    "cost_estimate_brl_cents": {"type": ["integer", "null"], "minimum": 0},
+    "construction": {
+      "type": "object", "additionalProperties": false, "required": ["document", "model", "synthetic"],
+      "properties": {
+        "document": {"type": "string", "minLength": 1, "maxLength": 60000},
+        "model": {"type": "string", "minLength": 1, "maxLength": 200},
+        "synthetic": {"type": "boolean"}
+      }
+    }
   },
   "$defs": {
     "strings": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
