@@ -122,7 +122,7 @@ class TestWorkerDocker(unittest.TestCase):
         self.assertFalse((self.base / "sandbox" / self.run_id).exists(), "a sandbox temporária deve ser removida")
         self.assertEqual(_hashes(*self.protegidos), self.hashes, "testes, definições e pipeline à mão intactos")
 
-    def test_agente_falso_constroi_de_models_vazio_e_a_avaliacao_aprova(self):
+    def test_agente_falso_constroi_de_models_vazio_e_aguarda_a_aprovacao_2(self):
         modelos = self.worker.modelos_a_mao()
         cliente = ClienteChatFalso([
             RespostaChat.de_tool_calls([("ler_arquivo", {"caminho": "exportar.py"})]),
@@ -144,10 +144,11 @@ class TestWorkerDocker(unittest.TestCase):
         escritos = sorted(e["dados"]["caminho"] for e in eventos if e["type"] == "file_written")
         self.assertEqual(escritos, sorted(modelos))
         sequencia = {"build_started", "agent_finished", "dbt_passed", "test_passed", "evaluation_finished",
-                     "intervention_requested"}
+                     "intervention_requested", "package_built"}
+        # Sem avaliador no fluxo: build, testes protegidos e contrato de saída bastam; a pessoa decide.
         self.assertEqual([e["type"] for e in eventos if e["type"] in sequencia],
-                         ["build_started", "agent_finished", "dbt_passed", "test_passed", "evaluation_finished"])
-        self.assertTrue([e for e in eventos if e["type"] == "evaluation_finished"][0]["dados"]["aprovado"])
+                         ["build_started", "agent_finished", "dbt_passed", "test_passed", "package_built"])
+        self.assertFalse(self._arquivo("avaliacao.json").exists())
         custo = [e for e in eventos if e["type"] == "agent_finished"][0]["dados"]
         self.assertEqual(custo["custo_total_centavos"], custo["custo_centavos"])  # o planejamento é medido à parte
 
@@ -201,10 +202,11 @@ class TestWorkerDocker(unittest.TestCase):
         self.assertEqual(estado["state"], "aguardando_aprovacao_entrega", estado)
         eventos = self._eventos()
         sequencia = {"dbt_failed", "test_failed", "fix_started", "fix_applied", "dbt_passed", "test_passed",
-                     "evaluation_finished"}
+                     "evaluation_finished", "package_built"}
         self.assertEqual([e["type"] for e in eventos if e["type"] in sequencia], [
             "dbt_failed", "test_failed", "fix_started", "fix_applied", "dbt_passed", "test_passed",
-            "evaluation_finished"])
+            "package_built"])
+        self.assertFalse(self._arquivo("avaliacao.json").exists())
         por_tipo = {e["type"]: e for e in eventos}
         self.assertEqual(por_tipo["test_failed"]["dados"]["codigo"], "implementacao")
         self.assertEqual(por_tipo["dbt_passed"]["attempt"], 2)

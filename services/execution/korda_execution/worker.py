@@ -3,8 +3,10 @@
 O planejamento da construção acontece antes, no comando `planejar` (planejamento.py),
 e entra no plano aprovado como `construction`. Aqui o worker (1) prepara a sandbox com
 models/ vazio; (2) intermedeia o harness (`construir_e_verificar`) com a API da Feita, com
-o loop aqui e as ferramentas na sandbox, a partir da construção aprovada; e (3) entrega o
-resultado ao avaliador independente. O worker não executa nada do pipeline. O executor vem de KORDA_EXECUTOR (ver harness/config.py). O
+o loop aqui e as ferramentas na sandbox, a partir da construção aprovada; e (3) guarda a infra
+e os resultados com hash e monta o pacote de entrega para a aprovação 2. Não há comparação com
+gabarito no fluxo: o avaliador independente (evaluation/worker) é só ferramenta offline de
+medição. O worker não executa nada do pipeline. O executor vem de KORDA_EXECUTOR (ver harness/config.py). O
 pipeline feito à mão em pipeline/projeto/models é só o plano B (`roteirizado`) e nunca é
 montado na sandbox: o roteirizado o copia pelas mesmas ferramentas do agente.
 """
@@ -19,7 +21,6 @@ import tempfile
 from contextlib import ExitStack
 from pathlib import Path
 
-from evaluation.worker.avaliador import avaliar
 from services.planning.korda_planning import validar_plano
 
 from . import caminhos
@@ -127,7 +128,7 @@ def _executor(cfg, ferramentas, plano_publico, perfis, limite, eventos, medidor,
 
 
 def _tentar(ferramentas, sandbox, verificar_ativa):
-    """Build com os testes protegidos e exportação no contrato de saída que o avaliador lê."""
+    """Build com os testes protegidos e exportação no contrato de saída (exportar.py)."""
     def tentar():
         verificar_ativa()
         resultado = ferramentas.rodar_dbt("build")
@@ -175,7 +176,7 @@ def _empacotar(registro, raiz, run_id, eventos):
 
 def executar(registro, plano, run_id, *, raiz: Path, fontes: Path, cfg: ConfigHarness | None = None,
              cliente_llm=None) -> dict:
-    """Reserva a execução, chama o harness para construir, congela o resultado e o entrega ao avaliador.
+    """Reserva a execução, chama o harness para construir, congela o resultado e monta o pacote de entrega.
 
     `cliente_llm` só existe para testes (executor `falso`, com respostas roteiradas).
     """
@@ -271,13 +272,8 @@ def executar(registro, plano, run_id, *, raiz: Path, fontes: Path, cfg: ConfigHa
                                                     sandbox.dir_run / "saida/target", revisao / "infra")
             finally:
                 sandbox.destruir()
-            laudo = avaliar(revisao / "resultados", plano["dataset"], fontes=snapshot, regras=regras)
-        (revisao / "avaliacao.json").write_text(json.dumps(laudo, ensure_ascii=False, indent=2) + "\n",
-                                               encoding="utf-8")
-        eventos.emit_event("avaliacao", "evaluation_finished", laudo["classe"],
-                           aprovado=laudo["aprovado"], divergencias=laudo["divergencias"])
-        if not laudo["aprovado"]:
-            raise FalhaExecucao(f"avaliação externa recusou os resultados ({laudo['classe']})")
+        # Pronto para a aprovação 2: build com os testes protegidos e o contrato de saída passaram.
+        # Não há comparação com gabarito no fluxo (decisão de 27/11/2026): a pessoa decide.
         registro.finalizar(run_id, aprovado=True, manifesto=manifesto)
         medidor.gravar(revisao / "medicao.json")  # o pacote mostra tempo e custo desta medição
         _empacotar(registro, raiz, run_id, eventos)
