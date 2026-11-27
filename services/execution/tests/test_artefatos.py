@@ -47,7 +47,7 @@ class TestArtefatos(unittest.TestCase):
         """Captura os resultados e monta um pacote mínimo com manifesto.json, como o empacotar faz."""
         manifesto = capturar(self.origem, self.staging)
         shutil.copytree(self.staging, self.pacote / "dados")
-        (self.pacote / "index.html").write_text("<p>pagina</p>")
+        (self.pacote / "entrega.json").write_text("{}")
         self._selar(manifesto)
         return RegistroTeste(manifesto)
 
@@ -125,7 +125,7 @@ class TestArtefatos(unittest.TestCase):
         registro = self._aprovar()
         self.assertEqual(entregar(registro, self.raiz, "run-1", "demo"), self.final)
         self.assertEqual({str(p.relative_to(self.final)) for p in self.final.rglob("*") if p.is_file()},
-                         {"dados/kpis.json", "dados/por_pedido.csv", "dados/por_viagem.csv", "index.html",
+                         {"dados/kpis.json", "dados/por_pedido.csv", "dados/por_viagem.csv", "entrega.json",
                           "manifesto.json"})
 
     def test_divergencia_de_manifesto_conteudo_ou_inventario_bloqueia_promocao(self):
@@ -147,8 +147,8 @@ class TestArtefatos(unittest.TestCase):
         with self.assertRaises(ValueError):
             entregar(registro, self.raiz, "run-1", "demo")
         (self.pacote / "extra.log").unlink()
-        # Página alterada depois de selada.
-        (self.pacote / "index.html").write_text("<p>outra</p>")
+        # entrega.json alterado depois de selado.
+        (self.pacote / "entrega.json").write_text('{"alterado": true}')
         with self.assertRaises(ValueError):
             entregar(registro, self.raiz, "run-1", "demo")
         self._selar(manifesto)

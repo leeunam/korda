@@ -1,5 +1,7 @@
 """Pacote de entrega (K13), sem Docker: uma revisão montada à mão com dados sintéticos mínimos.
 
+O pacote não tem página: `entrega.json` é o contrato que o front vai consumir.
+
 Os números do fixture são o exemplo de 4 linhas proposto para a K02 (não é regra aprovada):
 A1 = R$ 300 rateado por peso entre P1 (100 kg) e P2 (200 kg), B2 = R$ 200 para P3 e P4 sem
 CT-e válido. Custo = 500 / 3 entregas elegíveis.
@@ -16,7 +18,7 @@ from pathlib import Path
 
 from korda_execution.aprovacoes import Registro
 from korda_execution.artefatos import capturar, capturar_infra
-from korda_execution.entrega import REGRAS_DOMINIO, empacotar, montar_dossie
+from korda_execution.entrega import REGRAS_DOMINIO, empacotar, montar_entrega
 from korda_execution.sandbox import RAIZ_REPO
 from korda_execution.worker import PROJETO
 
@@ -28,7 +30,6 @@ PEDIDO = ("pedido_id", "viagem_id", "tipo_viagem", "elegivel_custo", "custo_fret
 VIAGEM = ("viagem_id", "veiculo_id", "tipo_viagem", "n_entregas", "n_entregas_elegiveis_custo",
           "carga", "capacidade", "unidade", "ocupacao", "acima_capacidade", "custo_frete_total", "custo_por_entrega",
           "arquivo_viagem", "linha_viagem", "arquivo_veiculo", "linha_veiculo")
-INJECAO = "<script>alert('x')</script>"
 
 
 def _linhagem(*partes):
@@ -108,14 +109,12 @@ class TestEntrega(unittest.TestCase):
         self.sandbox = Path(tmp.name) / "sandbox"
         self.modelos = {f"models/{a.name}": a.read_text(encoding="utf-8")
                         for a in sorted((PROJETO / "models").glob("*.sql"))}
-        # Conteúdo hostil vindo da sandbox: o pacote deve exibi-lo como texto.
-        self.modelos["models/prata_ctes.sql"] = f"-- {INJECAO}\n" + self.modelos["models/prata_ctes.sql"]
+        self.prata = {"prata_ctes": (b"PAR1-ctes-ficticio", 3), "prata_rateios": (b"PAR1-rateios-ficticio", 3)}
         self.eventos = [
             {"run_id": self.run_id, "step": "plano", "type": "run_started", "message": "Iniciada", "attempt": 1,
              "ts": "2026-11-27T10:00:00.000+00:00", "dados": {"executor": "falso"}},
-            {"run_id": self.run_id, "step": "construcao", "type": "tool_refused",
-             "message": f"escrita fora de models/ {INJECAO}", "attempt": 1,
-             "ts": "2026-11-27T10:00:05.000+00:00",
+            {"run_id": self.run_id, "step": "construcao", "type": "tool_refused", "message": "escrita fora de models/",
+             "attempt": 1, "ts": "2026-11-27T10:00:05.000+00:00",
              "dados": {"origem": "hook", "caminho": "tests/chave_fiscal_unica.sql"}},
             {"run_id": self.run_id, "step": "construcao", "type": "file_written", "message": "models/prata_ctes.sql",
              "attempt": 1, "ts": "2026-11-27T10:00:09.000+00:00", "dados": {"caminho": "models/prata_ctes.sql"}},
@@ -124,51 +123,50 @@ class TestEntrega(unittest.TestCase):
             {"run_id": self.run_id, "step": "modelos", "type": "fix_applied", "message": "corrigido", "attempt": 2,
              "ts": "2026-11-27T10:00:40.000+00:00", "dados": {"custo_centavos": 12}},
             {"run_id": self.run_id, "step": "construcao", "type": "dbt_passed", "message": "build", "attempt": 2,
-             "ts": "2026-11-27T10:01:10.000+00:00", "dados": {"codigo": 0}},
-            {"run_id": self.run_id, "step": "avaliacao", "type": "evaluation_finished", "message": "ok",
-             "attempt": 1, "ts": "2026-11-27T10:01:30.000+00:00", "dados": {"aprovado": True, "divergencias": 0}},
+             "ts": "2026-11-27T10:01:30.000+00:00", "dados": {"codigo": 0}},
         ]
         self._preparar()
 
-    def _preparar(self, *, catalog=True, avaliacao=True, kpis=KPIS):
+    def _preparar(self, *, catalog=True, prata=True, kpis=KPIS):
         resultados = self.sandbox / "saida" / "resultados"
         models = self.sandbox / "projeto" / "models"
         target = self.sandbox / "saida" / "target"
-        for pasta in (resultados, models, target):
+        pasta_prata = self.sandbox / "saida" / "prata"
+        for pasta in (resultados, models, target, pasta_prata):
             pasta.mkdir(parents=True, exist_ok=True)
         (resultados / "kpis.json").write_text(json.dumps({"kpis": kpis}) + "\n", encoding="utf-8")
         (resultados / "por_pedido.csv").write_text(_csv(PEDIDO, PEDIDOS), encoding="utf-8")
         (resultados / "por_viagem.csv").write_text(_csv(VIAGEM, VIAGENS), encoding="utf-8")
         for caminho, sql in self.modelos.items():
             (models / Path(caminho).name).write_text(sql, encoding="utf-8")
+        for tabela, (conteudo, _linhas) in self.prata.items():
+            (pasta_prata / f"{tabela}.parquet").write_bytes(conteudo)
+        (pasta_prata / "linhas.json").write_text(json.dumps({t: n for t, (_c, n) in self.prata.items()}))
         (target / "manifest.json").write_text(json.dumps(_manifest_dbt(self.modelos)), encoding="utf-8")
         (target / "run_results.json").write_text(json.dumps({"results": [
             {"unique_id": "test.korda_logistica.chave_fiscal_unica", "status": "pass", "execution_time": 0.1}]}),
             encoding="utf-8")
         if catalog:
-            (target / "catalog.json").write_text(json.dumps({"nodes": {"model.korda_logistica.ouro_kpis": {
-                "columns": {"custo_frete_por_entrega": {"type": "DOUBLE", "index": 1, "name": "custo_frete_por_entrega"}}
+            (target / "catalog.json").write_text(json.dumps({"nodes": {"model.korda_logistica.prata_ctes": {
+                "columns": {"chave_cte": {"type": "VARCHAR", "index": 1, "name": "chave_cte"},
+                            "valor_centavos": {"type": "BIGINT", "index": 2, "name": "valor_centavos"}}
             }}, "sources": {}}), encoding="utf-8")
         self.revisao.mkdir(parents=True, exist_ok=True)
         manifesto = capturar(resultados, self.revisao / "resultados")
-        manifesto["infra"] = capturar_infra(models, target, self.revisao / "infra")
+        manifesto["infra"] = capturar_infra(models, target, self.revisao / "infra",
+                                            prata=pasta_prata if prata else None)
         (self.revisao / "eventos.jsonl").write_text(
             "".join(json.dumps(e, ensure_ascii=False) + "\n" for e in self.eventos), encoding="utf-8")
         (self.revisao / "medicao.json").write_text(json.dumps({
             "executor": "falso", "synthetic": True, "tentativas": 2, "custo_usd": 0.02, "custo_centavos": 12,
             "tokens_entrada": 1000, "tokens_saida": 200, "duracao_s": 70.0}), encoding="utf-8")
-        if avaliacao:
-            (self.revisao / "avaliacao.json").write_text(json.dumps({
-                "aprovado": True, "classe": "ok", "empresa": "01_demo", "divergencias": 0,
-                "comparados": {"kpis": 3, "por_pedido.csv": 4, "por_viagem.csv": 2}, "exemplos": []}),
-                encoding="utf-8")
         self.registro.finalizar(self.run_id, aprovado=True, manifesto=manifesto)
 
     def _pacote(self):
         return empacotar(self.registro, self.raiz, self.run_id)
 
-    def _textos(self, pacote):
-        return {p: p.read_text(encoding="utf-8") for p in pacote.rglob("*") if p.is_file()}
+    def _entrega(self):
+        return json.loads((self._pacote() / "entrega.json").read_text(encoding="utf-8"))
 
     def test_estrutura_e_manifesto_do_pacote_conferem(self):
         pacote = self._pacote()
@@ -179,46 +177,100 @@ class TestEntrega(unittest.TestCase):
         for caminho, meta in manifesto["arquivos"].items():
             self.assertEqual(hashlib.sha256((pacote / caminho).read_bytes()).hexdigest(), meta["sha256"], caminho)
         self.assertEqual(manifesto["aprovado"], self.registro.consultar(self.run_id)["manifesto"])
-        for esperado in ("index.html", "decisoes.md", "execucao.md", "dados/kpis.json", "dados/por_pedido.csv",
-                         "dados/por_viagem.csv", "projeto_dbt/dbt_project.yml", "projeto_dbt/profiles.yml",
+        for esperado in ("entrega.json", "decisoes.md", "execucao.md", "dados/kpis.json", "dados/por_pedido.csv",
+                         "dados/por_viagem.csv", "dados/prata/prata_ctes.parquet", "dados/prata/linhas.json",
+                         "projeto_dbt/dbt_project.yml", "projeto_dbt/profiles.yml", "projeto_dbt/exportar_prata.py",
                          "projeto_dbt/regras.json", "projeto_dbt/README.md", "projeto_dbt/models/ouro_kpis.sql",
                          "projeto_dbt/tests/conservacao.sql", "docs_dbt/manifest.json"):
             self.assertIn(esperado, arquivos)
-        self.assertEqual((pacote / "projeto_dbt/models/prata_ctes.sql").read_text(encoding="utf-8"),
-                         self.modelos["models/prata_ctes.sql"])
+        self.assertNotIn("index.html", arquivos)  # a visualização fica no front
         regras = json.loads((pacote / "projeto_dbt/regras.json").read_text(encoding="utf-8"))
         self.assertEqual(regras, {k: r["value"] for k, r in self.plano["rules"].items()})
 
-    def test_html_tem_cada_kpi_a_faixa_sintetica_e_nao_usa_rede(self):
-        html = (self._pacote() / "index.html").read_text(encoding="utf-8")
-        self.assertIn("DADOS SINTÉTICOS", html)
-        for valor in KPIS.values():
-            self.assertIn(f"{valor:.2f}".replace(".", ","), html)
-        self.assertEqual(re.findall(r"https?://", html), [])
-        self.assertIsNone(re.search(r"<(?:link|img|iframe)\b|\bsrc\s*=", html, re.I))
-        self.assertNotRegex(html.lower(), r"econom")  # nenhuma afirmação de economia financeira
+    def test_kpis_do_entrega_json_sao_os_do_resultado_e_a_conta_confere(self):
+        entrega = self._entrega()
+        self.assertEqual(entrega["entrega_version"], "0.1.0")
+        self.assertTrue(entrega["sintetico"])
+        self.assertEqual({k["chave"]: k["valor"] for k in entrega["kpis"]}, KPIS)
+        contas = {k["chave"]: k["conta"] for k in entrega["kpis"]}
+        self.assertEqual(contas["custo_frete_por_entrega"]["numerador"], "500.00")
+        self.assertEqual(contas["custo_frete_por_entrega"]["denominador"], 3)
+        self.assertTrue(all(c["confere"] for c in contas.values()), contas)
+        for k in entrega["kpis"]:
+            self.assertEqual(k["formula"], self.plano["metrics"][k["chave"]]["formula"])
+            self.assertEqual(k["regras"], self.plano["metrics"][k["chave"]]["rule_keys"])
 
-    def test_conteudo_da_sandbox_e_dos_eventos_sai_escapado(self):
-        html = (self._pacote() / "index.html").read_text(encoding="utf-8")
-        self.assertNotIn(INJECAO, html)
-        self.assertIn("&lt;script&gt;alert", html)
+    def test_kpi_que_nao_bate_com_os_dados_aparece_como_divergente(self):
+        (self.revisao / "resultados" / "kpis.json").write_text(
+            json.dumps({"kpis": {**KPIS, "otif_pct": 75.0}}), encoding="utf-8")
+        contas = {k["chave"]: k["conta"] for k in montar_entrega(self.plano, self.revisao)["kpis"]}
+        self.assertFalse(contas["otif_pct"]["confere"])
+        self.assertTrue(contas["custo_frete_por_entrega"]["confere"])
 
-    def test_toda_regra_aparece_em_decisoes_com_a_evidencia(self):
-        decisoes = (self._pacote() / "decisoes.md").read_text(encoding="utf-8")
+    def test_toda_regra_aparece_no_json_e_em_decisoes_com_a_evidencia(self):
+        pacote = self._pacote()
+        decisoes = (pacote / "decisoes.md").read_text(encoding="utf-8")
+        regras = {r["chave"]: r for r in json.loads((pacote / "entrega.json").read_text(encoding="utf-8"))["regras"]}
         evidencias = {e["id"]: e for e in self.plano["evidence"]}
+        self.assertEqual(set(regras), set(self.plano["rules"]))
         for chave, regra in self.plano["rules"].items():
             self.assertIn(f"`{chave}`", decisoes)
+            self.assertEqual(regras[chave]["valor"], regra["value"])
             for ev in regra["evidence_ids"]:
                 self.assertIn(evidencias[ev]["locator"], decisoes)
                 self.assertIn(" ".join(evidencias[ev]["excerpt"].split()), " ".join(decisoes.split()))
+                self.assertIn(evidencias[ev]["excerpt"], [e["excerpt"] for e in regras[chave]["evidencias"]])
         self.assertEqual(set(self.plano["rules"]) - set(REGRAS_DOMINIO), set(),
                          "a tabela de domínio cobre as regras do plano demo")
+        self.assertNotIn("avaliador", decisoes.lower())
 
-    def test_grafo_tem_um_no_por_modelo_do_manifest(self):
-        html = (self._pacote() / "index.html").read_text(encoding="utf-8")
-        nos = re.findall(r'data-no="(model\.[^"]+)"', html)
-        self.assertEqual(sorted(set(nos)), sorted(f"model.korda_logistica.{Path(c).stem}" for c in self.modelos))
-        self.assertEqual(len(nos), len(set(nos)))
+    def test_prata_diz_onde_esta_cada_tabela_com_hash_linhas_e_colunas(self):
+        pacote = self._pacote()
+        prata = {p["tabela"]: p for p in json.loads((pacote / "entrega.json").read_text(encoding="utf-8"))["prata"]}
+        self.assertEqual(set(prata), set(self.prata))
+        for tabela, (conteudo, linhas) in self.prata.items():
+            item = prata[tabela]
+            self.assertEqual(item["arquivo"], f"dados/prata/{tabela}.parquet")
+            self.assertEqual((pacote / item["arquivo"]).read_bytes(), conteudo)
+            self.assertEqual(item["sha256"], hashlib.sha256(conteudo).hexdigest())
+            self.assertEqual(item["linhas"], linhas)
+            self.assertEqual(item["modelo"], f"projeto_dbt/models/{tabela}.sql")
+        self.assertEqual(prata["prata_ctes"]["colunas"], [{"nome": "chave_cte", "tipo": "VARCHAR"},
+                                                           {"nome": "valor_centavos", "tipo": "BIGINT"}])
+        self.assertEqual(prata["prata_rateios"]["depende_de"],
+                         ["source.korda_logistica.sinteticas.bronze_pedidos", "model.korda_logistica.prata_ctes"])
+
+    def test_estrutura_tecnica_tem_um_modelo_por_no_do_manifest_com_a_camada(self):
+        estrutura = self._entrega()["estrutura"]
+        modelos = {m["nome"]: m for m in estrutura["modelos"]}
+        self.assertEqual(set(modelos), {Path(c).stem for c in self.modelos})
+        for nome, modelo in modelos.items():
+            self.assertEqual(modelo["camada"], nome.split("_")[0])
+            self.assertEqual(modelo["arquivo"], f"projeto_dbt/models/{nome}.sql")
+        self.assertEqual(estrutura["camadas"]["prata"], ["prata_ctes", "prata_rateios"])
+        self.assertIn("bronze_documentos", estrutura["camadas"]["bronze"])
+        testes = {t["nome"]: t for t in estrutura["testes"]}
+        self.assertEqual(testes["chave_fiscal_unica"]["status"], "pass")
+        ids = {m["id"] for m in estrutura["modelos"]} | {f["id"] for f in estrutura["fontes"]} | \
+            {t["id"] for t in estrutura["testes"]}
+        self.assertTrue(estrutura["arestas"])
+        self.assertTrue(all(a in ids and b in ids for a, b in estrutura["arestas"]))
+
+    def test_sem_insumos_opcionais_marca_indisponivel_em_vez_de_quebrar(self):
+        (self.sandbox / "saida" / "target" / "catalog.json").unlink()
+        self.run_id = "run-sem-catalog"
+        self.revisao = self.raiz / "revisao" / self.run_id
+        self.registro.iniciar(self.plano["project_id"], self.plano["plan_version"], self.run_id)
+        self._preparar(catalog=False, prata=False)
+        entrega = self._entrega()
+        self.assertEqual(entrega["prata"], [])
+        self.assertIn("prata", entrega["indisponivel"])
+        self.assertIn("colunas", entrega["indisponivel"])
+        self.assertTrue(all(m["colunas"] is None for m in entrega["estrutura"]["modelos"]))
+        (self.revisao / "infra/target/manifest.json").unlink()
+        sem_manifest = montar_entrega(self.plano, self.revisao)
+        self.assertIsNone(sem_manifest["estrutura"])
+        self.assertIn("estrutura", sem_manifest["indisponivel"])
 
     def test_execucao_e_registro_passado_com_recusa_do_hook_e_custo(self):
         execucao = (self._pacote() / "execucao.md").read_text(encoding="utf-8")
@@ -228,48 +280,27 @@ class TestEntrega(unittest.TestCase):
         self.assertIn("1 min 30 s", execucao)  # do primeiro ao último evento
         self.assertIn("US$ 0,02", execucao)
 
-    def test_nenhum_caminho_do_host_nem_gabarito_no_pacote(self):
+    def test_nenhum_caminho_do_host_nem_gabarito_nem_laudo_no_pacote(self):
         pacote = self._pacote()
-        for caminho, texto in self._textos(pacote).items():
-            for proibido in (str(self.raiz), str(RAIZ_REPO), "/home/", "evaluation/golden"):
-                self.assertNotIn(proibido, texto, f"{proibido} em {caminho}")
-        self.assertFalse([p for p in pacote.rglob("*") if "golden" in p.name or "_gerador" in p.parts])
+        for caminho in pacote.rglob("*"):
+            if caminho.is_file() and caminho.suffix != ".parquet":
+                texto = caminho.read_text(encoding="utf-8")
+                for proibido in (str(self.raiz), str(RAIZ_REPO), "/home/", "evaluation/golden"):
+                    self.assertNotIn(proibido, texto, f"{proibido} em {caminho}")
+        nomes = [p.name for p in pacote.rglob("*")]
+        self.assertFalse([n for n in nomes if "golden" in n or n in ("_gerador", "avaliacao.json", "index.html")])
 
-    def test_sem_insumos_opcionais_mostra_indisponivel_em_vez_de_quebrar(self):
-        (self.sandbox / "saida" / "target" / "catalog.json").unlink()
-        self.run_id = "run-sem-catalog"
-        self.revisao = self.raiz / "revisao" / self.run_id
-        self.registro.iniciar(self.plano["project_id"], self.plano["plan_version"], self.run_id)
-        self._preparar(catalog=False, avaliacao=False)
-        html = (self._pacote() / "index.html").read_text(encoding="utf-8")
-        self.assertIn("não avaliado", html)
-        self.assertIn("colunas indisponíveis", html)
+    def test_recusa_empacotar_revisao_alterada_depois_da_execucao(self):
+        for alvo in ("infra/models/ouro_kpis.sql", "infra/prata/prata_ctes.parquet"):
+            with self.subTest(alvo=alvo):
+                original = (self.revisao / alvo).read_bytes()
+                (self.revisao / alvo).write_bytes(b"alterado")
+                with self.assertRaises(ValueError):
+                    self._pacote()
+                self.assertFalse((self.revisao / "entrega").exists())
+                (self.revisao / alvo).write_bytes(original)
 
-    def test_drill_down_mostra_o_rateio_e_refaz_cada_kpi_a_partir_dos_dados(self):
-        dossie = montar_dossie(self.plano, self.revisao)
-        rateio = dossie["ctes"]["A1"]
-        self.assertEqual(sorted(p["pedido_id"] for p in rateio["pedidos"]), ["P1", "P2"])
-        self.assertEqual(sum(p["parcela_centavos"] for p in rateio["pedidos"]), rateio["frete_centavos"])
-        refeitos = {k["chave"]: k["refeito"] for k in dossie["kpis"]}
-        self.assertEqual(refeitos["custo_frete_por_entrega"]["numerador"], "500.00")
-        self.assertEqual(refeitos["custo_frete_por_entrega"]["denominador"], 3)
-        self.assertTrue(all(r["confere"] for r in refeitos.values()), refeitos)
-        self.assertEqual({p["pedido_id"] for p in dossie["pedidos"]}, {"P1", "P2", "P3", "P4"})
-
-    def test_kpi_que_nao_bate_com_os_dados_aparece_como_divergente(self):
-        (self.revisao / "resultados" / "kpis.json").write_text(
-            json.dumps({"kpis": {**KPIS, "otif_pct": 75.0}}), encoding="utf-8")
-        refeitos = {k["chave"]: k["refeito"] for k in montar_dossie(self.plano, self.revisao)["kpis"]}
-        self.assertFalse(refeitos["otif_pct"]["confere"])
-        self.assertTrue(refeitos["custo_frete_por_entrega"]["confere"])
-
-    def test_recusa_empacotar_revisao_alterada_depois_da_avaliacao(self):
-        (self.revisao / "infra" / "models" / "ouro_kpis.sql").write_text("select 0", encoding="utf-8")
-        with self.assertRaises(ValueError):
-            self._pacote()
-        self.assertFalse((self.revisao / "entrega").exists())
-
-    def test_reempacotar_substitui_o_pacote(self):
+    def test_reempacotar_gera_os_mesmos_bytes(self):
         primeiro = (self._pacote() / "manifesto.json").read_bytes()
         self.assertEqual((self._pacote() / "manifesto.json").read_bytes(), primeiro)
 

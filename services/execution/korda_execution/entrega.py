@@ -1,12 +1,13 @@
-"""Pacote de entrega (K13): a infra que o harness construiu, as decisões e a página de revisão.
+"""Pacote de entrega (K13): a infra que o harness construiu, em dados que o front vai consumir.
 
 `empacotar` monta `revisao/<run>/entrega/` só a partir do que a execução já produziu e do
 plano aprovado no registro. Nada aqui chama LLM, lê `evaluation/golden/` ou inventa números:
-cada valor exibido vem de um arquivo do pacote, e o pacote lista o hash de todos eles.
+cada valor vem de um arquivo do pacote, e o pacote lista o hash de todos eles. Não há página:
+`entrega.json` é o contrato para o front (KPIs, regras com evidência, prata e estrutura técnica).
 
 Os bytes de `resultados/` e `infra/` são conferidos contra o manifesto da aprovação 2 depois
-de copiados. `decisoes.md`, `execucao.md` e `index.html` são derivados de forma determinística
-(mesmas entradas, mesmos bytes).
+de copiados. `entrega.json`, `decisoes.md` e `execucao.md` são derivados de forma
+determinística (mesmas entradas, mesmos bytes).
 """
 
 from __future__ import annotations
@@ -29,11 +30,12 @@ ARQUIVOS_PROJETO = ("dbt_project.yml", "profiles.yml", "ingerir.py", "exportar.p
 PASTAS_PROJETO = ("definicoes", "tests", "macros")
 ESTADOS_EMPACOTAVEIS = {"aguardando_aprovacao_entrega", "entrega_autorizada", "entrega_rejeitada"}
 LIMITE_CSV = 32 * 1024**2
+VERSAO_ENTREGA = "0.1.0"  # formato de entrega.json; provisório até o front consumir (P4/K01)
 
 # Pacote de domínio (logística): onde cada regra do plano vive no pipeline e qual teste dbt a
 # protege. O plano não guarda esse vínculo; esta tabela é editorial e versionada aqui. O trecho
 # de SQL é localizado por palavra-chave no modelo que o agente escreveu, então pode não ser
-# encontrado (a página avisa). Regra sem teste dbt é garantida só pelo avaliador independente.
+# encontrado (`localizado: false`). Regra sem teste dbt fica para a revisão humana da aprovação 2.
 REGRAS_DOMINIO = {
     "deduplicar_cte": {"titulo": "Deduplicar CT-e pela chave", "modelo": "prata_ctes",
                        "palavras": ("row_number", "copia"),
@@ -56,9 +58,9 @@ REGRAS_DOMINIO = {
                  "palavras": ("as completo",), "testes": ()},
 }
 METRICAS = {
-    "custo_frete_por_entrega": {"titulo": "Custo de frete por entrega", "formato": "brl"},
-    "otif_pct": {"titulo": "OTIF (no prazo e completo)", "formato": "pct"},
-    "ocupacao_pct": {"titulo": "Ocupação da frota", "formato": "pct"},
+    "custo_frete_por_entrega": {"titulo": "Custo de frete por entrega"},
+    "otif_pct": {"titulo": "OTIF (no prazo e completo)"},
+    "ocupacao_pct": {"titulo": "Ocupação da frota"},
 }
 ROTULOS_EVENTO = {
     "run_started": ("Execução iniciada", "info"),
@@ -216,13 +218,14 @@ def _testes(manifest, run_results) -> dict[str, dict]:
     for uid, no in sorted(nos.items()):
         if isinstance(no, dict) and no.get("resource_type") == "test":
             sql = str(no.get("raw_code", ""))
-            testes[str(no.get("name"))] = {"id": uid, "arquivo": str(no.get("original_file_path", "")), "sql": sql,
-                                          "descricao": _descricao(sql), "status": status.get(uid)}
+            testes[str(no.get("name"))] = {"id": uid, "arquivo": str(no.get("original_file_path", "")),
+                                          "descricao": _descricao(sql), "status": status.get(uid),
+                                          "depende_de": [str(d) for d in (no.get("depends_on") or {}).get("nodes", [])]}
     if not testes:
         for arquivo in sorted((PROJETO / "tests").glob("*.sql")):
             sql = arquivo.read_text(encoding="utf-8")
-            testes[arquivo.stem] = {"id": None, "arquivo": f"tests/{arquivo.name}", "sql": sql,
-                                    "descricao": _descricao(sql), "status": None}
+            testes[arquivo.stem] = {"id": None, "arquivo": f"tests/{arquivo.name}",
+                                    "descricao": _descricao(sql), "status": None, "depende_de": []}
     return testes
 
 
@@ -231,74 +234,79 @@ def _descricao(sql: str) -> str:
     return primeira[2:].strip() if primeira.startswith("--") else ""
 
 
-def _linhagem(manifest, catalog) -> dict | None:
-    if not isinstance(manifest, dict):
+def _camada(nome: str) -> str:
+    for prefixo in ("bronze", "prata", "ouro"):
+        if nome.startswith(prefixo + "_"):
+            return prefixo
+    return "outros"
+
+
+def _colunas(catalog) -> dict | None:
+    """{id do nó: [{nome, tipo}]} do catalog.json do dbt; None se ele não existe."""
+    if not isinstance(catalog, dict):
         return None
     colunas = {}
-    if isinstance(catalog, dict):
-        for grupo in ("nodes", "sources"):
-            for uid, no in (catalog.get(grupo) or {}).items():
-                cols = (no or {}).get("columns") or {}
-                colunas[uid] = [[str(c.get("name", n)), str(c.get("type", ""))]
-                                for n, c in sorted(cols.items(), key=lambda x: (x[1] or {}).get("index", 0))]
-    nos, arestas = {}, []
-    todos = {**(manifest.get("sources") or {}), **(manifest.get("nodes") or {})}
-    for uid, no in todos.items():
-        if not isinstance(no, dict) or no.get("resource_type") not in ("model", "source", "test"):
+    for grupo in ("nodes", "sources"):
+        for uid, no in (catalog.get(grupo) or {}).items():
+            cols = (no or {}).get("columns") or {}
+            colunas[uid] = [{"nome": str(c.get("name", n)), "tipo": str(c.get("type", ""))}
+                            for n, c in sorted(cols.items(), key=lambda x: (x[1] or {}).get("index", 0))]
+    return colunas
+
+
+def _estrutura(manifest, colunas, testes) -> dict | None:
+    """Como a parte técnica está montada: camadas, fontes, modelos, testes e dependências (manifest do dbt)."""
+    if not isinstance(manifest, dict):
+        return None
+
+    def cols(uid):
+        return None if colunas is None else colunas.get(uid)
+
+    fontes = [{"id": uid, "nome": str(no.get("name", uid)), "camada": "bronze", "colunas": cols(uid)}
+              for uid, no in sorted((manifest.get("sources") or {}).items()) if isinstance(no, dict)]
+    modelos = []
+    for uid, no in sorted((manifest.get("nodes") or {}).items()):
+        if isinstance(no, dict) and no.get("resource_type") == "model":
+            nome = str(no.get("name", uid))
+            modelos.append({"id": uid, "nome": nome, "camada": _camada(nome),
+                            "arquivo": f"projeto_dbt/{no.get('original_file_path', '')}",
+                            "depende_de": [str(d) for d in (no.get("depends_on") or {}).get("nodes", [])],
+                            "colunas": cols(uid)})
+    lista_testes = [{"id": t["id"], "nome": nome, "arquivo": f"projeto_dbt/{t['arquivo']}",
+                     "descricao": t["descricao"], "status": t["status"], "depende_de": t["depende_de"]}
+                    for nome, t in sorted(testes.items()) if t["id"]]
+    ids = {f["id"] for f in fontes} | {m["id"] for m in modelos} | {t["id"] for t in lista_testes}
+    arestas = [[d, item["id"]] for item in modelos + lista_testes for d in item["depende_de"] if d in ids]
+    camadas = {"bronze": [f["nome"] for f in fontes], "prata": [], "ouro": [], "outros": []}
+    for m in modelos:
+        camadas[m["camada"]].append(m["nome"])
+    return {"camadas": camadas, "fontes": fontes, "modelos": modelos, "testes": lista_testes, "arestas": arestas}
+
+
+def _prata(infra: Path, manifest, colunas) -> list[dict]:
+    """Onde está o dado limpo: cada tabela prata exportada, com hash, linhas, colunas e origem."""
+    pasta = infra / "prata"
+    if not pasta.is_dir():
+        return []
+    hashes = artefatos.inventario(pasta)
+    linhas = _json(pasta / "linhas.json")
+    linhas = linhas if isinstance(linhas, dict) else {}
+    nos = {no.get("name"): (uid, no) for uid, no in ((manifest or {}).get("nodes") or {}).items()
+           if isinstance(no, dict) and no.get("resource_type") == "model"} if isinstance(manifest, dict) else {}
+    itens = []
+    for arquivo, meta in sorted(hashes.items()):
+        if not arquivo.endswith(".parquet"):
             continue
-        tipo = no["resource_type"]
-        nos[uid] = {"id": uid, "nome": str(no.get("name", uid)), "tipo": tipo,
-                    "arquivo": str(no.get("original_file_path", "")) if tipo != "source" else "",
-                    "sql": str(no.get("raw_code", "")) if tipo == "model" else "",
-                    "colunas": colunas.get(uid)}
-        for origem in (no.get("depends_on") or {}).get("nodes", []):
-            arestas.append([str(origem), uid])
-    arestas = [a for a in arestas if a[0] in nos and a[1] in nos]
-    return {"nos": nos, "arestas": arestas, "tem_catalogo": isinstance(catalog, dict)}
-
-
-def _pedidos_e_ctes(pedidos: list[dict]):
-    compactos, ctes = [], {}
-    for p in pedidos:
-        try:
-            linhagem = json.loads(p.get("linhagem_cte") or "[]")
-        except ValueError:
-            linhagem = []
-        fontes = []
-        for item in linhagem if isinstance(linhagem, list) else []:
-            if not isinstance(item, dict):
-                continue
-            chave = str(item.get("chave_cte", ""))
-            fontes.append({"chave_cte": chave, "parcela_centavos": item.get("parcela_centavos")})
-            cte = ctes.setdefault(chave, {"chave_cte": chave, "arquivo": str(item.get("arquivo", "")),
-                                          "sha256": str(item.get("sha256", "")),
-                                          "frete_centavos": item.get("frete_centavos"), "pedidos": []})
-            cte["pedidos"].append({"pedido_id": p.get("pedido_id"), "peso_decimos_kg": p.get("peso_decimos_kg"),
-                                   "parcela_centavos": item.get("parcela_centavos")})
-        compactos.append({k: p.get(k, "") for k in (
-            "pedido_id", "viagem_id", "tipo_viagem", "elegivel_custo", "custo_frete_rateado", "data_prevista",
-            "data_realizada", "no_prazo", "completo", "otif", "qt_itens", "qt_entregue", "peso_decimos_kg",
-            "arquivo_pedido", "linha_pedido", "arquivo_entrega", "linha_entrega", "chave_nfe")}
-            | {"ctes": fontes})
-    return compactos, ctes
-
-
-def _exemplos(pedidos: list[dict], ctes: dict) -> list[dict]:
-    """Pedidos reais que mostram cada caso; nenhum é inventado."""
-    casos = (
-        ("CT-e dividido entre pedidos (rateio por peso)",
-         lambda p: any(len(ctes.get(c["chave_cte"], {}).get("pedidos", [])) > 1 for c in p["ctes"])),
-        ("Sem CT-e válido (fora do custo)", lambda p: p["elegivel_custo"] == "0"),
-        ("No prazo, mas incompleto (falha no OTIF)", lambda p: p["no_prazo"] == "1" and p["completo"] == "0"),
-        ("Sem data realizada (conta como falha)", lambda p: not p["data_realizada"]),
-        ("Atrasado", lambda p: p["no_prazo"] == "0" and bool(p["data_realizada"])),
-    )
-    exemplos = []
-    for rotulo, criterio in casos:
-        achado = next((p for p in pedidos if criterio(p)), None)
-        if achado:
-            exemplos.append({"rotulo": rotulo, "pedido_id": achado["pedido_id"]})
-    return exemplos
+        tabela = arquivo.removesuffix(".parquet")
+        uid, no = nos.get(tabela, (None, {}))
+        itens.append({
+            "tabela": tabela, "arquivo": f"dados/prata/{arquivo}", "sha256": meta["sha256"], "bytes": meta["bytes"],
+            "linhas": linhas.get(tabela),
+            "modelo": f"projeto_dbt/{no['original_file_path']}" if no.get("original_file_path") else None,
+            "depende_de": [str(d) for d in (no.get("depends_on") or {}).get("nodes", [])],
+            "colunas": None if colunas is None or uid is None else colunas.get(uid),
+        })
+    return itens
 
 
 def _linha_do_tempo(eventos: list[dict]) -> dict:
@@ -348,23 +356,24 @@ def moeda(valor, simbolo="R$") -> str:
     return f"{simbolo} " + texto.replace(",", "_").replace(".", ",").replace("_", ".")
 
 
-# ---------------------------------------------------------------- dossiê
+# ---------------------------------------------------------------- entrega.json
 
 
-def montar_dossie(plano: dict, revisao: Path, run_id: str | None = None) -> dict:
-    """Junta plano, resultados, laudo, eventos e infra num só dicionário, que é a fonte da página."""
+def montar_entrega(plano: dict, revisao: Path, run_id: str | None = None) -> dict:
+    """Conteúdo de `entrega.json`: o que o front mostra ao cliente e ao time técnico."""
     revisao = Path(revisao)
     kpis = (_json(revisao / "resultados/kpis.json") or {}).get("kpis") or {}
     pedidos = _csv(revisao / "resultados/por_pedido.csv")
     viagens = _csv(revisao / "resultados/por_viagem.csv")
-    laudo = _json(revisao / "avaliacao.json")
     manifest = _json(revisao / "infra/target/manifest.json")
     catalog = _json(revisao / "infra/target/catalog.json")
     run_results = _json(revisao / "infra/target/run_results.json")
     medicao = _json(revisao / "medicao.json")
-    eventos = _eventos(revisao / "eventos.jsonl")
+    medicao = medicao if isinstance(medicao, dict) else {}
+    tempo = _linha_do_tempo(_eventos(revisao / "eventos.jsonl"))
     modelos = _modelos(revisao / "infra")
     testes = _testes(manifest, run_results)
+    colunas = _colunas(catalog)
     evidencias = {e["id"]: e for e in plano.get("evidence", [])}
 
     regras = []
@@ -379,47 +388,46 @@ def montar_dossie(plano: dict, revisao: Path, run_id: str | None = None) -> dict
                            for i in regra.get("evidence_ids", []) if i in evidencias],
             "metricas": [m for m, d in plano["metrics"].items() if chave in d.get("rule_keys", [])],
             "trecho": _trecho(modelos, dominio),
-            "testes": [{"nome": n, **testes[n]} for n in nomes_testes if n in testes],
+            "testes": [{"nome": n, "arquivo": f"projeto_dbt/{testes[n]['arquivo']}",
+                        "descricao": testes[n]["descricao"], "status": testes[n]["status"]}
+                       for n in nomes_testes if n in testes],
         })
 
-    selo = _selo(laudo)
     metricas = []
     for chave, definicao in plano["metrics"].items():
-        meta = METRICAS.get(chave, {"titulo": chave, "formato": "num"})
         metricas.append({
-            "chave": chave, "titulo": meta["titulo"], "formato": meta["formato"], "valor": kpis.get(chave),
+            "chave": chave, "titulo": METRICAS.get(chave, {"titulo": chave})["titulo"], "valor": kpis.get(chave),
             "unidade": definicao.get("unit"), "formula": definicao.get("formula"),
             "denominador": definicao.get("denominator"), "grao": definicao.get("grain"),
             "aceite": definicao.get("acceptance", []), "regras": definicao.get("rule_keys", []),
-            "refeito": _refazer(chave, kpis.get(chave), pedidos, viagens), "selo": selo,
+            "conta": _refazer(chave, kpis.get(chave), pedidos, viagens),
         })
 
-    compactos, ctes = _pedidos_e_ctes(pedidos)
-    medicao = medicao if isinstance(medicao, dict) else {}
+    prata = _prata(revisao / "infra", manifest, colunas)
+    indisponivel = {}
+    if not prata:
+        indisponivel["prata"] = "nenhuma tabela prata_* exportada nesta execução"
+    if colunas is None:
+        indisponivel["colunas"] = "sem catalog.json (dbt docs generate falhou)"
+    if not isinstance(manifest, dict):
+        indisponivel["estrutura"] = "sem manifest.json do dbt"
+    if not medicao:
+        indisponivel["medicao"] = "sem medicao.json"
     return {
-        "run_id": run_id or revisao.name, "project_id": plano.get("project_id"),
-        "plan_version": plano.get("plan_version"), "dataset": plano.get("dataset"),
-        "sintetico": bool(plano.get("synthetic", True)),
-        "executor": medicao.get("executor"), "medicao": medicao,
-        "kpis": metricas, "regras": regras, "testes": testes, "laudo": selo,
-        "linhagem": _linhagem(manifest, catalog), "modelos": modelos,
-        "pedidos": compactos, "ctes": ctes, "exemplos": _exemplos(compactos, ctes),
-        "n_viagens": len(viagens), "tempo": _linha_do_tempo(eventos),
+        "entrega_version": VERSAO_ENTREGA, "sintetico": True,
+        "execucao": {
+            "run_id": run_id or revisao.name, "project_id": plano.get("project_id"),
+            "plan_version": plano.get("plan_version"), "dataset": plano.get("dataset"),
+            "executor": medicao.get("executor"), "llm_real": medicao.get("synthetic") is False,
+            "custo_usd": medicao.get("custo_usd"), "custo_centavos": medicao.get("custo_centavos"),
+            "tokens_entrada": medicao.get("tokens_entrada"), "tokens_saida": medicao.get("tokens_saida"),
+            "tentativas": medicao.get("tentativas"), "duracao_s": tempo["duracao_s"],
+            "escritas": tempo["escritas"], "falhas": tempo["falhas"], "correcoes": tempo["correcoes"],
+            "recusas": tempo["recusas"], "fontes_perfiladas": tempo["perfis"], "linha_do_tempo": tempo["itens"],
+        },
+        "kpis": metricas, "regras": regras, "prata": prata,
+        "estrutura": _estrutura(manifest, colunas, testes), "indisponivel": indisponivel,
     }
-
-
-def _selo(laudo) -> dict:
-    """Só os campos de resumo do laudo; os `exemplos` de divergência não entram no pacote."""
-    if not isinstance(laudo, dict):
-        return {"estado": "nao_avaliado", "texto": "não avaliado"}
-    comparados = laudo.get("comparados") if isinstance(laudo.get("comparados"), dict) else {}
-    n_ped, n_via = comparados.get("por_pedido.csv"), comparados.get("por_viagem.csv")
-    if laudo.get("aprovado") is True:
-        texto = (f"conferido pelo avaliador independente: {laudo.get('divergencias', 0)} divergências em "
-                 f"{n_ped} pedidos e {n_via} viagens")
-        return {"estado": "aprovado", "texto": texto, "pedidos": n_ped, "viagens": n_via}
-    return {"estado": "reprovado", "texto": f"recusado pelo avaliador independente ({laudo.get('classe')}, "
-                                            f"{laudo.get('divergencias')} divergências)"}
 
 
 # ---------------------------------------------------------------- documentos
@@ -429,17 +437,18 @@ def _valor_md(valor) -> str:
     return "`" + json.dumps(valor, ensure_ascii=False) + "`"
 
 
-def decisoes_md(dossie: dict) -> str:
+def decisoes_md(entrega: dict) -> str:
+    e = entrega["execucao"]
     partes = [
         "# Registro de decisões\n",
-        f"Gerado do plano aprovado `{dossie['plan_version']}` (projeto `{dossie['project_id']}`, "
-        f"lote `{dossie['dataset']}`). **Dados sintéticos.** Cada regra mostra o trecho da entrevista que a "
+        f"Gerado do plano aprovado `{e['plan_version']}` (projeto `{e['project_id']}`, "
+        f"lote `{e['dataset']}`). **Dados sintéticos.** Cada regra mostra o trecho da entrevista que a "
         "confirmou, as métricas que ela afeta e o que a garante.\n",
         "O vínculo regra → modelo → teste vem de uma tabela de domínio da Korda (`REGRAS_DOMINIO` em "
-        "`entrega.py`), não do plano. Regra sem teste dbt é garantida pelo avaliador independente, que "
-        "refaz o cálculo sem usar o pipeline.\n",
+        "`entrega.py`), não do plano. Regra sem teste dbt não tem verificação automática: confira na "
+        "revisão humana da aprovação 2.\n",
     ]
-    for r in dossie["regras"]:
+    for r in entrega["regras"]:
         partes.append(f"\n## {r['titulo']} (`{r['chave']}`)\n")
         partes.append(f"- **Valor:** {_valor_md(r['valor'])} ({r['status']}"
                       + (f", confirmada por: {r['papel']}" if r["papel"] else "") + ")")
@@ -449,10 +458,10 @@ def decisoes_md(dossie: dict) -> str:
             partes.append(f"- **Onde está no pipeline:** `projeto_dbt/{r['trecho']['arquivo']}`{aviso}")
         if r["testes"]:
             partes.append("- **Teste que garante:** " + ", ".join(
-                f"`projeto_dbt/{t['arquivo']}`" + (f" ({t['descricao']})" if t["descricao"] else "")
+                f"`{t['arquivo']}`" + (f" ({t['descricao']})" if t["descricao"] else "")
                 for t in r["testes"]))
         else:
-            partes.append("- **Teste que garante:** sem teste dbt; conferida pelo avaliador independente.")
+            partes.append("- **Teste que garante:** sem teste automatizado; conferir na revisão humana.")
         partes.append("- **Por quê (evidência):**")
         for ev in r["evidencias"]:
             trecho = " ".join(str(ev["excerpt"]).split())
@@ -462,38 +471,38 @@ def decisoes_md(dossie: dict) -> str:
     return "\n".join(partes) + "\n"
 
 
-def execucao_md(dossie: dict) -> str:
-    t, m = dossie["tempo"], dossie["medicao"]
-    sintetico = "sim" if m.get("synthetic", True) else "não"
+def execucao_md(entrega: dict) -> str:
+    t = entrega["execucao"]
+    custo_brl = t["custo_centavos"] / 100 if t["custo_centavos"] is not None else None
     linhas = [
         "# Como o agente construiu\n",
         "Registro de uma execução passada, não ao vivo. Gerado de `eventos.jsonl` e `medicao.json`.\n",
-        f"- **Execução:** `{dossie['run_id']}` (executor `{m.get('executor', 'indisponível')}`; "
-        f"execução sintética, sem LLM real: {sintetico})",
+        f"- **Execução:** `{t['run_id']}` (executor `{t['executor'] or 'indisponível'}`; "
+        f"com LLM real: {'sim' if t['llm_real'] else 'não'})",
         f"- **Tempo (primeiro ao último evento):** {duracao_texto(t['duracao_s'])}",
-        f"- **Custo estimado:** {moeda(m.get('custo_usd'), 'US$')} "
-        f"(≈ {moeda((m.get('custo_centavos') or 0) / 100 if m else None)}); "
-        f"tokens: {m.get('tokens_entrada', 0)} de entrada, {m.get('tokens_saida', 0)} de saída",
+        f"- **Custo estimado:** {moeda(t['custo_usd'], 'US$')} (≈ {moeda(custo_brl)}); "
+        f"tokens: {t['tokens_entrada'] or 0} de entrada, {t['tokens_saida'] or 0} de saída",
         f"- **Modelos escritos:** {t['escritas']} · **falhas de build/teste:** {t['falhas']} · "
         f"**correções:** {t['correcoes']} · **recusas pela política (hook/ferramentas):** {t['recusas']}",
     ]
-    if t["perfis"]:
-        linhas.append(f"- **Fontes perfiladas antes de construir:** {', '.join(t['perfis'])}")
+    if t["fontes_perfiladas"]:
+        linhas.append(f"- **Fontes perfiladas antes de construir:** {', '.join(t['fontes_perfiladas'])}")
     linhas.append("\n## Linha do tempo\n")
     linhas.append("| Quando | Etapa | O que aconteceu | Detalhe |\n| --- | --- | --- | --- |")
-    for item in t["itens"]:
+    for item in t["linha_do_tempo"]:
         detalhe = item["detalhe"].replace("|", "\\|").replace("\n", " ")
         linhas.append(f"| {item['t']} | {item['etapa']} | {item['rotulo']} | {detalhe} |")
-    if not t["itens"]:
+    if not t["linha_do_tempo"]:
         linhas.append("| | | eventos indisponíveis | |")
     return "\n".join(linhas) + "\n"
 
 
-def readme_projeto(dossie: dict) -> str:
-    return f"""# Projeto dbt entregue (execução `{dossie['run_id']}`)
+def readme_projeto(entrega: dict) -> str:
+    return f"""# Projeto dbt entregue (execução `{entrega['execucao']['run_id']}`)
 
-**Dados sintéticos.** Modelos em `models/` foram escritos pelo executor `{dossie['executor']}` dentro da
-sandbox; `tests/`, `definicoes/`, `macros/`, `ingerir.py` e `exportar.py` são os arquivos protegidos que
+**Dados sintéticos.** Modelos em `models/` foram escritos pelo executor `{entrega['execucao']['executor']}` dentro
+da sandbox; `tests/`, `definicoes/`, `macros/`, `ingerir.py`, `exportar.py` e `exportar_prata.py` são os
+arquivos protegidos que
 estavam montados somente leitura. `regras.json` traz os valores das regras do plano aprovado.
 
 ## Rodar de novo
@@ -510,11 +519,11 @@ docker run --rm -i --network none \\
   --mount type=bind,src="$PWD/saida",dst=/work/saida \\
   --user "$(id -u):$(id -g)" \\
   korda-sandbox:dev sh -c 'python /work/projeto/ingerir.py < /work/projeto/regras.json \\
-    && dbt build && python /work/projeto/exportar.py'
+    && dbt build && python /work/projeto/exportar.py && python /work/projeto/exportar_prata.py'
 ```
 
-`dbt build` roda os modelos e os testes de `tests/`. Os resultados saem em `saida/resultados/` e podem ser
-comparados com `../dados/`. O que cada teste garante está em `../decisoes.md`.
+`dbt build` roda os modelos e os testes de `tests/`. Os resultados saem em `saida/resultados/` e a prata em
+`saida/prata/`; podem ser comparados com `../dados/`. O que cada teste garante está em `../decisoes.md`.
 """
 
 
@@ -533,15 +542,13 @@ def _copiar_projeto(destino: Path, revisao: Path, regras: dict) -> None:
 
 
 def empacotar(registro, raiz: Path, run_id: str) -> Path:
-    """Monta (ou remonta) `revisao/<run>/entrega/` para uma execução aprovada pelo avaliador."""
-    from .pagina_entrega import renderizar
-
+    """Monta (ou remonta) `revisao/<run>/entrega/` para uma execução pronta para a aprovação 2."""
     if not isinstance(run_id, str) or not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", run_id):
         raise ValueError("identificador de execução inválido")
     estado = registro.consultar(run_id)
     if estado["state"] not in ESTADOS_EMPACOTAVEIS:
-        raise ValueError(f"execução em estado {estado['state']}: só se empacota execução aprovada pelo "
-                         "avaliador e ainda não promovida")
+        raise ValueError(f"execução em estado {estado['state']}: só se empacota execução concluída "
+                         "e ainda não promovida")
     aprovado = estado["manifesto"]
     artefatos._validar(aprovado)
     if "infra" not in aprovado:
@@ -562,11 +569,12 @@ def empacotar(registro, raiz: Path, run_id: str) -> Path:
             shutil.copytree(revisao / "infra/prata", staging / "dados/prata")
         _conferir_copias(staging, aprovado)
 
-        dossie = montar_dossie(plano, revisao, run_id)
-        (staging / "decisoes.md").write_text(decisoes_md(dossie), encoding="utf-8")
-        (staging / "execucao.md").write_text(execucao_md(dossie), encoding="utf-8")
-        (staging / "projeto_dbt/README.md").write_text(readme_projeto(dossie), encoding="utf-8")
-        (staging / "index.html").write_text(renderizar(dossie), encoding="utf-8")
+        entrega = montar_entrega(plano, revisao, run_id)
+        (staging / "entrega.json").write_text(json.dumps(entrega, ensure_ascii=False, indent=2) + "\n",
+                                              encoding="utf-8")
+        (staging / "decisoes.md").write_text(decisoes_md(entrega), encoding="utf-8")
+        (staging / "execucao.md").write_text(execucao_md(entrega), encoding="utf-8")
+        (staging / "projeto_dbt/README.md").write_text(readme_projeto(entrega), encoding="utf-8")
         manifesto = {"run_id": run_id, "plan_version": plano["plan_version"], "sintetico": True,
                      "arquivos": artefatos.inventario(staging), "aprovado": aprovado}
         (staging / "manifesto.json").write_text(json.dumps(manifesto, ensure_ascii=False, indent=2, sort_keys=True)

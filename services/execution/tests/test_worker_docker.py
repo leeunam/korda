@@ -110,7 +110,13 @@ class TestWorkerDocker(unittest.TestCase):
         self.assertIn("docs_generated", [e["type"] for e in self._eventos()])
         pacote = self._arquivo("entrega")
         self.assertEqual(self._eventos()[-1]["type"], "package_built")
-        self.assertIn("DADOS SINTÉTICOS", (pacote / "index.html").read_text(encoding="utf-8"))
+        entrega = json.loads((pacote / "entrega.json").read_text(encoding="utf-8"))
+        kpis = json.loads((self._arquivo("resultados") / "kpis.json").read_text(encoding="utf-8"))["kpis"]
+        self.assertEqual({k["chave"]: k["valor"] for k in entrega["kpis"]}, kpis)
+        self.assertTrue(all(k["conta"]["confere"] for k in entrega["kpis"]), entrega["kpis"])
+        self.assertEqual({p["tabela"] for p in entrega["prata"]}, {"prata_ctes", "prata_rateios"})
+        self.assertEqual(entrega["estrutura"]["camadas"]["prata"], ["prata_ctes", "prata_rateios"])
+        self.assertFalse((pacote / "index.html").exists())
         self.assertEqual({f"models/{p.name}" for p in (pacote / "projeto_dbt/models").iterdir()}, set(modelos))
         # Prata exportada em Parquet, com hash no manifesto e contagem de linhas.
         linhas = json.loads((infra / "prata/linhas.json").read_text(encoding="utf-8"))

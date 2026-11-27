@@ -62,7 +62,7 @@ python -m services.execution.korda_execution empacotar demo-001
 
 | Arquivo | Conteúdo |
 | --- | --- |
-| `index.html` | Página offline, um arquivo só, sem rede ([`pagina_entrega.py`](korda_execution/pagina_entrega.py)). Mostra os três KPIs com o selo do `avaliacao.json` ("não avaliado" sem laudo); para cada KPI, a cadeia frase do cliente (evidência e turno) → regra → trecho do modelo SQL → teste → número refeito a partir de `dados/`; o drill-down de um pedido até o CT-e (XML e sha256), o rateio por peso e a linha do CSV; a linhagem desenhada do `manifest.json`, com colunas do `catalog.json`; e a linha do tempo do agente, rotulada como registro de uma execução passada. Faixa "DADOS SINTÉTICOS" fixa. |
+| `entrega.json` | Contrato para o front (`entrega_version` 0.1.0, provisório): KPIs com fórmula, regras e conta refeita a partir de `dados/`; regras com evidência, trecho do SQL e teste; tabelas prata (arquivo, hash, linhas, colunas, origem); estrutura técnica (camadas, fontes, modelos, testes com status do build e dependências); `indisponivel` para insumos ausentes. |
 | `projeto_dbt/` | Modelos escritos pelo agente, `dbt_project.yml`, `profiles.yml` (caminhos da sandbox, sem segredo), `definicoes/`, `tests/`, `macros/`, `ingerir.py`, `exportar.py`, `regras.json` (valores das regras do plano) e um `README.md` para rodar de novo na mesma imagem, sem rede. |
 | `dados/` | `kpis.json`, `por_pedido.csv` e `por_viagem.csv`. |
 | `docs_dbt/` | `manifest.json`, `catalog.json` (se o `dbt docs generate` funcionou) e o `run_results.json` do build. |
@@ -122,7 +122,6 @@ Os testes de nível 1 também precisam de `docker build -t korda-simulados:dev i
 | [`korda_execution/documento_base.py`](korda_execution/documento_base.py) | Prompt do planejamento da construção e leitura da decisão (`pronto_para_construir`, `perguntas`). |
 | [`korda_execution/artefatos.py`](korda_execution/artefatos.py) | Captura dos resultados e da infra (sem seguir links, com teto e hash) e promoção do pacote. |
 | [`korda_execution/entrega.py`](korda_execution/entrega.py) | `empacotar`: dossiê da execução, `decisoes.md`, `execucao.md`, `projeto_dbt/` e `manifesto.json`. |
-| [`korda_execution/pagina_entrega.py`](korda_execution/pagina_entrega.py) | `index.html` offline da entrega. |
 | [`korda_execution/eventos.py`](korda_execution/eventos.py) | `emit_event` provisório (JSONL por execução). |
 | [`korda_execution/smoke.py`](korda_execution/smoke.py) | Teste de fumaça: ingere as fontes do gerador e sobe a sandbox sobre a landing. |
 | [`pipeline/`](pipeline/README.md) | Projeto dbt da 01: testes, definições, ingestão e exportação (montados na sandbox) e o pipeline escrito à mão em `models/` (referência e plano B, nunca montado). |
