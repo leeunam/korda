@@ -1,5 +1,7 @@
 # Aceite independente do worker
 
+**Fora do fluxo do worker desde 27/11/2026.** Comparar cada execução com um gabarito escrito à mão prendia o agente a uma solução específica. O worker não chama mais este avaliador: a execução fica pronta para a aprovação 2 quando o build, os testes protegidos e o contrato de saída passam. O avaliador continua como ferramenta offline de medição (K11/K14, cenário `03_reservada`), rodada à mão sobre os resultados de uma execução encerrada.
+
 O processo de revisão compara os resultados de uma execução encerrada com os arquivos versionados em `evaluation/golden/<empresa>/`. O avaliador usa apenas a biblioteca padrão do Python 3.11+ em Linux. Ele não executa modelos, lê bancos DuckDB gerados nem importa código do pipeline.
 
 O responsável pela execução escolhe o cenário, a pasta de fontes efetivamente montada e a pasta de resultados. Para conferir um build da demo a partir da raiz do repositório, use os caminhos reais da execução.

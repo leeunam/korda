@@ -25,9 +25,9 @@ Python, DuckDB e dbt são a base para processamento local e modelos. O [plano t�
 
 O frontend está em desenvolvimento por outro integrante. Sua conexão ao backend ocorrerá depois, com contratos OpenAPI, exemplos de respostas e alinhamento da autenticação. A stack e a hospedagem da interface pertencem àquela frente.
 
-A sandbox local usa um processo de controle no host e um contêiner por execução. O contêiner recebe as fontes do lote, a cópia do projeto e limites de tempo, memória e CPU. O avaliador e o registro das duas decisões ficam no host.
+A sandbox local usa um processo de controle no host e um contêiner por execução. O contêiner recebe as fontes do lote, a cópia do projeto e limites de tempo, memória e CPU. O registro das duas decisões fica no host. O avaliador independente roda à parte, no host, só para medição (fora do fluxo do worker desde 27/11/2026).
 
-O [guia de execução](../services/execution/README.md) descreve a lista de modelos graváveis do plano, o ciclo de correção da deduplicação, a validação externa e a promoção local do manifesto. O [plano de integração](plano-integracao-worker.md) acompanha as frentes pendentes.
+O [guia de execução](../services/execution/README.md) descreve a lista de modelos graváveis do plano, o ciclo de correção da deduplicação, o pacote de entrega e a promoção local do manifesto. O [plano de integração](plano-integracao-worker.md) acompanha as frentes pendentes.
 
 ## Contratos antes de implementação paralela
 
@@ -37,6 +37,6 @@ O executor deve escrever somente nos modelos permitidos e consultar fontes sem m
 
 ## Avaliação
 
-Testes estruturais do dbt cobrem qualidade de tabelas; uma avaliação independente compara indicadores com respostas conhecidas. Incluir duplicatas, cancelamentos, pedido incompleto, atraso e ocupação. Verificar também resultados por entidade: um total correto pode esconder um rateio incorreto.
+Testes estruturais do dbt cobrem qualidade de tabelas; uma avaliação independente compara indicadores com respostas conhecidas. Desde 27/11/2026 essa comparação não decide a execução: ela é medição offline (K11/K14), e a aprovação 2 é decisão humana sobre o pacote de entrega. Incluir duplicatas, cancelamentos, pedido incompleto, atraso e ocupação. Verificar também resultados por entidade: um total correto pode esconder um rateio incorreto.
 
 Gabaritos públicos documentam a demo, mas não demonstram generalização. O runtime deve receber somente as fontes e as condições de aceite apropriadas, com resultados esperados calculados por um avaliador separado.

@@ -233,6 +233,11 @@ class Registro:
             db.execute("UPDATE runs SET state='promovida' WHERE run_id=?", (run_id,))
             _evento(db, linha["plano_id"], run_id, "promovida")
 
+    def plano_da_execucao(self, run_id):
+        """Somente leitura: o documento exato da versão que esta execução seguiu (para a entrega)."""
+        with closing(self._conectar()) as db:
+            return json.loads(_run(db, run_id)["plano"])
+
     def consultar(self, run_id):
         with closing(self._conectar()) as db:
             db.execute("BEGIN")

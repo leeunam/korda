@@ -3,8 +3,10 @@
 O planejamento da construção acontece antes, no comando `planejar` (planejamento.py),
 e entra no plano aprovado como `construction`. Aqui o worker (1) prepara a sandbox com
 models/ vazio; (2) intermedeia o harness (`construir_e_verificar`) com a API da Feita, com
-o loop aqui e as ferramentas na sandbox, a partir da construção aprovada; e (3) entrega o
-resultado ao avaliador independente. O worker não executa nada do pipeline. O executor vem de KORDA_EXECUTOR (ver harness/config.py). O
+o loop aqui e as ferramentas na sandbox, a partir da construção aprovada; e (3) guarda a infra
+e os resultados com hash e monta o pacote de entrega para a aprovação 2. Não há comparação com
+gabarito no fluxo: o avaliador independente (evaluation/worker) é só ferramenta offline de
+medição. O worker não executa nada do pipeline. O executor vem de KORDA_EXECUTOR (ver harness/config.py). O
 pipeline feito à mão em pipeline/projeto/models é só o plano B (`roteirizado`) e nunca é
 montado na sandbox: o roteirizado o copia pelas mesmas ferramentas do agente.
 """
@@ -19,11 +21,10 @@ import tempfile
 from contextlib import ExitStack
 from pathlib import Path
 
-from evaluation.worker.avaliador import avaliar
 from services.planning.korda_planning import validar_plano
 
 from . import caminhos
-from .artefatos import capturar
+from .artefatos import capturar, capturar_infra
 from .correcao import executar_etapa
 from .eventos import EmissorEventos
 from .ferramentas import FerramentasRestritas
@@ -127,7 +128,7 @@ def _executor(cfg, ferramentas, plano_publico, perfis, limite, eventos, medidor,
 
 
 def _tentar(ferramentas, sandbox, verificar_ativa):
-    """Build com os testes protegidos e exportação no contrato de saída que o avaliador lê."""
+    """Build com os testes protegidos e exportação no contrato de saída (exportar.py)."""
     def tentar():
         verificar_ativa()
         resultado = ferramentas.rodar_dbt("build")
@@ -137,6 +138,9 @@ def _tentar(ferramentas, sandbox, verificar_ativa):
                     "erro": diagnostico[-1500:] or "dbt build falhou"}
         exportacao = sandbox.rodar_comando(["python", "/work/projeto/exportar.py"], timeout_s=120)
         if exportacao.ok:
+            # A prata em Parquet entra na entrega (onde está o dado limpo).
+            exportacao = sandbox.rodar_comando(["python", "/work/projeto/exportar_prata.py"], timeout_s=120)
+        if exportacao.ok:
             return {"ok": True}
         # Tabela ou coluna de ouro fora do contrato de saída também é do modelo.
         codigo = "implementacao" if exportacao.codigo == 1 and not exportacao.estourou_tempo else "tecnico"
@@ -145,9 +149,37 @@ def _tentar(ferramentas, sandbox, verificar_ativa):
     return tentar
 
 
+def _documentar(sandbox, eventos, verificar_ativa):
+    """Gera manifest e catalog do dbt (sem rede) para a entrega. Falhar aqui não reprova o build."""
+    verificar_ativa()
+    # docs generate sobrescreve run_results.json; o da entrega é o do build (status dos testes).
+    resultados, guardado = "/work/saida/target/run_results.json", "/work/saida/run_results_build.json"
+    sandbox.rodar_comando(["cp", resultados, guardado], timeout_s=30)
+    docs = sandbox.rodar_comando(["dbt", "--no-use-colors", "docs", "generate"], timeout_s=180)
+    sandbox.rodar_comando(["mv", "-f", guardado, resultados], timeout_s=30)
+    if docs.ok:
+        eventos.emit_event("entrega", "docs_generated", "dbt docs generate gerou manifest e catalog")
+    else:
+        eventos.emit_event("entrega", "docs_failed", "dbt docs generate falhou; a entrega sai sem catalog",
+                           erro=(docs.stdout + "\n" + docs.stderr)[-1500:], estourou_tempo=docs.estourou_tempo)
+
+
+def _empacotar(registro, raiz, run_id, eventos):
+    """Pacote de entrega automático. Falhar aqui não desfaz a execução: `empacotar` pode ser rodado depois."""
+    from .entrega import empacotar
+
+    try:
+        pacote = empacotar(registro, raiz, run_id)
+    except (OSError, ValueError) as exc:
+        eventos.emit_event("entrega", "package_failed", f"pacote de entrega não gerado: {exc}"[:500])
+    else:
+        eventos.emit_event("entrega", "package_built", "pacote de entrega montado",
+                           pasta=str(pacote.relative_to(raiz)))
+
+
 def executar(registro, plano, run_id, *, raiz: Path, fontes: Path, cfg: ConfigHarness | None = None,
              cliente_llm=None) -> dict:
-    """Reserva a execução, chama o harness para construir, congela o resultado e o entrega ao avaliador.
+    """Reserva a execução, chama o harness para construir, congela o resultado e monta o pacote de entrega.
 
     `cliente_llm` só existe para testes (executor `falso`, com respostas roteiradas).
     """
@@ -234,19 +266,21 @@ def executar(registro, plano, run_id, *, raiz: Path, fontes: Path, cfg: ConfigHa
                                                   documento_base=documento)
                 if not resultado["ok"]:
                     raise FalhaExecucao(f"{resultado['codigo']}: {resultado['erro']}")
+                _documentar(sandbox, eventos, verificar_ativa)
                 # Fechar o produtor antes de abrir arquivos para inspeção no host.
                 sandbox.destruir(apagar_diretorio=False)
                 manifesto = capturar(sandbox.dir_run / "saida/resultados", revisao / "resultados")
+                # A infra construída pelo agente também entra no manifesto da aprovação 2.
+                manifesto["infra"] = capturar_infra(sandbox.dir_run / "projeto/models",
+                                                    sandbox.dir_run / "saida/target", revisao / "infra",
+                                                    prata=sandbox.dir_run / "saida/prata")
             finally:
                 sandbox.destruir()
-            laudo = avaliar(revisao / "resultados", plano["dataset"], fontes=snapshot, regras=regras)
-        (revisao / "avaliacao.json").write_text(json.dumps(laudo, ensure_ascii=False, indent=2) + "\n",
-                                               encoding="utf-8")
-        eventos.emit_event("avaliacao", "evaluation_finished", laudo["classe"],
-                           aprovado=laudo["aprovado"], divergencias=laudo["divergencias"])
-        if not laudo["aprovado"]:
-            raise FalhaExecucao(f"avaliação externa recusou os resultados ({laudo['classe']})")
+        # Pronto para a aprovação 2: build com os testes protegidos e o contrato de saída passaram.
+        # Não há comparação com gabarito no fluxo (decisão de 27/11/2026): a pessoa decide.
         registro.finalizar(run_id, aprovado=True, manifesto=manifesto)
+        medidor.gravar(revisao / "medicao.json")  # o pacote mostra tempo e custo desta medição
+        _empacotar(registro, raiz, run_id, eventos)
     except BaseException as exc:
         # Uma falha na preparação, no build, na comparação ou uma interrupção nunca autoriza entrega.
         if registro.consultar(run_id)["state"] == "executando":

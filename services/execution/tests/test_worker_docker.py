@@ -93,11 +93,50 @@ class TestWorkerDocker(unittest.TestCase):
     def _arquivo(self, nome):
         return self.base / "revisao" / self.run_id / nome
 
+    def _confere_infra(self, modelos):
+        """A infra que o harness construiu sobrevive à sandbox, com hash no manifesto da aprovação 2."""
+        infra = self._arquivo("infra")
+        manifesto = self.registro.consultar(self.run_id)["manifesto"]
+        self.assertEqual({c for c in manifesto["infra"] if c.startswith("models/")}, set(modelos))
+        for caminho, sql in modelos.items():
+            self.assertEqual((infra / caminho).read_text(encoding="utf-8"), sql)
+        for caminho, meta in manifesto["infra"].items():
+            self.assertEqual(hashlib.sha256((infra / caminho).read_bytes()).hexdigest(), meta["sha256"], caminho)
+        dbt = json.loads((infra / "target/manifest.json").read_text(encoding="utf-8"))
+        nos = {n["name"] for n in dbt["nodes"].values() if n["resource_type"] == "model"}
+        self.assertEqual(nos, {Path(c).stem for c in modelos})
+        catalogo = json.loads((infra / "target/catalog.json").read_text(encoding="utf-8"))
+        self.assertIn("model.korda_logistica.ouro_kpis", catalogo["nodes"])
+        self.assertIn("docs_generated", [e["type"] for e in self._eventos()])
+        pacote = self._arquivo("entrega")
+        self.assertEqual(self._eventos()[-1]["type"], "package_built")
+        entrega = json.loads((pacote / "entrega.json").read_text(encoding="utf-8"))
+        kpis = json.loads((self._arquivo("resultados") / "kpis.json").read_text(encoding="utf-8"))["kpis"]
+        self.assertEqual({k["chave"]: k["valor"] for k in entrega["kpis"]}, kpis)
+        self.assertTrue(all(k["conta"]["confere"] for k in entrega["kpis"]), entrega["kpis"])
+        self.assertEqual({p["tabela"] for p in entrega["prata"]}, {"prata_ctes", "prata_rateios"})
+        self.assertEqual(entrega["estrutura"]["camadas"]["prata"], ["prata_ctes", "prata_rateios"])
+        self.assertFalse((pacote / "index.html").exists())
+        self.assertEqual({f"models/{p.name}" for p in (pacote / "projeto_dbt/models").iterdir()}, set(modelos))
+        # Prata exportada em Parquet, com hash no manifesto e contagem de linhas.
+        linhas = json.loads((infra / "prata/linhas.json").read_text(encoding="utf-8"))
+        self.assertEqual(set(linhas), {"prata_ctes", "prata_rateios"})
+        self.assertTrue(all(n > 0 for n in linhas.values()), linhas)
+        for tabela in linhas:
+            arquivo = infra / "prata" / f"{tabela}.parquet"
+            self.assertEqual(arquivo.read_bytes()[:4], b"PAR1")
+            self.assertIn(f"prata/{tabela}.parquet", manifesto["infra"])
+        # run_results é o do build (testes com status pass), não o do docs generate.
+        build = json.loads((infra / "target/run_results.json").read_text(encoding="utf-8"))
+        testes = {r["unique_id"]: r["status"] for r in build["results"] if r["unique_id"].startswith("test.")}
+        self.assertTrue(testes)
+        self.assertEqual(set(testes.values()), {"pass"})
+
     def tearDown(self):
         self.assertFalse((self.base / "sandbox" / self.run_id).exists(), "a sandbox temporária deve ser removida")
         self.assertEqual(_hashes(*self.protegidos), self.hashes, "testes, definições e pipeline à mão intactos")
 
-    def test_agente_falso_constroi_de_models_vazio_e_a_avaliacao_aprova(self):
+    def test_agente_falso_constroi_de_models_vazio_e_aguarda_a_aprovacao_2(self):
         modelos = self.worker.modelos_a_mao()
         cliente = ClienteChatFalso([
             RespostaChat.de_tool_calls([("ler_arquivo", {"caminho": "exportar.py"})]),
@@ -119,10 +158,11 @@ class TestWorkerDocker(unittest.TestCase):
         escritos = sorted(e["dados"]["caminho"] for e in eventos if e["type"] == "file_written")
         self.assertEqual(escritos, sorted(modelos))
         sequencia = {"build_started", "agent_finished", "dbt_passed", "test_passed", "evaluation_finished",
-                     "intervention_requested"}
+                     "intervention_requested", "package_built"}
+        # Sem avaliador no fluxo: build, testes protegidos e contrato de saída bastam; a pessoa decide.
         self.assertEqual([e["type"] for e in eventos if e["type"] in sequencia],
-                         ["build_started", "agent_finished", "dbt_passed", "test_passed", "evaluation_finished"])
-        self.assertTrue(eventos[-1]["dados"]["aprovado"])
+                         ["build_started", "agent_finished", "dbt_passed", "test_passed", "package_built"])
+        self.assertFalse(self._arquivo("avaliacao.json").exists())
         custo = [e for e in eventos if e["type"] == "agent_finished"][0]["dados"]
         self.assertEqual(custo["custo_total_centavos"], custo["custo_centavos"])  # o planejamento é medido à parte
 
@@ -131,6 +171,7 @@ class TestWorkerDocker(unittest.TestCase):
         self.assertEqual(medicao["executor"], "falso")
         self.assertIsNone(medicao["documento_base"])
         self.assertEqual([t["tentativa"] for t in medicao["por_tentativa"]], [0])
+        self._confere_infra(modelos)
 
     def test_falha_sem_solucao_para_no_limite_e_nao_avalia(self):
         modelos = self.worker.modelos_a_mao()
@@ -175,16 +216,22 @@ class TestWorkerDocker(unittest.TestCase):
         self.assertEqual(estado["state"], "aguardando_aprovacao_entrega", estado)
         eventos = self._eventos()
         sequencia = {"dbt_failed", "test_failed", "fix_started", "fix_applied", "dbt_passed", "test_passed",
-                     "evaluation_finished"}
+                     "evaluation_finished", "package_built"}
         self.assertEqual([e["type"] for e in eventos if e["type"] in sequencia], [
             "dbt_failed", "test_failed", "fix_started", "fix_applied", "dbt_passed", "test_passed",
-            "evaluation_finished"])
+            "package_built"])
+        self.assertFalse(self._arquivo("avaliacao.json").exists())
         por_tipo = {e["type"]: e for e in eventos}
         self.assertEqual(por_tipo["test_failed"]["dados"]["codigo"], "implementacao")
         self.assertEqual(por_tipo["dbt_passed"]["attempt"], 2)
         self.assertEqual(por_tipo["fix_applied"]["dados"]["custo_centavos"], 0)
         self.assertIn("Não gerado", self._arquivo("documento_base.md").read_text(encoding="utf-8"))
         self.assertTrue(json.loads(self._arquivo("medicao.json").read_text())["synthetic"])
+        self._confere_infra(modelos)
+        # O pacote é montado depois da medição: executor e custo aparecem no registro da execução.
+        execucao = (self._arquivo("entrega") / "execucao.md").read_text(encoding="utf-8")
+        self.assertIn("executor `roteirizado`", execucao)
+        self.assertIn("US$ 0,00", execucao)
 
 
 if __name__ == "__main__":
