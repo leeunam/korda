@@ -1,0 +1,18 @@
+{
+  "synthetic": false,
+  "project_id": "demo-01",
+  "plan_version": "60b26549b7619b7b7741236a293255f104c489b07417b7e5888c9bcf20a5ff04",
+  "context_id": "ctx-demo-01",
+  "context_revision": 1,
+  "perguntas": [
+    {
+      "pergunta": "Quando um CT-e cobre vários pedidos, como o financeiro divide o valor do frete (vTPrest) entre eles? Por exemplo: em partes iguais, proporcional ao peso, proporcional aos volumes ou proporcional ao valor da NF-e?",
+      "lacuna": "gap-rateio (regra rateio_cte a_confirmar)",
+      "motivo": "Sem a base de rateio não dá para calcular o frete alocado por pedido. Também não dá para testar a conservação do rateio nem o valor de custo_frete_por_entrega.",
+      "metricas_afetadas": [
+        "custo_frete_por_entrega"
+      ]
+    }
+  ],
+  "nota": "SINTÉTICO: saída real do planejar em 27/11/2026 (anthropic/claude-opus-5.5) para o contexto fictício 01_rateio_pendente. Exemplo de teste."
+}

@@ -1,6 +1,7 @@
 """Comando planejar: a LLM do planejamento gera a construção ou as perguntas (cliente falso, sem LLM)."""
 
 import copy
+import dataclasses
 import json
 import tempfile
 import unittest
@@ -34,8 +35,9 @@ class TestPlanejar(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.raiz = Path(self.tmp.name)
 
-    def _planejar(self, texto, cfg=FALSO, plano=None, contexto=None):
-        self.cliente = ClienteChatFalso([RespostaChat.texto(texto, tokens=(4000, 2500))])
+    def _planejar(self, texto, cfg=FALSO, plano=None, contexto=None, finish_reason="stop"):
+        resposta = dataclasses.replace(RespostaChat.texto(texto, tokens=(4000, 2500)), finish_reason=finish_reason)
+        self.cliente = ClienteChatFalso([resposta])
         return planejamento.planejar(plano or self.plano, contexto or self.contexto, raiz=self.raiz, cfg=cfg,
                                      cliente_llm=self.cliente)
 
@@ -75,6 +77,19 @@ class TestPlanejar(unittest.TestCase):
         self.assertEqual(len(pastas), 1)
         self.assertTrue((pastas[0] / "documento_base.md").is_file())
         self.assertFalse((pastas[0] / "plano.json").exists())
+
+    def test_resposta_cortada_e_erro_proprio_mesmo_com_decisao(self):
+        # a decisão vem no início; um corte no fim ainda deixa o documento incompleto
+        with self.assertRaisesRegex(FalhaExecucao, f"cortada no limite de {planejamento.MAX_TOKENS_PLANEJAMENTO} tokens"):
+            self._planejar(_decisao(True), finish_reason="length")
+        pasta = next((self.raiz / "planejamento").iterdir())
+        medicao = json.loads((pasta / "medicao.json").read_text())
+        self.assertEqual(medicao["finish_reason"], "length")
+        self.assertTrue((pasta / "resposta.json").is_file())
+        self.assertFalse((pasta / "plano.json").exists())
+
+    def test_teto_de_saida(self):
+        self.assertEqual(planejamento.MAX_TOKENS_PLANEJAMENTO, 8000)
 
     def test_plano_b_e_sdk_nao_planejam(self):
         for env in ({"KORDA_EXECUTOR": "roteirizado"},

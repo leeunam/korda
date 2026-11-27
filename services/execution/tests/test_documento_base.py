@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 from korda_execution.documento_base import SECOES, SISTEMA_DOCUMENTO, gerar_documento_base, ler_decisao, remover_bloco_decisao
+from korda_execution.contrato_saida import texto_contrato
 from korda_execution.harness.cliente_chat import ClienteChatFalso, ErroLLM, RespostaChat
 
 RAIZ = Path(__file__).resolve().parents[3]
@@ -23,9 +24,30 @@ class TestDocumentoBase(unittest.TestCase):
         self.assertEqual(mensagens[0], {"role": "system", "content": SISTEMA_DOCUMENTO})
         self.assertIn("ctx-demo-01", mensagens[1]["content"])
         self.assertIn("no prazo e completo", mensagens[1]["content"])
+        self.assertIn(texto_contrato(), mensagens[1]["content"])  # nomes fixos dos testes protegidos
         self.assertEqual(doc.texto, DOC)
         self.assertAlmostEqual(doc.custo_usd, (10_000 * 4 + 2_000 * 20) / 1e6)
         self.assertEqual(doc.secoes_ausentes, [])
+
+    def test_mensagem_enxuta_sem_perder_o_que_planeja(self):
+        cliente = ClienteChatFalso([RespostaChat.texto(DOC)])
+        gerar_documento_base(cliente, CONTEXTO, PLANO, precos=PRECOS)
+        usuario = cliente.pedidos[0][1]["content"]
+        for regra, dados in CONTEXTO["rules"].items():
+            self.assertIn(f'"{regra}"', usuario)
+            for ev in dados.get("evidence_ids", []):
+                self.assertIn(ev, usuario)
+        for item in CONTEXTO["evidence"] + CONTEXTO["gaps"]:
+            self.assertIn(item["id"], usuario)
+        for fonte in CONTEXTO["sources"]:
+            self.assertIn(fonte["id"], usuario)
+            self.assertNotIn(fonte["locator"], usuario)  # metadado que não ajuda a planejar
+        self.assertNotIn("Responsável fictício", usuario)  # nome repetido em cada regra; o papel fica
+        self.assertNotIn('\n "', usuario)  # json compacto, sem indentação
+
+    def test_sistema_pede_texto_enxuto(self):
+        for trecho in ("só pelo id", "900 palavras", "uma tabela curta por camada", "nomes fixos"):
+            self.assertIn(trecho, SISTEMA_DOCUMENTO)
 
     def test_sistema_proibe_inventar(self):
         for trecho in ("lacuna", "não invente", "evidência"):
@@ -105,6 +127,22 @@ class TestDecisaoDoPlanejamento(unittest.TestCase):
         self.assertNotIn("pronto_para_construir", limpo)
         self.assertIn('"exemplo"', limpo)
         self.assertTrue(limpo.startswith(DOC))
+
+    def test_decisao_no_inicio(self):
+        decisao = _bloco({"pronto_para_construir": False, "perguntas": [PERGUNTA]})
+        self.assertEqual(ler_decisao(decisao + DOC), (False, [PERGUNTA]))
+        # um json de exemplo no fim não tira o lugar da decisão
+        self.assertEqual(ler_decisao(decisao + DOC + _bloco({"exemplo": 1})), (False, [PERGUNTA]))
+
+    def test_remove_decisao_do_inicio_e_mantem_exemplo(self):
+        texto = _bloco({"pronto_para_construir": True, "perguntas": []}) + DOC + _bloco({"exemplo": 1})
+        limpo = remover_bloco_decisao(texto)
+        self.assertNotIn("pronto_para_construir", limpo)
+        self.assertTrue(limpo.startswith(DOC))
+        self.assertIn('"exemplo"', limpo)
+
+    def test_sistema_pede_a_decisao_antes_das_secoes(self):
+        self.assertLess(SISTEMA_DOCUMENTO.index("```json"), SISTEMA_DOCUMENTO.index("estas seções de nível 2"))
 
     def test_sistema_pede_o_bloco_de_decisao(self):
         for trecho in ("pronto_para_construir", "perguntas", "```json"):

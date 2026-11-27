@@ -27,7 +27,7 @@ from .harness.contexto import projetar_plano
 from .harness.tipos import usd_para_centavos
 from .worker import FalhaExecucao
 
-MAX_TOKENS_PLANEJAMENTO = 6000
+MAX_TOKENS_PLANEJAMENTO = 8000
 
 
 def validar_contexto(contexto: dict, plano: dict) -> None:
@@ -75,7 +75,10 @@ def planejar(plano: dict, contexto: dict, *, raiz: Path, cfg: ConfigHarness | No
         "custo_usd": doc.custo_usd, "custo_centavos": usd_para_centavos(doc.custo_usd, cfg.taxa_usd_brl),
         "custo_estimado": True, "duracao_s": round(time.monotonic() - inicio, 3),
         "secoes_ausentes": doc.secoes_ausentes, "pronto_para_construir": doc.pronto_para_construir,
+        "finish_reason": doc.finish_reason,
     })
+    if doc.finish_reason == "length":
+        raise FalhaExecucao(f"resposta cortada no limite de {MAX_TOKENS_PLANEJAMENTO} tokens; veja {pasta}")
     if doc.pronto_para_construir is None:
         raise FalhaExecucao(f"a resposta do planejamento não trouxe a decisão (bloco json); veja {pasta}")
     if not doc.pronto_para_construir:
