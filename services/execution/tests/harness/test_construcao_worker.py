@@ -14,9 +14,8 @@ from korda_execution import construcao
 from korda_execution.documento_base import SECOES
 from korda_execution.eventos import EmissorEventos
 from korda_execution.harness.adaptador_eventos import exportar_execucao
-from korda_execution.harness.cliente_chat import ClienteComOrcamento, ErroLLM, RespostaChat
+from korda_execution.harness.cliente_chat import ClienteChatFalso, ClienteComOrcamento, ErroLLM, RespostaChat
 from korda_execution.harness.config import ConfigHarness, ErroConfiguracao
-from korda_execution.harness.tipos import SaidaSessao
 from korda_execution.sandbox import ErroSandbox, LocalDockerSandbox
 
 from .fakes import FerramentasFalsas
@@ -30,6 +29,7 @@ class TestConstrucaoWorker(unittest.TestCase):
         self.eventos = EmissorEventos(self.raiz / "eventos.jsonl", "run-harness")
         self.modelos = sorted(p.relative_to(construcao.PROJETO).as_posix() for p in (construcao.PROJETO / "models").glob("*.sql"))
         self.plano = {
+            "construction": {"document": "\n".join("## " + t for t in SECOES), "model": "falso", "synthetic": True},
             "plan_version": "b" * 64, "context_id": "c", "context_revision": 2,
             "limits": {"max_repair_attempts_per_step": 3}, "editable_models": self.modelos,
             "rules": {"rateio_cte": {"value": "peso"}}, "metrics": {"otif": {"unit": "%"}},
@@ -40,9 +40,9 @@ class TestConstrucaoWorker(unittest.TestCase):
         self.verificar = Mock()
         (self.raiz / "fontes.json").write_text(json.dumps({"erp_pedidos": {"colunas": ["cd_ped"]}}))
 
-    def construir(self, config):
+    def construir(self, config, **kwargs):
         return construcao.construir_modelos(config, self.plano, self.ferramentas, self.eventos,
-                                           self.raiz, self.verificar)
+                                           self.raiz, self.verificar, **kwargs)
 
     def medicao(self):
         return json.loads((self.raiz / "medicao.json").read_text())
@@ -60,7 +60,12 @@ class TestConstrucaoWorker(unittest.TestCase):
         for modo in ("roteirizado", "falso"):
             with self.subTest(modo=modo), patch.object(construcao, "ClienteChatHttp", side_effect=AssertionError):
                 config = ConfigHarness.de_ambiente({"KORDA_EXECUTOR": modo})
-                resultado = self.construir(config)
+                cliente = None
+                if modo == "falso":
+                    chamadas = [("escrever_modelo", {"caminho": n, "conteudo": "select 1"}) for n in self.modelos]
+                    cliente = ClienteChatFalso([RespostaChat.de_tool_calls(chamadas, tokens=(0, 0)),
+                                                RespostaChat.texto("fim", tokens=(0, 0))])
+                resultado = self.construir(config, cliente_llm=cliente)
                 self.assertTrue(resultado["ok"], resultado)
                 self.assertEqual(set(self.ferramentas.escritas()), set(self.modelos))
                 medicao = self.medicao()
@@ -88,7 +93,7 @@ class TestConstrucaoWorker(unittest.TestCase):
                 db.close()
             return {"ok": True}
 
-        with patch.object(construcao, "_referencia", return_value=referencia), \
+        with patch.object(construcao, "modelos_a_mao", return_value=referencia), \
              patch.object(self.ferramentas, "ler_arquivo", side_effect=AssertionError("releitura de SQL")), \
              patch.object(self.ferramentas, "rodar_dbt", side_effect=build):
             resultado = self.construir(ConfigHarness.de_ambiente({}))
@@ -124,33 +129,32 @@ class TestConstrucaoWorker(unittest.TestCase):
         self.assertFalse(self.ferramentas.escritas())
         self.assertEqual(self.medicao()["custo_usd"], 0)
 
-    def test_chat_com_transporte_falso_mede_documento_e_pipeline(self):
+    def test_chat_usa_exatamente_documento_aprovado_repara_e_reexporta(self):
         config = ConfigHarness.de_ambiente({"KORDA_EXECUTOR": "chat", "KORDA_PERMITIR_LLM_REAL": "1",
                                            "KORDA_LLM_CHAVE": "chave-sintetica"})
-        resposta_documento = RespostaChat.texto("\n".join("## " + titulo for titulo in SECOES))
-        respostas = [resposta_documento, RespostaChat.de_tool_calls(
-            [("escrever_modelo", {"caminho": n, "conteudo": "select 1"}) for n in self.modelos]), RespostaChat.texto("fim")]
-        transporte = Mock()
-        transporte.completar.side_effect = respostas
-        with patch.object(construcao, "ClienteChatHttp", return_value=transporte):
-            resultado = self.construir(config)
+        chamadas = [("escrever_modelo", {"caminho": n, "conteudo": "select 1"}) for n in self.modelos]
+        cliente = ClienteChatFalso([RespostaChat.de_tool_calls(chamadas), RespostaChat.texto("fim"),
+                                    RespostaChat.de_tool_calls(chamadas[:1]), RespostaChat.texto("corrigido")])
+        exportar = Mock(side_effect=[Mock(ok=False, codigo=1, estourou_tempo=False, stderr="contrato incompleto"),
+                                     Mock(ok=True)])
+        with patch.object(construcao, "modelos_a_mao", side_effect=AssertionError("vazamento da solução")):
+            resultado = self.construir(config, cliente_llm=cliente, exportar=exportar)
         self.assertTrue(resultado["ok"], resultado)
-        self.assertEqual(transporte.completar.call_count, 3)
-        self.assertEqual(transporte.completar.call_args_list[0].args[1], [])
-        for chamada in transporte.completar.call_args_list:
-            self.assertGreater(chamada.kwargs["max_tokens"], 0)
+        self.assertEqual(exportar.call_count, 2)
+        self.assertEqual(resultado["correcoes"], 1)
+        self.assertEqual(len(cliente.pedidos), 4)
+        for indice in (0, 2):
+            self.assertIn(self.plano["construction"]["document"], cliente.pedidos[indice][1]["content"])
+        self.assertIn("contrato incompleto", cliente.pedidos[2][1]["content"])
+        self.assertEqual((self.raiz / "documento_base.md").read_text(), self.plano["construction"]["document"])
         medicao = self.medicao()
-        self.assertFalse(medicao["synthetic"])
-        self.assertEqual(medicao["tokens_entrada"], 1200)
-        self.assertEqual(medicao["tokens_saida"], 240)
-        self.assertEqual(medicao["documento_base"]["tokens_entrada"], 100)
+        self.assertEqual((medicao["tokens_entrada"], medicao["tokens_saida"]), (2200, 440))
+        self.assertEqual(medicao["documento_base"]["origem"], "construction")
         pro_front = exportar_execucao(self.eventos.caminho, synthetic=False)["custo"]
         self.assertEqual(pro_front["custo_total_centavos"], medicao["custo_centavos"])
         self.assertEqual(pro_front["orcamento_centavos"], 4800)
-        agente = next(e for e in self.eventos.ler() if e["type"] == "agent_finished")
-        self.assertEqual(agente["dados"]["custo_total_centavos"], medicao["custo_centavos"])
         self.assertNotIn(config.chave_api, json.dumps(medicao))
-        self.assertNotIn("destino-privado", str(transporte.completar.call_args_list))
+        self.assertNotIn("destino-privado", str(cliente.pedidos))
 
     def test_custo_desconhecido_impede_uma_segunda_chamada(self):
         transporte = Mock()
@@ -179,76 +183,60 @@ class TestConstrucaoWorker(unittest.TestCase):
         cliente.completar([], [])
         self.assertGreater(transporte.completar.call_args.kwargs["max_tokens"], teto)
 
-    def test_documento_sem_uso_interrompe_antes_da_construcao(self):
-        config = ConfigHarness.de_ambiente({"KORDA_EXECUTOR": "chat", "KORDA_PERMITIR_LLM_REAL": "1",
-                                            "KORDA_LLM_CHAVE": "chave-sintetica"})
-        resposta = RespostaChat.texto("\n".join("## " + titulo for titulo in SECOES))
+    def test_uso_ausente_escala_sem_chamadas_adicionais(self):
+        resposta = RespostaChat.de_tool_calls([("escrever_modelo", {"caminho": self.modelos[0], "conteudo": "select 1"})])
         resposta.uso_informado = False
-        with patch.object(construcao, "ClienteChatHttp") as fabrica:
-            fabrica.return_value.completar.return_value = resposta
-            with self.assertRaisesRegex(ValueError, "uso do documento-base"):
-                self.construir(config)
-        self.assertEqual(fabrica.return_value.completar.call_count, 1)
+        cliente = ClienteChatFalso([resposta])
+        resultado = self.construir(ConfigHarness.de_ambiente({"KORDA_EXECUTOR": "falso"}), cliente_llm=cliente)
+        self.assertEqual(resultado["codigo"], "orcamento_llm")
+        self.assertEqual(len(cliente.pedidos), 1)
         self.assertFalse(self.medicao()["custo_completo"])
         self.assertFalse(self.ferramentas.escritas())
 
-    def test_documento_vazio_registra_tokens_efetivamente_cobrados(self):
-        config = ConfigHarness.de_ambiente({"KORDA_EXECUTOR": "chat", "KORDA_PERMITIR_LLM_REAL": "1",
-                                            "KORDA_LLM_CHAVE": "chave-sintetica"})
-        with patch.object(construcao, "ClienteChatHttp") as fabrica:
-            fabrica.return_value.completar.return_value = RespostaChat.texto("", tokens=(160, 4))
-            with self.assertRaisesRegex(ValueError, "documento-base vazio"):
-                self.construir(config)
-        self.assertTrue(self.medicao()["custo_completo"])
-        self.assertEqual(self.medicao()["tokens_entrada"], 160)
-        self.assertGreater(self.medicao()["custo_usd"], 0)
-        self.assertFalse(self.ferramentas.escritas())
+    def test_revogacao_entre_ferramentas_da_mesma_resposta(self):
+        chamadas = [("escrever_modelo", {"caminho": n, "conteudo": "select 1"}) for n in self.modelos]
+        cliente = ClienteChatFalso([RespostaChat.de_tool_calls(chamadas)])
 
-    def test_sdk_somente_corrige_modelos_ja_construidos(self):
-        config = ConfigHarness.de_ambiente({"KORDA_EXECUTOR": "agente_sdk", "KORDA_PERMITIR_LLM_REAL": "1",
-                                            "ANTHROPIC_API_KEY": "chave-sintetica"})
-        self.ferramentas.resultados_dbt = [{"ok": False, "stdout": "Failure in test contrato_exportacao"}]
-        with patch.object(construcao, "CorretorAgente") as sdk, patch.object(construcao, "ClienteChatHttp") as http:
-            sdk.return_value.return_value = {"ok": True, "custo_centavos": 0}
-            resultado = self.construir(config)
-        self.assertTrue(resultado["ok"], resultado)
-        self.assertEqual(resultado["correcoes"], 1)
-        sdk.return_value.assert_called_once()
-        http.assert_not_called()
-        self.assertEqual(self.medicao()["construtor"], "roteirizado")
-        self.assertEqual(self.medicao()["executor"], "agente_sdk")
+        def verificar():
+            if self.ferramentas.escritas():
+                raise ValueError("execução revogada")
 
-    def test_sdk_estouro_de_orcamento_recusa_apesar_da_escrita_e_registra_gasto(self):
-        config = ConfigHarness.de_ambiente({"KORDA_EXECUTOR": "agente_sdk", "KORDA_PERMITIR_LLM_REAL": "1",
-                                            "ANTHROPIC_API_KEY": "chave-sintetica", "KORDA_ORCAMENTO_EXECUCAO_USD": "0.10"})
-        for subtipo, custo in [("error_max_budget_usd", 0.01), ("success", 0.12)]:
-            with self.subTest(subtipo=subtipo):
-                self.ferramentas.resultados_dbt = [{"ok": False, "stdout": "Compilation Error in model ouro_kpis"}]
+        self.verificar.side_effect = verificar
+        with self.assertRaisesRegex(ValueError, "revogada"):
+            self.construir(ConfigHarness.de_ambiente({"KORDA_EXECUTOR": "falso"}), cliente_llm=cliente)
+        self.assertEqual(self.ferramentas.escritas(), [self.modelos[0]])
+        self.assertEqual(self.medicao()["tokens_entrada"], 1000)
+        self.assertEqual(len(cliente.pedidos), 1)
 
-                def sessao(prompt, ctx):
-                    modelo = "models/ouro_kpis.sql"
-                    if ctx.ferramentas.escrever_modelo(modelo, "select 1")["ok"]:
-                        ctx.escritas.append(modelo)
-                    return SaidaSessao(subtipo, 1, custo, {}, [])
+    def test_falso_e_chat_requerem_documento_aprovado(self):
+        self.plano.pop("construction")
+        for env in ({"KORDA_EXECUTOR": "falso"}, {"KORDA_EXECUTOR": "chat", "KORDA_PERMITIR_LLM_REAL": "1",
+                                                  "KORDA_LLM_CHAVE": "teste"}):
+            cliente = ClienteChatFalso([])
+            with self.subTest(env=env), self.assertRaisesRegex(ErroConfiguracao, "planejar"):
+                self.construir(ConfigHarness.de_ambiente(env), cliente_llm=cliente)
+            self.assertFalse(cliente.pedidos)
 
-                with patch("korda_execution.harness.agente_sdk.rodar_sessao_sdk", side_effect=sessao) as chamada:
-                    resultado = self.construir(config)
-                self.assertFalse(resultado["ok"])
-                self.assertEqual(resultado["codigo"], "correcao_recusada")
-                self.assertIn("orçamento", resultado["erro"])
-                chamada.assert_called_once()
-                self.assertTrue(self.medicao()["custo_completo"])
-                self.assertEqual(self.medicao()["custo_usd"], custo)
+    def test_aceita_o_glob_aprovado_da_main_no_plano_historico(self):
+        self.plano.update(schema_version="0.1.0", editable_models=["models/*"])
+        cfg = ConfigHarness.de_ambiente({"KORDA_EXECUTOR": "falso"})
+        self.assertIs(construcao.preparar_construcao(self.plano, cfg, cliente_llm=ClienteChatFalso([])), cfg)
+        self.plano["schema_version"] = "0.2.0"
+        with self.assertRaises(ErroConfiguracao):
+            construcao.preparar_construcao(self.plano, cfg, cliente_llm=ClienteChatFalso([]))
 
-    def test_falha_de_transporte_do_sdk_preserva_custo_desconhecido(self):
-        config = ConfigHarness.de_ambiente({"KORDA_EXECUTOR": "agente_sdk", "KORDA_PERMITIR_LLM_REAL": "1",
-                                            "ANTHROPIC_API_KEY": "chave-sintetica"})
-        self.ferramentas.resultados_dbt = [{"ok": False, "stdout": "Compilation Error in model ouro_kpis"}]
-        with patch.object(construcao, "CorretorAgente") as sdk:
-            sdk.return_value.side_effect = RuntimeError("sessão do SDK interrompida")
-            resultado = self.construir(config)
-        self.assertEqual(resultado["codigo"], "correcao_interrompida")
-        self.assertFalse(self.medicao()["custo_completo"])
+    def test_sdk_fica_reservado_para_uso_avulso(self):
+        cfg = ConfigHarness.de_ambiente({"KORDA_EXECUTOR": "agente_sdk", "KORDA_PERMITIR_LLM_REAL": "1",
+                                         "ANTHROPIC_API_KEY": "chave-sintetica"})
+        with self.assertRaisesRegex(ErroConfiguracao, "Feita"):
+            self.construir(cfg)
+
+    def test_exportacao_com_falha_tecnica_nao_dispara_correcao(self):
+        exportar = Mock(return_value=Mock(ok=False, codigo=137, estourou_tempo=True, stderr="timeout"))
+        resultado = self.construir(ConfigHarness.de_ambiente({}), exportar=exportar)
+        self.assertEqual(resultado["codigo"], "tecnico")
+        self.assertEqual(resultado["correcoes"], 0)
+        exportar.assert_called_once()
 
     def test_modelos_da_referencia_nao_entram_na_sandbox_vazia(self):
         fonte = self.raiz / "fonte"

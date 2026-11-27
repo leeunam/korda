@@ -31,7 +31,11 @@ class TestPacote(unittest.TestCase):
         self.plano = {
             "schema_version": "0.2.0", "plan_version": "b" * 64, "dataset": "01_demo",
             "project_id": "demo-01", "destination": "demo", "context_revision": 2,
-            "rules": {"rateio_cte": {"value": "peso"}}, "editable_models": self.modelos,
+            "rules": {"rateio_cte": {"value": "peso", "status": "confirmada", "evidence_ids": ["privado"],
+                                     "confirmed_by": {"name": "DADO-PRIVADO", "role": "financeiro"}}},
+            "evidence": [{"id": "privado", "excerpt": "DADO-PRIVADO"}],
+            "construction": {"document": "DADO-PRIVADO", "model": "exemplo", "synthetic": True},
+            "editable_models": self.modelos,
             "ingestion": {"level": "n1", "window": {"kind": "full_batch"}, "proposal_sha256": "d" * 64,
                           "proposal": {"observacoes": "DADO-PRIVADO"}},
         }
@@ -42,11 +46,32 @@ class TestPacote(unittest.TestCase):
                       "exemplos": [{"esperado": "DADO-PRIVADO"}]}
         (self.revisao / "avaliacao.json").write_text(json.dumps(self.laudo))
         (self.revisao / "ingestao.json").write_text(json.dumps({"landing_manifest_sha256": "e" * 64}))
+        self.medicao = {"run_id": "run-1", "plan_version": self.plano["plan_version"], "executor": "falso",
+                        "synthetic": True, "custo_completo": True, "custo_usd": 0, "custo_centavos": 0,
+                        "tentativas": 2, "builds": 3, "correcoes": 1, "por_tentativa": [
+                            {"tentativa": 0, "ok": False, "tokens_entrada": 300, "motivo_parada": "DADO-PRIVADO"},
+                            {"tentativa": 1, "ok": True, "custo_centavos": 0, "arquivos_escritos": ["DADO-PRIVADO"]}]}
+        (self.revisao / "medicao.json").write_text(json.dumps(self.medicao))
+        evento = {"run_id": "run-1", "step": "modelos", "type": "test_failed", "attempt": 1,
+                  "ts": "2026-11-27T13:00:00+00:00", "message": "DADO-PRIVADO", "dados": {"segredo": "DADO-PRIVADO"}}
+        (self.revisao / "eventos.jsonl").write_text("\n".join(json.dumps(obj) for obj in [
+            evento, {**evento, "type": "TIPO-DADO-PRIVADO"},
+            {**evento, "type": "evaluation_finished", "step": "avaliacao", "attempt": 2}]) + "\n")
         (self.revisao / "credenciais.json").write_text("DADO-PRIVADO")
         self.target = self.projeto.parent / "saida/target"
         self.target.mkdir(parents=True)
-        nos = {f"model.korda_logistica.{m}": {"original_file_path": p, "raw_code": (self.projeto / p).read_text()}
+        nodes = [f"model.korda_logistica.{m}" for m in MODELOS]
+        fontes = ["source.korda_logistica.sinteticas.bronze_" + n for n in
+                  ("pedidos", "entregas", "viagens", "veiculos", "documentos")]
+        nos = {f"model.korda_logistica.{m}": {"original_file_path": p, "raw_code": (self.projeto / p).read_text(),
+                                              "depends_on": {"nodes": [fontes[0]]}}
                for m, p in zip(MODELOS, self.modelos)}
+        docs = self.projeto.parent / "saida/docs"
+        docs.mkdir()
+        tabela = {"columns": {"VALOR": {"name": "valor", "type": "DECIMAL(10,2)", "index": 1,
+                                        "comment": "<script>DADO-PRIVADO</script>"}}, "stats": {"observacao": "DADO-PRIVADO"}}
+        (docs / "catalog.json").write_text(json.dumps({"nodes": dict.fromkeys(nodes, tabela),
+                                                      "sources": dict.fromkeys(fontes, tabela)}))
         metadata = {"invocation_id": "run-teste", "dbt_version": "1.11.16"}
         (self.target / "manifest.json").write_text(json.dumps({"nodes": nos, "metadata": metadata}))
         resultados = [{"unique_id": n, "status": "success", "message": "DADO-PRIVADO"} for n in nos]
@@ -71,6 +96,22 @@ class TestPacote(unittest.TestCase):
             self.assertIn("projeto/tests/rastreabilidade_cte.sql", pacote.namelist())
             self.assertIn(b"dbt --no-use-colors build", pacote.read("README.md"))
             self.assertEqual(json.loads(pacote.read("execucao.json"))["avaliacao"]["comparados"], self.laudo["comparados"])
+            docs = pacote.read("docs/index.html")
+            self.assertIn(b'<a href="#bronze_pedidos">bronze_pedidos</a>', docs)
+            self.assertIn(b"<td>valor</td><td>DECIMAL(10,2)</td>", docs)
+            self.assertNotIn(b"<script", docs)
+            decisoes = json.loads(pacote.read("decisoes.json"))
+            self.assertEqual(decisoes["construction_sha256"], hashlib.sha256(b"DADO-PRIVADO").hexdigest())
+            self.assertEqual(decisoes["regras"]["rateio_cte"], {
+                "evidencias": ["/evidence/0"], "papel_confirmador": "financeiro", "valor": "peso", "estado": "confirmada"})
+            medicao = json.loads(pacote.read("medicao.json"))
+            self.assertEqual((medicao["tentativas"], medicao["correcoes"], medicao["custo_centavos"]), (2, 1, 0))
+            self.assertEqual(medicao["por_tentativa"], [
+                {"tentativa": 0, "ok": False, "tokens_entrada": 300},
+                {"tentativa": 1, "ok": True, "custo_centavos": 0}])
+            eventos = [json.loads(linha) for linha in pacote.read("eventos.jsonl").splitlines()]
+            self.assertEqual([e["type"] for e in eventos], ["test_failed", "evaluation_finished"])
+            self.assertEqual(set(eventos[0]), {"step", "type", "attempt", "ts"})
             for nome, dados in self.dados.items():
                 self.assertEqual(pacote.read("resultados/" + nome), dados)
                 self.assertIn(hashlib.sha256(dados).hexdigest().encode(), pacote.read("resultados.sha256"))
@@ -142,6 +183,33 @@ class TestPacote(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "credencial identificada") as erro:
             self.montar()
         self.assertNotIn("valor-ficticio-para-teste", str(erro.exception))
+        self.assertFalse((self.resultados / "pacote.zip").exists())
+
+    def test_gasto_desconhecido_e_distinto_de_zero_e_outro_run_nao_empresta_medida(self):
+        self.medicao.update(custo_completo=False, custo_usd=0.0, custo_centavos=0)
+        self.medicao["por_tentativa"][0]["custo_centavos"] = None
+        (self.revisao / "medicao.json").write_text(json.dumps(self.medicao))
+        with ZipFile(self.montar()) as pacote:
+            medicao = json.loads(pacote.read("medicao.json"))
+            self.assertFalse(medicao["custo_completo"])
+            self.assertIsNone(medicao["custo_usd"])
+            self.assertIsNone(medicao["custo_centavos"])
+            self.assertIsNone(medicao["por_tentativa"][0]["custo_centavos"])
+            self.assertEqual(medicao["por_tentativa"][1]["custo_centavos"], 0)
+        (self.resultados / "pacote.zip").unlink()
+        self.medicao["run_id"] = "outro"
+        (self.revisao / "medicao.json").write_text(json.dumps(self.medicao))
+        with self.assertRaisesRegex(ValueError, "medição não corresponde"):
+            self.montar()
+        self.assertFalse((self.resultados / "pacote.zip").exists())
+
+    def test_catalogo_nao_pode_injetar_conteudo_ativo_no_documento(self):
+        caminho = self.projeto.parent / "saida/docs/catalog.json"
+        catalogo = json.loads(caminho.read_text())
+        catalogo["nodes"]["model.korda_logistica.ouro_kpis"]["columns"]["VALOR"]["name"] = "<script>"
+        caminho.write_text(json.dumps(catalogo))
+        with self.assertRaisesRegex(ValueError, "coluna"):
+            self.montar()
         self.assertFalse((self.resultados / "pacote.zip").exists())
 
 

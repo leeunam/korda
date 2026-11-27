@@ -73,5 +73,30 @@ class TestArgvDbt(unittest.TestCase):
                 caminhos.argv_dbt(sub, sel)
 
 
+class TestPadraoModelo(unittest.TestCase):
+    def test_aceita_caminho_exato_e_padroes_em_models(self):
+        for padrao in ("models/prata_ctes.sql", "models/*", "models/*.sql", "models/prata/*"):
+            with self.subTest(padrao=padrao):
+                self.assertEqual(caminhos.padrao_modelo(padrao), padrao)
+
+    def test_recusa_padrao_fora_de_models_ou_amplo_demais(self):
+        for padrao in ("*", "tests/*", "models", "models/", "models/../tests/*", "models/**", "models/x.yml",
+                       "models/[a-z].sql", "/work/projeto/models/*", "", None):
+            with self.subTest(padrao=padrao), self.assertRaises(CaminhoRecusado):
+                caminhos.padrao_modelo(padrao)
+
+    def test_modelo_autorizado_por_padrao(self):
+        self.assertTrue(caminhos.modelo_autorizado("models/ouro_kpis.sql", ["models/*"]))
+        self.assertTrue(caminhos.modelo_autorizado("models/prata_ctes.sql", ["models/prata_ctes.sql"]))
+        self.assertFalse(caminhos.modelo_autorizado("models/ouro_kpis.sql", ["models/prata_ctes.sql"]))
+        self.assertFalse(caminhos.modelo_autorizado("tests/x.sql", ["models/*"]))
+        self.assertFalse(caminhos.modelo_autorizado("models/x.sql", []))
+        self.assertTrue(caminhos.modelo_autorizado("models/prata/sub/modelo.sql", ["models/prata/*.sql"]))
+        self.assertFalse(caminhos.modelo_autorizado("models/ouro/modelo.sql", ["models/prata/*.sql"]))
+        for invalido in ("models/../tests/a.sql", "models/schema.yml", "models//a.sql", "models/a.py"):
+            with self.subTest(invalido=invalido):
+                self.assertFalse(caminhos.modelo_autorizado(invalido, ["models/*"]))
+
+
 if __name__ == "__main__":
     unittest.main()

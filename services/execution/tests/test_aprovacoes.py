@@ -9,7 +9,7 @@ from threading import Barrier, Event
 P3 = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(P3))
 from korda_execution.aprovacoes import ErroAprovacao, Registro
-from korda_planning import gerar_plano
+from korda_planning import anexar_construcao, gerar_plano
 
 EXEMPLOS = P3.parents[1] / "packages/contracts/context/v0.1.0/examples"
 
@@ -87,6 +87,32 @@ class TestAprovacoes(unittest.TestCase):
         with self.assertRaisesRegex(ErroAprovacao, "rascunho"):
             self.reg.decidir_plano(pendente["project_id"], pendente["plan_version"], "Pessoa revisora", True)
         self.assertEqual(self.reg.consultar("corte-aprovado")["state"], "invalidada")
+
+    def test_troca_de_escopo_legado_e_documento_exige_aprovacao_da_versao(self):
+        path = P3.parents[1] / "packages/contracts/plan/v0.1.0/examples/01_demo.json"
+        exato = json.loads(path.read_text(encoding="utf-8"))
+        self.reg.registrar(exato)
+        self.reg.decidir_plano(exato["project_id"], exato["plan_version"], "Revisor do teste", True)
+        self.reg.iniciar(exato["project_id"], exato["plan_version"], "cte-legado")
+
+        amplo = {**exato, "editable_models": ["models/*"]}
+        with self.assertRaises(ValueError):
+            self.reg.registrar(amplo)
+        self.assertEqual(self.reg.consultar("cte-legado")["state"], "executando")
+        # Hash emitido pela edição do PR #30 para este contexto, destino e custo.
+        amplo["plan_version"] = "e7743944485dd3ecef0f13f9d673ecd4b12c3fe7f85dce549d8bb87eb228205d"
+        self.reg.registrar(amplo)
+        self.assertEqual(self.reg.consultar("cte-legado")["state"], "invalidada")
+        with self.assertRaises(ErroAprovacao):
+            self.reg.iniciar(amplo["project_id"], amplo["plan_version"], "sem-autorizacao-ampla")
+        self.reg.decidir_plano(amplo["project_id"], amplo["plan_version"], "Revisor do teste", True)
+        novo = anexar_construcao(amplo, {"document": "Planejamento", "model": "falso", "synthetic": True})
+        self.reg.registrar(novo)
+        with self.assertRaises(ErroAprovacao):
+            self.reg.iniciar(novo["project_id"], novo["plan_version"], "sem-autorizacao-documento")
+        self.reg.decidir_plano(novo["project_id"], novo["plan_version"], "Revisor do teste", True)
+        self.assertEqual(self.reg.iniciar(novo["project_id"], novo["plan_version"], "com-documento")["state"],
+                         "executando")
 
     def test_alternancia_de_versao_exige_nova_aprovacao_ainda_com_mesmo_hash(self):
         self.preparar_resultado()

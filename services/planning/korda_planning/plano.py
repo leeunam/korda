@@ -39,6 +39,7 @@ for versao in ("0.1.0", VERSAO_PLANO):
     registry = registry.with_resource(caminho.as_uri(), Resource.from_contents(schema))
     VALIDADORES[versao] = Draft202012Validator({"$ref": caminho.as_uri()}, registry=registry)
 
+VALIDADOR = VALIDADORES["0.1.0"]  # API de validação estrutural da versão anterior
 URI_INGESTAO = (CONTRATOS / "plan/v0.2.0/plan.schema.json").as_uri() + "#/properties/ingestion"
 VALIDADOR_INGESTAO = Draft202012Validator({"$ref": URI_INGESTAO}, registry=registry)
 
@@ -111,7 +112,7 @@ def _versao(corpo):
     return hashlib.sha256(canonico.encode("utf-8")).hexdigest()
 
 
-def _montar(contexto, destino, custo, dataset, ingestao=None):
+def _montar(contexto, destino, custo, dataset, ingestao=None, *, glob_legado=False):
     plano = {chave: copy.deepcopy(contexto[chave]) for chave in CAMPOS_CONTEXTO}
     metricas = {}
     tarefas = copy.deepcopy(TAREFAS_COMPARTILHADAS)
@@ -128,11 +129,12 @@ def _montar(contexto, destino, custo, dataset, ingestao=None):
             "output": f"Relação de ouro com {nome} e os componentes do seu numerador e denominador.",
             "verify": f"Executar os testes de metrics.{nome}.acceptance e devolver null para denominador vazio.",
         })
+    modelos = ["models/*"] if glob_legado else ["models/prata_ctes.sql"]
     plano.update(
         schema_version="0.1.0", context_revision=contexto["revision"], context_state=contexto["state"],
         state="aguardando_aprovacao" if contexto["state"] == "pronto_para_planejamento" else "rascunho",
         metrics=metricas, tasks=tarefas, dataset=dataset,
-        editable_models=["models/prata_ctes.sql"] if dataset == "01_demo" else [],
+        editable_models=modelos if dataset == "01_demo" else [],
         period="Lote sintético de fontes autorizado para a execução inteira, sem recorte adicional de datas.",
         limits={"max_repair_attempts_per_step": 3}, destination=destino, cost_estimate_brl_cents=custo,
     )
@@ -214,6 +216,27 @@ def gerar_plano(contexto, *, destino=None, custo_estimado_centavos=None, dataset
     return plano
 
 
+def _com_construcao(plano, construcao):
+    """Acrescenta a seção de construção e recalcula a versão sobre o plano inteiro."""
+    anexado = {k: v for k, v in copy.deepcopy(plano).items() if k != "plan_version"}
+    anexado["construction"] = copy.deepcopy(construcao)
+    anexado["plan_version"] = _versao(anexado)
+    return anexado
+
+
+def anexar_construcao(plano, construcao):
+    """Anexa o plano de construção gerado pelo planejamento (LLM) para a aprovação 1 cobri-lo.
+
+    A seção entra no hash: qualquer mudança no documento muda a `plan_version`.
+    """
+    validar_plano(plano)
+    if "construction" in plano:
+        raise ValueError("o plano já tem uma seção de construção; gere outra a partir do plano base")
+    anexado = _com_construcao(plano, construcao)
+    validar_plano(anexado)
+    return anexado
+
+
 def validar_plano(plano):
     """Confere a revisão exata, inclusive documentos legados com autorização limitada."""
     versao = plano.get("schema_version") if isinstance(plano, dict) else None
@@ -225,7 +248,12 @@ def validar_plano(plano):
     contexto = {chave: plano[chave] for chave in CAMPOS_CONTEXTO}
     contexto.update(schema_version=VERSAO_CONTEXTO, revision=plano["context_revision"], state=plano["context_state"])
     contrato_contexto.validate_context(contexto)
+    # As duas edições v0.1 publicadas emitiram escopos distintos para a demo.
+    # Reconstrua exatamente a edição assinada antes de confrontar sua versão.
+    glob_legado = versao == "0.1.0" and plano["editable_models"] == ["models/*"]
     esperado = _montar(contexto, plano["destination"], plano["cost_estimate_brl_cents"], plano["dataset"],
-                       plano.get("ingestion"))
+                       plano.get("ingestion"), glob_legado=glob_legado)
+    if "construction" in plano:
+        esperado = _com_construcao(esperado, plano["construction"])
     if plano != esperado:
         raise ValueError("conteúdo, versão ou vínculos do plano divergentes da revisão canônica")

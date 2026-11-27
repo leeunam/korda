@@ -3,12 +3,15 @@
 import fcntl
 import hashlib
 import json
+import math
 import os
 import re
 import stat
 import uuid
 import zipfile
 from contextlib import contextmanager
+from datetime import datetime
+from html import escape
 from pathlib import Path
 
 from .artefatos import LIMITES, LIMITE_PACOTE, PACOTE, _diretorio
@@ -34,6 +37,10 @@ REPRODUZIR = """# Reproduzir os indicadores
 
 Extraia este ZIP em um diretório novo. A pasta `projeto/` contém o SQL que o dbt executou e os testes protegidos. `resultados/` contém os indicadores e sua linhagem por pedido e viagem. `execucao.json` identifica a revisão do plano, a janela, o destino autorizado pelo plano e o laudo técnico. A autorização humana para entrega é registrada pelo serviço que promove a pasta.
 
+Abra `docs/index.html` no navegador, inclusive offline, para consultar colunas, tipos físicos, fontes e dependências dos modelos. O worker gera o catálogo com `dbt docs generate` na sandbox e combina as relações descritas no manifesto do build. Em `decisoes.json`, as referências `/evidence/N` apontam à posição da evidência no plano local da versão identificada. O hash do documento de construção permite conferir o texto aprovado sem distribuí-lo.
+
+Os dados da transportadora são sintéticos. `medicao.json` identifica se a construção usou um executor simulado. A lista `por_tentativa` registra o resultado de cada sessão, os turnos, tokens, duração e custos conhecidos. Nela, a tentativa zero corresponde à construção inicial. O total em centavos de real só aparece quando a medição está completa. Custos de planejamento anterior e de infraestrutura ficam fora dessa medição. `eventos.jsonl` lista as etapas da execução até a avaliação técnica. Mensagens de conversa, erros detalhados, consultas e credenciais ficam fora desse extrato. A promoção ocorre depois da aprovação humana do pacote.
+
 Use Docker em Linux e a mesma landing autorizada da execução, com manifesto e tabelas Parquet. Em N0 ela vem dos arquivos exportados. Em N1 ela corresponde à janela do ERP, TMS e CT-e simulados. O operador fornece essa pasta em separado. Confira `sha256sum "$LANDING/manifesto.json"` com `landing_manifest_sha256` de `execucao.json` para identificar o manifesto original.
 
 Para regenerar as entradas sintéticas, use o gerador `data/synthetic/generator/generate.py --empresa 01_demo` do repositório Korda. Aplique ao lote o nível e a janela registrados em `execucao.json`, usando a ingestão N0 ou o replay dos sistemas simulados N1 na versão do projeto da execução. O diretório `ambiente/korda_ingestao/` traz o leitor N0; nas entregas N1, `referencia/ingestao_n1/` traz também o leitor do simulador. Uma nova carga pode registrar outro horário e produzir um hash físico de manifesto diferente. Use os hashes dos três resultados para conferir o replay da mesma janela.
@@ -48,7 +55,7 @@ docker run --rm -i --network none --read-only --cap-drop ALL \\
   --memory 2g --cpus 1 --pids-limit 256 \\
   -v "$PWD/projeto:/work/projeto:ro" -v "$LANDING:/work/fontes:ro" \\
   -v "$PWD/saida:/work/saida" korda-repro:local sh -ec \\
-  'python /work/projeto/ingerir.py && dbt --no-use-colors build && python /work/projeto/exportar.py' < regras.json
+  'python /work/projeto/ingerir.py && dbt --no-use-colors build && python /work/projeto/exportar.py && DBT_TARGET_PATH=/work/saida/docs dbt --no-use-colors docs generate' < regras.json
 (cd saida && sha256sum -c ../resultados.sha256)
 ```
 
@@ -115,7 +122,125 @@ def _dbt(projeto, modelos):
             raise ValueError(f"o SQL capturado diverge do modelo testado: {nome}")
         if CREDENCIAL_SQL.search(codigo):
             raise ValueError(f"credencial identificada no SQL; revise o modelo antes da entrega: {nome}")
-    return {"versao": relatorio["metadata"]["dbt_version"], "nos": nos}
+    return {"versao": relatorio["metadata"]["dbt_version"], "nos": nos}, manifest
+
+
+def _docs(projeto, manifest):
+    """Publica nomes e tipos físicos e as arestas do manifesto. Textos livres ficam na sandbox."""
+    catalogo = json.loads(_ler(projeto.parent / "saida/docs", "catalog.json", 8 * 1024**2))
+    fontes = {"source.korda_logistica.sinteticas.bronze_" + n for n in
+              ("pedidos", "entregas", "viagens", "veiculos", "documentos")}
+    ids = fontes | {"model.korda_logistica." + n for n in MODELOS}
+    partes = ['<!doctype html><html lang="pt-BR"><meta charset="utf-8">',
+              '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'">',
+              '<title>Dicionário e linhagem da execução</title><h1>Dicionário e linhagem da execução</h1>',
+              '<p>Fontes bronze e modelos testados da transportadora sintética. '
+              'Os tipos de coluna foram consultados no catálogo do DuckDB pelo dbt.</p>']
+    for id_ in sorted(ids, key=lambda item: (item not in fontes, item)):
+        colecao = "sources" if id_ in fontes else "nodes"
+        nome = id_.split(".")[-1]
+        partes.append(f'<section id="{nome}"><h2>{nome}</h2>')
+        if id_ not in fontes:
+            pais = manifest["nodes"][id_]["depends_on"]["nodes"]
+            if any(p not in ids for p in pais):
+                raise ValueError("dependência fora das fontes ou modelos da demonstração")
+            referencias = [p.split(".")[-1] for p in sorted(set(pais))]
+            links = [f'<a href="#{pai}">{pai}</a>' for pai in referencias]
+            partes.append("<p>Dependências no manifesto dbt: " + (", ".join(links) or "nenhuma") + ".</p>")
+        colunas = catalogo[colecao][id_]["columns"]
+        if not 1 <= len(colunas) <= 128:
+            raise ValueError("número de colunas fora do limite no catálogo dbt")
+        partes.append("<table><thead><tr><th>Coluna</th><th>Tipo físico</th></tr></thead><tbody>")
+        for col in sorted(colunas.values(), key=lambda c: c["index"]):
+            coluna, tipo = col["name"], col["type"]
+            if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,63}", coluna) or not re.fullmatch(r"[A-Za-z0-9_ (),\[\]]{1,64}", tipo):
+                raise ValueError("nome ou tipo de coluna fora do formato da demonstração")
+            partes.append(f"<tr><td>{escape(coluna)}</td><td>{escape(tipo)}</td></tr>")
+        partes.append("</tbody></table></section>")
+    return ("\n".join(partes) + "\n</html>\n").encode()
+
+
+def _decisoes(plano):
+    indices = {e["id"]: f"/evidence/{i}" for i, e in enumerate(plano["evidence"])}
+    decisoes = {}
+    for nome, regra in plano["rules"].items():
+        papel = (regra.get("confirmed_by") or {}).get("role")
+        if regra["status"] not in {"confirmada", "a_confirmar", "em_conflito"}:
+            raise ValueError("estado de regra desconhecido no plano")
+        decisoes[nome] = {"valor": regra["value"], "estado": regra["status"],
+                          "papel_confirmador": papel if papel in {"financeiro", "operacao"} else None,
+                          "evidencias": [indices[i] for i in regra["evidence_ids"]]}
+    construcao = plano.get("construction")
+    return {
+        "plan_version": plano["plan_version"], "context_revision": plano["context_revision"],
+        "construction_sha256": hashlib.sha256(construcao["document"].encode()).hexdigest() if construcao else None,
+        "regras": decisoes,
+    }
+
+
+ETAPAS = {"plano", "ingestao", "construcao", "modelos", "avaliacao", "execucao"}
+TIPOS_EVENTO = {
+    "run_started", "plan_read", "source_profiled", "build_started", "file_written", "dbt_passed", "dbt_failed",
+    "test_passed", "test_failed", "fix_started", "fix_applied", "fix_failed", "agent_finished", "tool_refused",
+    "query_finished", "query_failed", "intervention_requested", "measurement_saved", "document_ready",
+    "evaluation_finished", "run_failed",
+}
+
+
+def _eventos(revisao):
+    linhas = []
+    with _arquivo(revisao, "eventos.jsonl", 16 * 1024**2) as f:
+        for linha in f:
+            ev = json.loads(linha)
+            if ev["run_id"] != revisao.name:
+                raise ValueError("evento pertence a outra execução")
+            if ev["step"] not in ETAPAS or ev["type"] not in TIPOS_EVENTO:
+                continue
+            ts = datetime.fromisoformat(ev["ts"])
+            if ts.utcoffset() is None or type(ev["attempt"]) is not int or ev["attempt"] < 0:
+                raise ValueError("evento sem instante ou tentativa válida")
+            # As mensagens e `dados` podem conter conteúdo do cliente ou do fornecedor.
+            publicavel = {"step": ev["step"], "type": ev["type"], "attempt": ev["attempt"], "ts": ts.isoformat()}
+            linhas.append(json.dumps(publicavel, sort_keys=True).encode() + b"\n")
+    return b"".join(linhas)
+
+
+def _metricas(registro, campos, *, total_incompleto=False):
+    valores = {}
+    for k in campos:
+        if k not in registro:
+            continue
+        n = registro[k]
+        if k in {"custo_usd", "custo_centavos"} and (total_incompleto or n is None):
+            valores[k] = None
+        elif (type(n) is int or (type(n) is float and math.isfinite(n))) and n >= 0:
+            valores[k] = n
+        else:
+            raise ValueError(f"valor inválido na medição: {k}")
+    return valores
+
+
+def _medicao(revisao, plano):
+    medicao = json.loads(_ler(revisao, "medicao.json", 4 * 1024**2))
+    if medicao.get("run_id") != revisao.name or medicao.get("plan_version", plano["plan_version"]) != plano["plan_version"]:
+        raise ValueError("medição não corresponde à execução e versão revisadas")
+    if medicao["executor"] not in {"roteirizado", "falso", "chat", "agente_sdk"}:
+        raise ValueError("executor desconhecido na medição")
+    if type(medicao["synthetic"]) is not bool or type(medicao["custo_completo"]) is not bool:
+        raise ValueError("marcadores de medição inválidos")
+    resultado = {k: medicao[k] for k in ("executor", "synthetic", "custo_completo")}
+    consumo = ("turnos", "tokens_entrada", "tokens_saida", "tokens_cache_leitura", "duracao_s", "custo_usd", "custo_centavos")
+    resultado.update(_metricas(medicao, ("tentativas", "builds", "correcoes", "duracao_etapa_s", *consumo),
+                               total_incompleto=not medicao["custo_completo"]))
+    tentativas = []
+    for sessao in medicao["por_tentativa"]:
+        if type(sessao["tentativa"]) is not int or sessao["tentativa"] < 0 or type(sessao["ok"]) is not bool:
+            raise ValueError("tentativa inválida na medição")
+        tentativas.append({"tentativa": sessao["tentativa"], "ok": sessao["ok"], **_metricas(sessao, consumo)})
+    if len(tentativas) != medicao["tentativas"]:
+        raise ValueError("contagem de tentativas inconsistente na medição")
+    resultado["por_tentativa"] = tentativas
+    return resultado
 
 
 def _resumo(revisao, plano, dbt):
@@ -147,11 +272,16 @@ def _preencher(arquivo, projeto, resultados, revisao, plano):
     modelos = {f"models/{nome}.sql": _ler(projeto, f"models/{nome}.sql", 256 * 1024) for nome in MODELOS}
     if set(plano["editable_models"]) != set(modelos):
         raise ValueError("modelos aprovados divergem dos modelos do pacote")
-    resumo = _resumo(revisao, plano, _dbt(projeto, modelos))
+    validacao, manifest = _dbt(projeto, modelos)
+    resumo = _resumo(revisao, plano, validacao)
     regras = {k: v["value"] for k, v in plano["rules"].items()}
     arquivo.writestr(_entrada_zip("README.md"), REPRODUZIR.encode())
     arquivo.writestr(_entrada_zip("regras.json"), _json(regras))
     arquivo.writestr(_entrada_zip("execucao.json"), _json(resumo))
+    arquivo.writestr(_entrada_zip("decisoes.json"), _json(_decisoes(plano)))
+    arquivo.writestr(_entrada_zip("medicao.json"), _json(_medicao(revisao, plano)))
+    arquivo.writestr(_entrada_zip("eventos.jsonl"), _eventos(revisao))
+    arquivo.writestr(_entrada_zip("docs/index.html"), _docs(projeto, manifest))
     for nome, dados in sorted(modelos.items()):
         arquivo.writestr(_entrada_zip("projeto/" + nome), dados)
     for nome in (*CONFIG, *(f"tests/{t}.sql" for t in TESTES)):

@@ -13,6 +13,8 @@ from jsonschema import ValidationError
 from .aprovacoes import Registro
 from .artefatos import entregar
 from .sandbox import ErroSandbox, RAIZ_REPO
+from .harness.cliente_chat import ErroLLM
+from .harness.config import ErroConfiguracao
 from .worker import executar
 
 
@@ -25,6 +27,11 @@ def main(argv=None):
     decidir = sub.add_parser("decidir-plano", help="registrar a decisão humana da primeira revisão")
     decidir.add_argument("projeto")
     decidir.add_argument("versao")
+    planejar = sub.add_parser("planejar", help="gerar o plano de construção (1 chamada à API) antes da aprovação 1")
+    planejar.add_argument("plano", type=Path, help="plano base gerado pelo korda_planning")
+    planejar.add_argument("--contexto", type=Path, required=True,
+                          help="contexto validado das entrevistas (contrato context v0.1.0) que originou o plano")
+    planejar.add_argument("--saida", type=Path, help="onde gravar o plano com a construção, para registrar")
     rodar = sub.add_parser("executar", help="processar o lote sintético da versão aprovada")
     rodar.add_argument("plano", type=Path)
     rodar.add_argument("--run-id", help="identificador novo; o padrão é aleatório")
@@ -52,6 +59,19 @@ def main(argv=None):
                 print(f"Execução {run_id}", file=sys.stderr, flush=True)
                 resultado = executar(registro, plano, run_id, raiz=raiz,
                                      fontes=args.fontes)
+        elif args.comando == "planejar":
+            from .planejamento import planejar as gerar
+            plano = json.loads(args.plano.read_text(encoding="utf-8"))
+            contexto = json.loads(args.contexto.read_text(encoding="utf-8"))
+            resultado = gerar(plano, contexto, raiz=raiz)
+            if resultado["estado"] == "pronto" and args.saida:
+                args.saida.write_text(json.dumps(resultado["plano"], ensure_ascii=False, indent=2) + "\n",
+                                      encoding="utf-8")
+            resumo = {k: v for k, v in resultado.items() if k != "plano"}
+            if resultado["estado"] == "pronto":
+                resumo["plan_version"] = resultado["plano"]["plan_version"]
+            print(json.dumps(resumo, ensure_ascii=False, indent=2))
+            return 0 if resultado["estado"] == "pronto" else 3
         elif args.comando == "decidir-plano":
             resultado = registro.decidir_plano(args.projeto, args.versao, args.pessoa, args.decisao == "aprovar")
         elif args.comando == "decidir-entrega":
@@ -62,7 +82,8 @@ def main(argv=None):
             resultado = registro.consultar(args.run_id)
         print(json.dumps(resultado, ensure_ascii=False, indent=2))
         return 0
-    except (OSError, ValueError, ErroSandbox, ValidationError, sqlite3.Error, subprocess.SubprocessError) as exc:
+    except (OSError, ValueError, ErroSandbox, ValidationError, sqlite3.Error, subprocess.SubprocessError,
+            ErroConfiguracao, ErroLLM) as exc:
         print(f"Operação interrompida: {exc}", file=sys.stderr)
         return 1
 

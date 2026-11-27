@@ -28,7 +28,7 @@ class ExecutorChat:
 
     def __init__(self, cfg: ConfigHarness, cliente: ClienteChat, ferramentas: FerramentasAgente, plano_publico: dict,
                  perfis: dict, limite: int, emissor, medidor, *, custo_anterior_centavos: int = 0,
-                 orcamento_total_usd: float | None = None):
+                 orcamento_total_usd: float | None = None, verificar_ativa=None):
         self.cfg = cfg
         self.cliente = cliente
         self.ferramentas = ferramentas
@@ -37,6 +37,8 @@ class ExecutorChat:
         self.limite = limite
         self.emissor = emissor
         self.medidor = medidor
+        self.verificar_ativa = verificar_ativa
+        self.documento_base = None
         self.gasto_usd = 0.0
         self.custo_total_centavos = custo_anterior_centavos
         self.orcamento_total_usd = cfg.orcamento_execucao_usd if orcamento_total_usd is None else orcamento_total_usd
@@ -45,6 +47,12 @@ class ExecutorChat:
     @property
     def restante_usd(self) -> float:
         return self.cfg.orcamento_execucao_usd - self.gasto_usd
+
+    def descontar_documento_base(self, custo_usd: float | None) -> None:
+        """O documento-base (chamada do worker) sai do mesmo orçamento da execução."""
+        if custo_usd:
+            self.gasto_usd += custo_usd
+            self.custo_total_centavos += usd_para_centavos(custo_usd, self.cfg.taxa_usd_brl) or 0
 
     def teto_construcao(self) -> float:
         return min(self.restante_usd, self.cfg.orcamento_execucao_usd * FRACAO_CONSTRUCAO) * FOLGA
@@ -57,12 +65,13 @@ class ExecutorChat:
         if self.emissor is not None:
             self.emissor.emit_event(STEP, "build_started", "Agente iniciou a construção do pipeline a partir do plano",
                                     1, plan_version=self.plano_publico.get("plan_version"))
+        self.documento_base = documento_base
         prompt = montar_prompt_construcao(self.plano_publico, self.perfis, documento_base)
         return self._sessao(SISTEMA_CONSTRUCAO, prompt, TENTATIVA_CONSTRUCAO, self.teto_construcao(),
                             self.cfg.max_turnos_construcao)
 
     def __call__(self, falha: dict, tentativa: int) -> dict:
-        prompt = montar_prompt(falha, tentativa, self.limite, self.plano_publico, self.perfis)
+        prompt = montar_prompt(falha, tentativa, self.limite, self.plano_publico, self.perfis, self.documento_base)
         return self._sessao(SISTEMA, prompt, tentativa, self.teto_correcao(tentativa), self.cfg.max_turnos_tentativa)
 
     def _sessao(self, sistema: str, prompt: str, tentativa: int, teto: float, max_turnos: int) -> dict:
@@ -74,7 +83,7 @@ class ExecutorChat:
         saida, escritas = executar_sessao(
             self.cliente, sistema, prompt, self.ferramentas, self.plano_publico["editable_models"],
             emissor=self.emissor, tentativa=max(1, tentativa), max_turnos=max_turnos, teto_usd=teto,
-            precos=(self.cfg.preco_entrada_usd_mtok, self.cfg.preco_saida_usd_mtok))
+            precos=(self.cfg.preco_entrada_usd_mtok, self.cfg.preco_saida_usd_mtok), verificar_ativa=self.verificar_ativa)
         self.ultima_saida = saida
         duracao = round(time.monotonic() - inicio, 3)
         # Custo desconhecido consome o teto inteiro, por precaução.

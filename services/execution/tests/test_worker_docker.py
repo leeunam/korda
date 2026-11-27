@@ -1,4 +1,4 @@
-"""Integração do worker com a imagem real e o lote 01_demo do gerador."""
+"""Aceites do worker sobre 01_demo, DuckDB, dbt e o exportador da imagem real."""
 
 import hashlib
 import json
@@ -10,16 +10,35 @@ import uuid
 from pathlib import Path
 from unittest.mock import patch
 
+from korda_execution import worker
+from korda_execution.aprovacoes import ErroAprovacao, Registro
+from korda_execution.artefatos import entregar
 from korda_execution.eventos import EmissorEventos
+from korda_execution.harness.cliente_chat import ClienteChatFalso, RespostaChat
 from korda_execution.sandbox import IMAGEM_PADRAO, LocalDockerSandbox, docker_disponivel, imagem_existe
+from services.execution.tests.test_worker import (
+    CONTEXTO, DOCUMENTO, FALSO, PROJETO, REPO, ROTEIRIZADO, escrever, modelos_de_referencia, planejar_com_cliente_falso,
+)
 
-REPO = Path(__file__).resolve().parents[3]
-_PRONTO = docker_disponivel() and imagem_existe(IMAGEM_PADRAO)
-if not _PRONTO and os.environ.get("KORDA_EXIGIR_DOCKER") == "1":
+PRONTO = docker_disponivel() and imagem_existe(IMAGEM_PADRAO)
+if not PRONTO and os.environ.get("KORDA_EXIGIR_DOCKER") == "1":
     raise RuntimeError(f"KORDA_EXIGIR_DOCKER=1, mas Docker ou a imagem {IMAGEM_PADRAO} não está disponível")
 
 
-@unittest.skipUnless(_PRONTO, f"Docker ou imagem {IMAGEM_PADRAO} indisponível")
+def _hashes_protegidos():
+    pastas = (PROJETO / "tests", PROJETO / "definicoes", PROJETO / "models")
+    arquivos = [p for pasta in pastas for p in pasta.rglob("*") if p.is_file() and "__pycache__" not in p.parts]
+    return {p: hashlib.sha256(p.read_bytes()).hexdigest() for p in [*arquivos, PROJETO / "exportar.py"]}
+
+
+def _sem_deduplicacao(sql):
+    defeituoso, n = re.subn(r"(?im)^where\s+copia\s*=\s*1\s*;?\s*\Z", "", sql)
+    if n != 1:
+        raise AssertionError("A fixture precisa acompanhar o filtro de deduplicação de prata_ctes")
+    return defeituoso
+
+
+@unittest.skipUnless(PRONTO, f"Docker ou imagem {IMAGEM_PADRAO} indisponível")
 class TestWorkerDocker(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -27,126 +46,215 @@ class TestWorkerDocker(unittest.TestCase):
 
         temp = tempfile.TemporaryDirectory(prefix="korda-worker-docker-")
         cls.addClassCleanup(temp.cleanup)
-        fontes = Path(temp.name)
-        generate("01_demo", output_root=fontes)
-        cls.fontes = fontes / "01_demo"
+        generate("01_demo", output_root=Path(temp.name))
+        cls.fontes = Path(temp.name) / "01_demo"
 
-    def test_01_demo_corrige_a_duplicata_no_dbt_e_aguarda_segunda_aprovacao(self):
-        from korda_execution import worker
-        from korda_execution.aprovacoes import ErroAprovacao, Registro
-        from korda_execution.harness.cliente_chat import ClienteChatFalso, RespostaChat
+    def setUp(self):
         from services.planning.korda_planning import gerar_plano
 
-        nome_modelo = "models/prata_ctes.sql"
-        modelo = REPO / "services/execution/pipeline/projeto" / nome_modelo
-        original = modelo.read_text(encoding="utf-8")
-        # Omite a seleção da primeira cópia do documento só no modelo deste run.
-        defeituoso, substituicoes = re.subn(r"(?im)^where\s+copia\s*=\s*1\s*;?\s*\Z", "", original)
-        self.assertEqual(substituicoes, 1, "A fixture precisa acompanhar o modelo de deduplicação atual")
-        modelos_iniciais = {}
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.base = Path(tmp.name)
+        self.registro = Registro(self.base / "controle")
+        contexto = json.loads(CONTEXTO.read_text(encoding="utf-8"))
+        self.plano_base = gerar_plano(contexto, destino="pasta-demo", custo_estimado_centavos=0)
+        self.contexto = contexto
+        self.run_id = "demo-" + uuid.uuid4().hex
+        self.revisao = self.base / "revisao" / self.run_id
+        self.hashes = _hashes_protegidos()
 
-        class SandboxDaFixture(LocalDockerSandbox):
-            defeito_injetado = False
+    def aprovar(self, plano):
+        self.registro.registrar(plano)
+        self.registro.decidir_plano(plano["project_id"], plano["plan_version"], "Pessoa fictícia (teste)", True)
 
+    def planejar_e_aprovar(self, plano_base=None):
+        plano_base = self.plano_base if plano_base is None else plano_base
+        pronto = planejar_com_cliente_falso(plano_base, self.contexto, self.base)
+        self.assertEqual(pronto["estado"], "pronto")
+        # Usa o plano gravado pelo planejamento, como o operador faz pela CLI.
+        plano = json.loads((Path(pronto["pasta"]) / "plano.json").read_text(encoding="utf-8"))
+        self.assertNotEqual(plano["plan_version"], plano_base["plan_version"])
+        self.assertEqual(plano["construction"]["document"].strip(), DOCUMENTO)
+        self.aprovar(plano)
+        return plano
+
+    def executar(self, plano, cfg, respostas=()):
+        self.cliente = ClienteChatFalso(list(respostas)) if cfg == FALSO else None
+        return worker.executar(self.registro, plano, self.run_id, raiz=self.base, fontes=self.fontes,
+                               cfg=cfg, cliente_llm=self.cliente)
+
+    def eventos(self):
+        return EmissorEventos(self.revisao / "eventos.jsonl", self.run_id).ler()
+
+    def medir(self):
+        return json.loads((self.revisao / "medicao.json").read_text(encoding="utf-8"))
+
+    def conferir_documento(self, plano):
+        texto = plano["construction"]["document"]
+        documento = (self.revisao / "documento_base.md").read_bytes()
+        self.assertEqual(documento, texto.encode("utf-8"))
+        self.assertIn(texto, self.cliente.pedidos[0][1]["content"])
+        medicao = self.medir()
+        self.assertEqual(medicao["documento_base"]["origem"], "construction")
+        self.assertEqual(medicao["documento_base"]["sha256"], hashlib.sha256(documento).hexdigest())
+        self.assertEqual(medicao["plan_version"], plano["plan_version"])
+        self.assertTrue(medicao["synthetic"] and medicao["custo_completo"])
+
+    def tearDown(self):
+        self.assertFalse((self.base / "sandbox" / self.run_id).exists())
+        self.assertEqual(_hashes_protegidos(), self.hashes)
+
+    def test_glob_historico_planejado_cria_modelo_novo_em_sandbox_vazia(self):
+        base = json.loads((REPO / "packages/contracts/plan/v0.1.0/examples/01_demo.json").read_text(encoding="utf-8"))
+        # Versão emitida pelo planejador publicado de Gabriel para o mesmo contexto,
+        # destino e custo com o escopo models/*. O validador recalcula este hash.
+        base.update(editable_models=["models/*"],
+                    plan_version="e7743944485dd3ecef0f13f9d673ecd4b12c3fe7f85dce549d8bb87eb228205d")
+        plano = self.planejar_e_aprovar(base)
+        self.assertEqual(plano["editable_models"], ["models/*"])
+        inicial = []
+
+        class ObservarSandbox(LocalDockerSandbox):
             def criar(self):
                 super().criar()
-                projeto = self.dir_run / "projeto"
-                modelos_iniciais.update({p.relative_to(projeto).as_posix(): p.stat().st_size
-                                         for p in (projeto / "models").rglob("*.sql")})
+                inicial.append([p.relative_to(self.dir_run).as_posix() for p in
+                                (self.dir_run / "projeto/models").rglob("*.sql") if p.stat().st_size > 0])
+
+        modelos = modelos_de_referencia()
+        novo = "models/conferencia_pedidos.sql"
+        self.assertNotIn(novo, modelos)
+        modelos[novo] = "select count(*) as pedidos from {{ ref('ouro_por_pedido') }}"
+        respostas = [
+            RespostaChat.de_tool_calls([("ler_arquivo", {"caminho": "exportar.py"})]),
+            RespostaChat.de_tool_calls([("escrever_modelo", {"caminho": "tests/chave_fiscal_unica.sql",
+                                                            "conteudo": "select 1 where false"})]),
+            escrever(modelos),
+            RespostaChat.texto("Pipeline escrito."),
+        ]
+        with patch.object(worker, "LocalDockerSandbox", ObservarSandbox):
+            estado = self.executar(plano, FALSO, respostas)
+        self.assertEqual(estado["state"], "aguardando_aprovacao_entrega", estado)
+        self.assertEqual(inicial, [[]])
+        self.conferir_documento(plano)
+        self.assertEqual(len(self.cliente.pedidos), len(respostas))
+        eventos = self.eventos()
+        recusa = [e for e in eventos if e["type"] == "tool_refused"]
+        self.assertEqual(len(recusa), 1)
+        self.assertEqual(recusa[0]["dados"]["origem"], "hook")
+        self.assertCountEqual([e["dados"]["caminho"] for e in eventos if e["type"] == "file_written"], modelos)
+        sequencia = ["build_started", "agent_finished", "dbt_passed", "test_passed", "evaluation_finished"]
+        self.assertEqual([e["type"] for e in eventos if e["type"] in sequencia + ["intervention_requested"]], sequencia)
+        self.assertTrue(next(e for e in eventos if e["type"] == "evaluation_finished")["dados"]["aprovado"])
+        medicao = self.medir()
+        self.assertEqual([f["tentativa"] for f in medicao["por_tentativa"]], [0])
+        self.assertEqual(medicao["tokens_entrada"], sum(r.tokens_entrada for r in respostas))
+        self.assertEqual(medicao["tokens_saida"], sum(r.tokens_saida for r in respostas))
+
+    def test_exportador_recusa_duas_linhas_de_kpi_e_chat_corrige_so_o_agregado(self):
+        plano = self.planejar_e_aprovar()
+        modelos = modelos_de_referencia()
+        nome = "models/ouro_kpis.sql"
+        # O contrato de tipos dbt aceita este agregado. A cardinalidade é verificada por exportar.py.
+        sql = modelos[nome].strip().removesuffix(";")
+        errado = f"with duplicado as (\n{sql}\n) select duplicado.* from duplicado cross join (values (1), (2)) copia(n)"
+        respostas = [escrever({**modelos, nome: errado}), RespostaChat.texto("Construído.", tokens=(0, 0)),
+                     escrever({nome: modelos[nome]}), RespostaChat.texto("Agregado corrigido.", tokens=(0, 0))]
+        estado = self.executar(plano, FALSO, respostas)
+        self.assertEqual(estado["state"], "aguardando_aprovacao_entrega")
+        self.conferir_documento(plano)
+        eventos = self.eventos()
+        fases = {"dbt_passed", "dbt_failed", "test_failed", "fix_started", "fix_applied", "test_passed", "evaluation_finished"}
+        self.assertEqual([e["type"] for e in eventos if e["type"] in fases],
+                         ["dbt_passed", "test_failed", "fix_started", "fix_applied", "dbt_passed", "test_passed",
+                          "evaluation_finished"])
+        i = next(i for i, e in enumerate(eventos) if e["type"] == "test_failed")
+        self.assertEqual(eventos[i]["dados"]["codigo"], "implementacao")
+        self.assertIn("agregado deve produzir exatamente uma linha", eventos[i]["dados"]["erro"])
+        self.assertEqual([e["dados"]["caminho"] for e in eventos[i:] if e["type"] == "file_written"], [nome])
+        self.assertEqual(self.medir()["correcoes"], 1)
+        with self.assertRaises(ErroAprovacao):
+            entregar(self.registro, self.base, self.run_id, plano["destination"])
+        self.registro.decidir_entrega(self.run_id, "Revisor de entrega fictício", True)
+        entrega = entregar(self.registro, self.base, self.run_id, plano["destination"])
+        self.assertTrue((entrega / "pacote.zip").is_file())
+        self.assertEqual(self.registro.consultar(self.run_id)["state"], "promovida")
+
+    def test_roteirizado_repara_duplicata_real_no_primeiro_build(self):
+        plano = self.plano_base
+        self.aprovar(plano)
+        nome = "models/prata_ctes.sql"
+        ruim = _sem_deduplicacao(modelos_de_referencia()[nome])
+
+        class DuplicataNoPrimeiroBuild(LocalDockerSandbox):
+            injetado = False
 
             def rodar_comando(self, argv, timeout_s=300, stdin=None):
-                if argv[0] == "dbt" and "build" in argv and not self.defeito_injetado:
-                    self.defeito_injetado = True
-                    self.enviar_arquivos({f"/work/projeto/{nome_modelo}": defeituoso.encode("utf-8")})
+                if argv[0] == "dbt" and "build" in argv and not self.injetado:
+                    self.enviar_arquivos({f"/work/projeto/{nome}": ruim.encode("utf-8")})
+                    self.injetado = True
                 return super().rodar_comando(argv, timeout_s, stdin)
 
-        with tempfile.TemporaryDirectory() as tmp:
-            base = Path(tmp)
-            contexto = REPO / "packages/contracts/context/v0.1.0/examples/02_rateio_confirmado.json"
-            plano = gerar_plano(json.loads(contexto.read_text(encoding="utf-8")),
-                                destino="pasta-demo", custo_estimado_centavos=0)
-            registro = Registro(base / "controle")
-            registro.registrar(plano)
-            registro.decidir_plano(plano["project_id"], plano["plan_version"], "Pessoa fictícia (teste)", True)
-            run_id = "e2e-" + uuid.uuid4().hex
+        with patch.object(worker, "LocalDockerSandbox", DuplicataNoPrimeiroBuild):
+            estado = self.executar(plano, ROTEIRIZADO)
+        self.assertEqual(estado["state"], "aguardando_aprovacao_entrega")
+        eventos = self.eventos()
+        fases = {"dbt_failed", "test_failed", "fix_started", "fix_applied", "dbt_passed", "test_passed", "evaluation_finished"}
+        self.assertEqual([e["type"] for e in eventos if e["type"] in fases], [
+            "dbt_failed", "test_failed", "fix_started", "fix_applied", "dbt_passed", "test_passed", "evaluation_finished",
+        ])
+        por_tipo = {e["type"]: e["dados"] for e in eventos}
+        self.assertEqual(por_tipo["test_failed"]["codigo"], "implementacao")
+        self.assertIn("chave_fiscal_unica", por_tipo["test_failed"]["erro"])
+        self.assertEqual(por_tipo["fix_applied"]["correcoes"], 1)
+        self.assertEqual(por_tipo["fix_applied"]["custo_centavos"], 0)
+        self.assertEqual(self.medir()["executor"], "roteirizado")
 
-            def cliente_com_correcao(construcao):
-                ajuste = [("escrever_modelo", {"caminho": nome_modelo, "conteudo": original})]
-                return ClienteChatFalso([*construcao, RespostaChat.de_tool_calls(ajuste, tokens=(0, 0)),
-                                         RespostaChat.texto("Modelo corrigido", tokens=(0, 0))])
+    def test_falha_persistente_para_no_limite_e_nao_avalia(self):
+        plano = self.planejar_e_aprovar()
+        modelos = modelos_de_referencia()
+        nome = "models/prata_ctes.sql"
+        ruim = {nome: _sem_deduplicacao(modelos[nome])}
+        cliente = [escrever({**modelos, **ruim}), RespostaChat.texto("Construído.")]
+        for _ in range(3):
+            cliente.extend([escrever(ruim), RespostaChat.texto("Tentei corrigir.")])
+        with self.assertRaisesRegex(worker.FalhaExecucao, "limite_atingido"):
+            self.executar(plano, FALSO, cliente)
+        self.assertEqual(self.registro.consultar(self.run_id)["state"], "falhou")
+        eventos = self.eventos()
+        tipos = [e["type"] for e in eventos]
+        self.assertEqual(tipos.count("intervention_requested"), 1)
+        self.assertEqual(tipos.count("fix_applied"), 3)
+        self.assertEqual(tipos.count("test_failed"), 4)
+        self.assertNotIn("evaluation_finished", tipos)
+        self.assertFalse((self.revisao / "avaliacao.json").exists())
+        self.assertEqual(self.medir()["tentativas"], 4)
 
-            with (patch.dict(os.environ, {"KORDA_EXECUTOR": "falso", "KORDA_PERMITIR_LLM_REAL": "0"}),
-                  patch("korda_execution.construcao.ClienteChatFalso", side_effect=cliente_com_correcao),
-                  patch.object(worker, "LocalDockerSandbox", SandboxDaFixture)):
-                worker.executar(registro, plano, run_id, raiz=base, fontes=self.fontes)
-            estado = registro.consultar(run_id)
-            self.assertEqual(estado["state"], "aguardando_aprovacao_entrega", estado)
-            self.assertEqual(estado["plan_version"], plano["plan_version"])
-            with self.assertRaises(ErroAprovacao):
-                registro.autorizar_destino(run_id, plano["destination"])
-            self.assertFalse((base / "sandbox" / run_id).exists(), "A sandbox temporária deve ser removida")
-            self.assertEqual(modelo.read_text(encoding="utf-8"), original)
-            self.assertEqual(modelos_iniciais, {p: 0 for p in plano["editable_models"]})
+    def test_construcao_sem_modelos_escala_sem_build(self):
+        plano = self.planejar_e_aprovar()
+        with self.assertRaisesRegex(worker.FalhaExecucao, "construcao_falhou"):
+            self.executar(plano, FALSO, [RespostaChat.texto("Não consigo construir.")])
+        tipos = [e["type"] for e in self.eventos()]
+        self.assertEqual(tipos.count("intervention_requested"), 1)
+        self.assertFalse({"dbt_failed", "dbt_passed", "evaluation_finished"}.intersection(tipos))
 
-            eventos = EmissorEventos(base / "revisao" / run_id / "eventos.jsonl", run_id).ler()
-            sequencia = {"dbt_failed", "test_failed", "fix_started", "fix_applied", "dbt_passed",
-                         "test_passed", "evaluation_finished"}
-            self.assertEqual([e["type"] for e in eventos if e["type"] in sequencia], [
-                "dbt_failed", "test_failed", "fix_started", "fix_applied",
-                "dbt_passed", "test_passed", "evaluation_finished",
-            ])
-            por_tipo = {e["type"]: e for e in eventos}
-            self.assertEqual(por_tipo["test_failed"]["dados"]["codigo"], "implementacao")
-            self.assertEqual(por_tipo["dbt_passed"]["attempt"], 2)
-            self.assertEqual(por_tipo["fix_applied"]["dados"]["correcoes"], 1)
-            self.assertEqual(por_tipo["fix_applied"]["dados"]["custo_centavos"], 0)
-            self.assertTrue(por_tipo["evaluation_finished"]["dados"]["aprovado"])
-
-            revisao = base / "revisao" / run_id
-            medicao = json.loads((revisao / "medicao.json").read_text(encoding="utf-8"))
-            self.assertEqual(medicao["executor"], "falso")
-            self.assertTrue(medicao["synthetic"])
-            self.assertEqual(medicao["correcoes"], 1)
-            self.assertEqual([fase["tentativa"] for fase in medicao["por_tentativa"]], [0, 1])
-            self.assertEqual(medicao["tokens_entrada"] + medicao["tokens_saida"], 0)
-            self.assertTrue(medicao["custo_completo"])
-            self.assertEqual(medicao["custo_centavos"], 0)
-            documento = (revisao / "documento_base.md").read_bytes()
-            self.assertEqual(hashlib.sha256(documento).hexdigest(), medicao["documento_base"]["sha256"])
-            self.assertEqual(medicao["plan_version"], estado["plan_version"])
-            primeira_falha = next(i for i, e in enumerate(eventos) if e["type"] == "dbt_failed")
-            construcao = [e["dados"]["caminho"] for e in eventos[:primeira_falha] if e["type"] == "file_written"]
-            correcao = [e["dados"]["caminho"] for e in eventos[primeira_falha:] if e["type"] == "file_written"]
-            self.assertCountEqual(construcao, plano["editable_models"])
-            self.assertEqual(correcao, [nome_modelo])
-
-    def test_plano_legado_mantem_versao_permissao_e_promocao_dos_tres_resultados(self):
-        from korda_execution import worker
-        from korda_execution.aprovacoes import ErroAprovacao, Registro
-        from korda_execution.artefatos import entregar
-
-        caminho = REPO / "packages/contracts/plan/v0.1.0/examples/01_demo.json"
-        plano = json.loads(caminho.read_text(encoding="utf-8"))
+    def test_legado_promove_tres_resultados_com_sua_permissao_original(self):
+        plano = json.loads((REPO / "packages/contracts/plan/v0.1.0/examples/01_demo.json").read_text(encoding="utf-8"))
         self.assertEqual(plano["editable_models"], ["models/prata_ctes.sql"])
-        self.assertEqual(plano["schema_version"], "0.1.0")
-        run = "legado-" + uuid.uuid4().hex
-        with tempfile.TemporaryDirectory() as tmp:
-            base = Path(tmp)
-            registro = Registro(base / "controle")
-            registro.registrar(plano)
-            registro.decidir_plano(plano["project_id"], plano["plan_version"], "Revisor fictício legado", True)
-            with (patch.dict(os.environ, {"KORDA_EXECUTOR": "roteirizado", "KORDA_PERMITIR_LLM_REAL": "0"}),
-                  patch.object(worker, "construir_modelos", side_effect=AssertionError("Construção não autorizada pela v0.1"))):
-                estado = worker.executar(registro, plano, run, raiz=base, fontes=self.fontes)
-            self.assertEqual(estado["state"], "aguardando_aprovacao_entrega")
-            self.assertEqual(estado["plan_version"], plano["plan_version"])
-            esperados = {"kpis.json", "por_pedido.csv", "por_viagem.csv"}
-            self.assertEqual(set(estado["manifesto"]["arquivos"]), esperados)
-            laudo = json.loads((base / "revisao" / run / "avaliacao.json").read_text(encoding="utf-8"))
-            self.assertTrue(laudo["aprovado"], laudo)
-            with self.assertRaises(ErroAprovacao):
-                entregar(registro, base, run, plano["destination"])
-            registro.decidir_entrega(run, "Revisor fictício legado", True)
-            pasta = entregar(registro, base, run, plano["destination"])
-            self.assertEqual({p.name for p in pasta.iterdir()}, esperados)
-            self.assertEqual(registro.consultar(run)["state"], "promovida")
+        self.aprovar(plano)
+        with patch.object(worker, "construir_modelos", side_effect=AssertionError("Construção v0.2 fora da autorização")):
+            estado = self.executar(plano, ROTEIRIZADO)
+        self.assertEqual(estado["state"], "aguardando_aprovacao_entrega")
+        self.assertEqual(estado["plan_version"], plano["plan_version"])
+        esperados = {"kpis.json", "por_pedido.csv", "por_viagem.csv"}
+        self.assertEqual(set(estado["manifesto"]["arquivos"]), esperados)
+        self.assertTrue(json.loads((self.revisao / "avaliacao.json").read_text())["aprovado"])
+        with self.assertRaises(ErroAprovacao):
+            entregar(self.registro, self.base, self.run_id, plano["destination"])
+        self.registro.decidir_entrega(self.run_id, "Revisor fictício legado", True)
+        pasta = entregar(self.registro, self.base, self.run_id, plano["destination"])
+        self.assertEqual({p.name for p in pasta.iterdir()}, esperados)
+        self.assertEqual(self.registro.consultar(self.run_id)["state"], "promovida")
+
+
+if __name__ == "__main__":
+    unittest.main()

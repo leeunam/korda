@@ -16,6 +16,27 @@ def _tentativa(n, custo_usd=0.5, custo_centavos=300, ok=True):
 
 
 class TestMedidor(unittest.TestCase):
+    def test_documento_base_entra_no_custo_e_nos_tokens(self):
+        m = Medidor("run-1", "chat", "anthropic/claude-opus-5.5")
+        m.registrar_documento_base(tokens_entrada=3000, tokens_saida=900, custo_usd=0.03, custo_centavos=18,
+                                   duracao_s=4.0, secoes_ausentes=["Métricas"])
+        m.registrar(_tentativa(0))
+        r = m.resumo()
+        self.assertEqual(r["documento_base"]["secoes_ausentes"], ["Métricas"])
+        self.assertEqual(r["tentativas"], 1)
+        self.assertEqual(r["tokens_entrada"], 4000)
+        self.assertAlmostEqual(r["custo_usd"], 0.53)
+        self.assertEqual(r["custo_centavos"], 318)
+        self.assertAlmostEqual(r["duracao_s"], 14.0)
+        self.assertTrue(r["custo_completo"])
+
+    def test_documento_base_sem_custo_deixa_o_custo_incompleto(self):
+        m = Medidor("run-1", "chat", "anthropic/claude-opus-5.5")
+        m.registrar_documento_base(tokens_entrada=0, tokens_saida=0, custo_usd=None, custo_centavos=None,
+                                   duracao_s=1.0, secoes_ausentes=[])
+        self.assertFalse(m.resumo()["custo_completo"])
+        self.assertIsNone(Medidor("run-2", "roteirizado", None).resumo()["documento_base"])
+
     def test_soma_tentativas(self):
         m = Medidor("run-1", "chat", "claude-opus-5-5")
         m.registrar(_tentativa(1))

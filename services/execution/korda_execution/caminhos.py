@@ -7,6 +7,8 @@ somente leitura da sandbox: mesmo que esta validação falhe, o kernel recusa a 
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
+from fnmatch import fnmatchcase
 from pathlib import PurePosixPath
 
 DIR_PROJETO = "/work/projeto"
@@ -14,6 +16,10 @@ _SEGMENTO = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]*$")
 SUFIXOS_MODELO = (".sql",)
 SUBCOMANDOS_DBT = ("build", "run", "test", "compile", "ls", "debug")
 _SELECAO = re.compile(r"^[A-Za-z0-9_.:+*@/]+$")
+# Caminho exato (`models/prata_ctes.sql`) ou padrão simples (`models/*`, `models/prata/*.sql`).
+# Só `*` no último segmento: nada de `**`, `?`, `[...]` nem padrão fora de models/.
+_PADRAO_MODELO = re.compile(
+    r"^models/(?:[A-Za-z0-9_][A-Za-z0-9_.-]*/)*(?:[A-Za-z0-9_][A-Za-z0-9_.-]*\.sql|\*|\*\.sql)$")
 
 
 class CaminhoRecusado(ValueError):
@@ -45,6 +51,26 @@ def caminho_modelo(caminho: str) -> str:
     if p.suffix not in SUFIXOS_MODELO:
         raise CaminhoRecusado(f"só arquivos {', '.join(SUFIXOS_MODELO)} em models/")
     return f"{DIR_PROJETO}/{p}"
+
+
+def padrao_modelo(padrao: str) -> str:
+    """Valida uma entrada de `editable_models` do plano (caminho exato ou padrão) e a devolve."""
+    if not isinstance(padrao, str) or not _PADRAO_MODELO.fullmatch(padrao):
+        raise CaminhoRecusado(f"editable_models aceita models/<arquivo>.sql ou um padrão como models/*: {padrao!r}")
+    return padrao
+
+
+def modelo_autorizado(caminho: str, padroes: Iterable[str]) -> bool:
+    """Um modelo SQL válido casa com algum caminho ou padrão autorizado.
+
+    `*` do fnmatch também atravessa `/`, então `models/*` cobre subpastas de models/;
+    `caminho_modelo` já garante que o caminho fica em models/ e termina em .sql.
+    """
+    try:
+        caminho_modelo(caminho)
+    except CaminhoRecusado:
+        return False
+    return any(fnmatchcase(caminho, padrao) for padrao in padroes)
 
 
 def caminho_leitura(caminho: str) -> str:

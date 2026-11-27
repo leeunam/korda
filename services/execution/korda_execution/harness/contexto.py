@@ -13,7 +13,7 @@ import json
 CAMPOS_PLANO = ("plan_version", "editable_models", "limits", "rules", "metrics", "tasks")
 CAMPOS_METRICA_OMITIDOS = ("state", "blocking_gaps")
 LIMITE_PERFIS = 12_000
-LIMITE_DOCUMENTO = 20_000
+LIMITE_DOCUMENTO = 60_000
 
 _REGRAS = """Regras:
 - Você só pode criar ou alterar modelos SQL permitidos por editable_models do plano, usando escrever_modelo.
@@ -27,6 +27,8 @@ para conferir as relações exigidas. tests/rastreabilidade_cte.sql confere as N
 tests/contrato_exportacao.sql valida nomes e tipos da saída. Se houver divergência de tipo, consulte \
 main_dbt_test__audit.contrato_exportacao para identificar tabela, campo, esperado e encontrado. \
 macros/meio_par.sql fornece o arredondamento compartilhado.
+- O contrato de saída está em exportar.py (leia com ler_arquivo): as tabelas ouro_kpis, ouro_por_pedido, \
+ouro_por_viagem e prata_rateios, com as colunas que ele seleciona. A exportação faz parte da verificação.
 - Investigue antes de escrever: ler_plano, ler_arquivo, inspecionar_fonte e consultar_sql.
 - Depois de escrever, rode rodar_dbt com subcomando build e leia o resultado.
 - Se algo exigir mudar uma regra, um teste ou algo fora de editable_models, não contorne: \
@@ -110,9 +112,11 @@ def montar_prompt_construcao(plano_publico: dict, perfis: dict, documento_base: 
     )
 
 
-def montar_prompt(falha: dict, tentativa: int, limite: int, plano_publico: dict, perfis: dict) -> str:
+def montar_prompt(falha: dict, tentativa: int, limite: int, plano_publico: dict, perfis: dict,
+                 documento_base: str | None = None) -> str:
     return (
         f"Correção: tentativa {tentativa} de {limite}.\n\n"
+        f"Especificação aprovada: {documento_base or '(consultar plano)'}\n\n"
         f"Falha do build (código {falha.get('codigo', 'desconhecido')}):\n{falha.get('erro', '')}\n\n"
         f"Plano aprovado (projeção):\n{_json(plano_publico)}\n\n"
         f"Perfis das fontes:\n{_perfis(perfis)}\n"

@@ -29,7 +29,7 @@ def _custo(tokens_entrada: int, tokens_saida: int, precos: tuple[float, float]) 
 
 def executar_sessao(cliente: ClienteChat, sistema: str, prompt: str, ferramentas: FerramentasAgente,
                     editable_models, *, emissor, tentativa: int, max_turnos: int, teto_usd: float,
-                    precos: tuple[float, float]) -> tuple[SaidaSessao, list[str]]:
+                    precos: tuple[float, float], verificar_ativa=None) -> tuple[SaidaSessao, list[str]]:
     hook = hook_pre_tool_use(editable_models, emissor, obter_tentativa=lambda: tentativa)
     catalogo = ferramentas_openai()
     mensagens: list[dict] = [{"role": "system", "content": sistema}, {"role": "user", "content": prompt}]
@@ -63,11 +63,16 @@ def executar_sessao(cliente: ClienteChat, sistema: str, prompt: str, ferramentas
         entrada += resposta.tokens_entrada
         saida += resposta.tokens_saida
         uso_completo = uso_completo and resposta.uso_informado
+        if not uso_completo:
+            subtype = "uso_desconhecido"
+            break
         mensagens.append(resposta.mensagem_assistente or {"role": "assistant", "content": resposta.conteudo})
         if not resposta.tool_calls:
             subtype = "success"
             break
         for chamada in resposta.tool_calls:
+            if verificar_ativa is not None:
+                verificar_ativa()
             conteudo = asyncio.run(executar_chamada(chamada))
             mensagens.append({"role": "tool", "tool_call_id": chamada["id"], "content": conteudo})
         if uso_completo and _custo(entrada, saida, precos) >= teto_usd:

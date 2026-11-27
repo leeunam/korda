@@ -59,15 +59,17 @@ class RespostaChat:
 
 
 class ClienteChat(Protocol):
-    def completar(self, mensagens: list[dict], ferramentas: list[dict]) -> RespostaChat: ...
+    def completar(self, mensagens: list[dict], ferramentas: list[dict], *, max_tokens: int | None = None) -> RespostaChat: ...
 
 
 class ClienteChatHttp:
-    def __init__(self, url_base: str, chave: str, modelo: str, timeout_s: float = 300):
+    def __init__(self, url_base: str, chave: str, modelo: str, timeout_s: float = 300,
+                 max_tokens: int | None = None):
         self.url = url_base.rstrip("/") + "/chat/completions"
         self._chave = chave
         self.modelo = modelo
         self.timeout_s = timeout_s
+        self.max_tokens = max_tokens  # teto de saída por chamada; None deixa o padrão do provedor
 
     def __repr__(self) -> str:
         return f"ClienteChatHttp(url={self.url!r}, modelo={self.modelo!r})"
@@ -76,8 +78,9 @@ class ClienteChatHttp:
         dados = {"model": self.modelo, "messages": mensagens}
         if ferramentas:
             dados["tools"] = ferramentas
-        if max_tokens is not None:
-            dados["max_tokens"] = max_tokens
+        tetos = [teto for teto in (self.max_tokens, max_tokens) if teto is not None]
+        if tetos:
+            dados["max_tokens"] = min(tetos)
         corpo = json.dumps(dados).encode("utf-8")
         pedido = urllib.request.Request(self.url, data=corpo, method="POST", headers={
             "Authorization": f"Bearer {self._chave}", "Content-Type": "application/json", "User-Agent": USER_AGENT})
@@ -85,8 +88,8 @@ class ClienteChatHttp:
             with urllib.request.urlopen(pedido, timeout=self.timeout_s) as r:
                 bruto = r.read()
         except urllib.error.HTTPError as e:
-            detalhe = e.read()[:500].decode("utf-8", "replace").replace(self._chave, "***")
-            raise ErroLLM(f"API do LLM respondeu HTTP {e.code}: {detalhe}") from None
+            e.close()
+            raise ErroLLM(f"API do LLM respondeu HTTP {e.code}") from None
         except (urllib.error.URLError, TimeoutError, OSError) as e:
             raise ErroLLM(f"falha de rede ao chamar a API do LLM ({type(e).__name__})") from None
         try:
@@ -108,6 +111,7 @@ class ClienteComOrcamento:
         self.entrada, self.saida = precos
         self.verificar_ativa = verificar_ativa
         self.custo_completo = True
+        self.chamadas = 0
         self.tokens_entrada = 0
         self.tokens_saida = 0
 
@@ -124,13 +128,19 @@ class ClienteComOrcamento:
         if max_tokens <= 0 or not self.custo_completo:
             raise ErroLLM("orçamento insuficiente para a próxima chamada")
         self.custo_completo = False
+        self.chamadas += 1
         resposta = self.cliente.completar(mensagens, ferramentas, max_tokens=max_tokens)
         if resposta.uso_informado:
             self.tokens_entrada += resposta.tokens_entrada
             self.tokens_saida += resposta.tokens_saida
             self.restante_usd -= (resposta.tokens_entrada * self.entrada + resposta.tokens_saida * self.saida) / 1_000_000
             self.custo_completo = True
+        self.verificar_ativa()
         return resposta
+
+
+def cliente_offline(cliente):
+    return cliente is not None and not isinstance(cliente, ClienteChatHttp)
 
 
 class ClienteChatFalso:
@@ -140,6 +150,6 @@ class ClienteChatFalso:
         self.respostas = list(respostas)
         self.pedidos: list[list[dict]] = []
 
-    def completar(self, mensagens: list[dict], ferramentas: list[dict]) -> RespostaChat:
+    def completar(self, mensagens: list[dict], ferramentas: list[dict], *, max_tokens: int | None = None) -> RespostaChat:
         self.pedidos.append(json.loads(json.dumps(mensagens)))
         return self.respostas.pop(0) if self.respostas else RespostaChat.texto("")

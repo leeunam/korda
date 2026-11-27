@@ -79,6 +79,27 @@ class TestClienteChatHttp(unittest.TestCase):
             s.fechar()
         self.assertNotIn("tools", s.recebidos[0]["body"])
 
+    def test_max_tokens_so_quando_definido(self):
+        corpo = {"choices": [{"finish_reason": "stop", "message": {"role": "assistant", "content": "x"}}]}
+        s = _Servidor(corpo=corpo)
+        try:
+            ClienteChatHttp(s.url, "fk-teste", "m", timeout_s=5, max_tokens=6000).completar([{"role": "user", "content": "oi"}], [])
+            self._cliente(s).completar([{"role": "user", "content": "oi"}], [])
+        finally:
+            s.fechar()
+        self.assertEqual(s.recebidos[0]["body"]["max_tokens"], 6000)
+        self.assertNotIn("max_tokens", s.recebidos[1]["body"])
+
+    def test_limites_por_requisicao_e_por_cliente_usam_o_menor_teto(self):
+        s = _Servidor(corpo=RESPOSTA_TOOL)
+        try:
+            cliente = ClienteChatHttp(s.url, "fk-teste", "m", max_tokens=6000)
+            cliente.completar([], [], max_tokens=8000)
+            cliente.completar([], [], max_tokens=100)
+        finally:
+            s.fechar()
+        self.assertEqual([r["body"]["max_tokens"] for r in s.recebidos], [6000, 100])
+
     def test_resposta_sem_usage(self):
         corpo = {"choices": [{"finish_reason": "stop", "message": {"role": "assistant", "content": "pronto"}}]}
         s = _Servidor(corpo=corpo)

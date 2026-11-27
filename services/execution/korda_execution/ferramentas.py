@@ -1,4 +1,4 @@
-"""Ferramentas restritas que o harness (K10) vai expor ao agente executor.
+"""Ferramentas restritas que o harness (K10) expõe ao agente executor.
 
 Cada ferramenta devolve um dicionário serializável em JSON (`ok`, mais dados ou `erro`)
 e registra um evento. Recusas de política não levantam exceção: viram resposta para o
@@ -36,8 +36,8 @@ class FerramentasRestritas:
         self.plano_aprovado = deepcopy(self.plano_aprovado)
         if self.modelos_permitidos is not None:
             self.modelos_permitidos = frozenset(self.modelos_permitidos)
-            for caminho in self.modelos_permitidos:
-                caminhos.caminho_modelo(caminho)
+            for padrao in self.modelos_permitidos:
+                caminhos.padrao_modelo(padrao)
 
     def _evento(self, type: str, message: str, **extra) -> None:
         self.eventos.emit_event(self.step, type, message, self.attempt, **extra)
@@ -68,7 +68,7 @@ class FerramentasRestritas:
         except caminhos.CaminhoRecusado as e:
             return self._recusa("escrever_modelo", str(e))
         if self.plano_aprovado is not None or self.modelos_permitidos is not None:
-            if caminho not in (self.modelos_permitidos or ()):
+            if not caminhos.modelo_autorizado(caminho, self.modelos_permitidos or ()):
                 return self._recusa("escrever_modelo", "modelo fora do escopo aprovado")
         if not isinstance(conteudo, str):
             return self._recusa("escrever_modelo", "conteúdo SQL deve ser texto")

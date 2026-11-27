@@ -2,6 +2,8 @@
 
 O worker calcula os três indicadores de `01_demo` sob as nove regras confirmadas da versão aprovada do plano. O script protegido `projeto/ingerir.py` recebe em `/work/fontes` a landing Parquet imutável de Gabriel nos níveis 0 e 1. O plano define a origem dos dados e a execução registra o nível. Os modelos de prata e ouro e as regras de negócio são os mesmos nos dois percursos.
 
+Os arquivos em `projeto/models/` são a implementação de referência lida pelo modo `roteirizado` no host. Para construir um plano v0.2 a sandbox começa com os cinco arquivos SQL autorizados vazios. O harness escreve os modelos pelas ferramentas do worker, usando `construction.document` aprovado no modo chat. O adaptador bronze, as macros, os testes e o exportador permanecem protegidos. O operador encontra a sequência de planejamento e aprovações no [guia de execução](../README.md).
+
 ## Contrato da landing
 
 O manifesto usa `korda.landing/v0`. O nível 0 transforma os arquivos fictícios por meio de [korda_ingestao](../../../infra/sandbox/korda_ingestao/README.md). O nível 1 reúne o snapshot ERP, as cargas incrementais do TMS e os novos CT-e dos sistemas simulados. Cada tabela é lida do arquivo canônico no topo da landing. O worker verifica a contagem publicada de cada tabela consumida e recusa cargas com registros rejeitados.
@@ -22,7 +24,7 @@ Para reconstruir uma cópia individual do CT-e, o adaptador vincula os filhos ao
 | OTIF | Fração dos pedidos entregues até a data prometida inclusiva **e** com os volumes solicitados. A data ausente conta como falha. |
 | Ocupação | Peso carregado em kg dividido pela capacidade somada, uma vez por viagem, inclusive viagens vazias. O detalhamento por viagem usa fração, o KPI agregado usa percentual. Excesso de capacidade fica visível. |
 
-Um denominador vazio gera um valor nulo. O meio exato é arredondado para o par, com quatro casas nos KPIs e na fração de ocupação e duas no frete médio por viagem. O valor do frete mede custo, sem atribuir economia financeira ao indicador.
+Um denominador igual a zero gera um valor nulo. O meio exato é arredondado para o par, com quatro casas nos KPIs e na fração de ocupação e duas no frete médio por viagem. O valor do frete mede custo, sem atribuir economia financeira ao indicador.
 
 ## Exportação e linhagem
 
@@ -44,7 +46,7 @@ O teste `integridade_fontes` vincula o CT-e autorizado ao pedido diretamente na 
 
 ## Testes
 
-Na raiz do repositório, use Python com as dependências de `requirements-synthetic.txt`, DuckDB na versão de `infra/sandbox/requirements.txt`, Jinja2 e SQLite 3.44 ou superior.
+Na raiz do repositório, instale `requirements-worker.txt`. O ensaio complementar usa SQLite 3.44 ou superior.
 
 ```bash
 python3 -m unittest discover -s services/execution/pipeline/tests -v

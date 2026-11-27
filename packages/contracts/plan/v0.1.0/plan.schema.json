@@ -24,7 +24,7 @@
     "gaps": {"$ref": "../../context/v0.1.0/context.schema.json#/properties/gaps"},
     "state": {"enum": ["rascunho", "aguardando_aprovacao"]},
     "dataset": {"enum": ["01_demo", "02_variacao", "03_reservada", null]},
-    "editable_models": {"type": "array", "items": {"const": "models/prata_ctes.sql"}, "uniqueItems": true},
+    "editable_models": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^models/(?:[A-Za-z0-9_][A-Za-z0-9_.-]*/)*(?:[A-Za-z0-9_][A-Za-z0-9_.-]*\\.sql|\\*|\\*\\.sql)$"}},
     "period": {"type": "string", "minLength": 1},
     "metrics": {
       "type": "object",
@@ -56,7 +56,15 @@
       "type": ["string", "null"], "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9]",
       "not": {"type": "string", "pattern": "[^a-zA-Z0-9._-]"}
     },
-    "cost_estimate_brl_cents": {"type": ["integer", "null"], "minimum": 0}
+    "cost_estimate_brl_cents": {"type": ["integer", "null"], "minimum": 0},
+    "construction": {
+      "type": "object", "additionalProperties": false, "required": ["document", "model", "synthetic"],
+      "properties": {
+        "document": {"type": "string", "minLength": 1, "maxLength": 60000},
+        "model": {"type": "string", "minLength": 1, "maxLength": 200},
+        "synthetic": {"type": "boolean"}
+      }
+    }
   },
   "$defs": {
     "strings": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},

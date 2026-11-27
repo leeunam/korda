@@ -10,7 +10,7 @@ from jsonschema.exceptions import ValidationError
 
 P2 = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(P2))
-from korda_planning import gerar_plano, validar_plano
+from korda_planning import anexar_construcao, gerar_plano, validar_plano
 
 CONTRATOS = P2.parents[1] / "packages/contracts"
 CONTEXTO = CONTRATOS / "context/v0.1.0/examples/02_rateio_confirmado.json"
@@ -115,8 +115,47 @@ class TestPlanoIngestao(unittest.TestCase):
         self.assertEqual(legado["editable_models"], ["models/prata_ctes.sql"])
         validar_plano(legado)
         legado["editable_models"].append("models/ouro_kpis.sql")
-        with self.assertRaises(ValidationError):
+        with self.assertRaisesRegex(ValueError, "revisão canônica"):
             validar_plano(legado)
+        legado["plan_version"] = digest({k: v for k, v in legado.items() if k != "plan_version"})
+        with self.assertRaisesRegex(ValueError, "revisão canônica"):
+            validar_plano(legado)
+
+    def test_glob_v01_preserva_hash_antes_e_depois_de_construir(self):
+        legado = json.loads((CONTRATOS / "plan/v0.1.0/examples/01_demo.json").read_text(encoding="utf-8"))
+        legado["editable_models"] = ["models/*"]
+        with self.assertRaisesRegex(ValueError, "revisão canônica"):
+            validar_plano(legado)
+        # Versões medidas com o planejador do PR #30 e o mesmo contexto, destino e custo.
+        legado["plan_version"] = "e7743944485dd3ecef0f13f9d673ecd4b12c3fe7f85dce549d8bb87eb228205d"
+        validar_plano(legado)
+        construcao = {"document": "## Modelos\nprata_ctes", "model": "teste/falso", "synthetic": True}
+        pronto = anexar_construcao(legado, construcao)
+        self.assertEqual(pronto["plan_version"], "fcdf7a5659ac7c2d8bb82f748c17bd5e71896c38d8fb9fa4c6240e89969fd943")
+        self.assertEqual(pronto["editable_models"], ["models/*"])
+        validar_plano(pronto)
+        pronto["editable_models"] = ["models/prata_ctes.sql"]
+        with self.assertRaisesRegex(ValueError, "revisão canônica"):
+            validar_plano(pronto)
+
+    def test_construcao_considera_ingestao_janela_e_escopo_exato(self):
+        doc = {"document": "Plano da demo", "model": "teste/falso", "synthetic": True}
+        n0 = anexar_construcao(gerar_plano(self.contexto), doc)
+        n1 = anexar_construcao(self.gerar_n1(), doc)
+        self.assertNotEqual(n0["plan_version"], n1["plan_version"])
+        validar_plano(n1)
+        self.assertEqual(len(n1["editable_models"]), 5)
+        for campo, valor in [("doc", "mudou"), ("window", {"kind": "simulated_as_of", "as_of": "2026-09-29"}),
+                             ("editable_models", ["models/*"])]:
+            adulterado = copy.deepcopy(n1)
+            if campo == "doc":
+                adulterado["construction"]["document"] = valor
+            elif campo == "window":
+                adulterado["ingestion"]["window"] = valor
+            else:
+                adulterado[campo] = valor
+            with self.subTest(campo=campo), self.assertRaises((ValidationError, ValueError)):
+                validar_plano(adulterado)
 
     def test_cli_escolha_explicita_limite_inclusivo(self):
         r = subprocess.run([sys.executable, "-m", "korda_planning", str(CONTEXTO), "--nivel-ingestao", "n1",

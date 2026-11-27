@@ -37,4 +37,6 @@ Sem corte, o escopo do N1 é o lote completo. Acrescentar `--ate-dia 2026-09-29`
 
 A seção N1 conserva suas lacunas. Se continuar em rascunho, o plano completo também fica em rascunho. Método, frequência e latência dos exemplos continuam propostas para revisão. A descoberta permanece a origem das regras dos KPIs. Mudar a seção, o nível ou a janela altera a versão que precisa de nova aprovação humana.
 
-Os [planos v0.1.0](../../packages/contracts/plan/v0.1.0/README.md) existentes mantêm sua versão e a permissão original de editar `models/prata_ctes.sql`. Para passar do plano antigo ao novo fluxo, gere um plano v0.2.0, registre-o e submeta a nova versão à aprovação.
+O comando `planejar` da execução produz um documento de construção a partir do contexto e do plano base. A função `anexar_construcao` inclui o documento, o modelo e o marcador de dados sintéticos em `construction` e recalcula a versão que será submetida à primeira aprovação. As regras, a janela e os modelos editáveis continuam definidos pelos campos estruturados do plano. [Planejamento e execução](../execution/README.md)
+
+Os planos v0.1.0 registrados usam a lista de modelos e o hash que a respectiva edição emitiu. A primeira edição da demo autorizava `models/prata_ctes.sql`. A edição seguinte autorizava o padrão `models/*` e admitia o documento de construção opcional. A geração atual produz a v0.2.0. Para migrar, gere e registre o novo plano e submeta-o à aprovação humana. [Contrato v0.1.0](../../packages/contracts/plan/v0.1.0/README.md)

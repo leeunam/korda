@@ -13,7 +13,9 @@ from zipfile import ZipFile
 from pathlib import Path
 from unittest.mock import patch
 
+from korda_execution.harness.cliente_chat import ClienteChatFalso, RespostaChat
 from korda_execution.sandbox import IMAGEM_PADRAO, LocalDockerSandbox, docker_disponivel, imagem_existe
+from services.execution.tests.test_worker import FALSO, escrever, modelos_de_referencia, planejar_com_cliente_falso
 
 REPO = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO / "infra/sistemas-simulados"))
@@ -98,9 +100,6 @@ class TestWorkerIngestaoDocker(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         self.base = Path(tmp.name)
         self.registro = Registro(self.base / "controle")
-        modo = patch.dict(os.environ, {"KORDA_EXECUTOR": "roteirizado", "KORDA_PERMITIR_LLM_REAL": "0"})
-        modo.start()
-        self.addCleanup(modo.stop)
 
     def aprovar(self, nivel, janela):
         from services.planning.korda_planning import gerar_plano
@@ -108,6 +107,9 @@ class TestWorkerIngestaoDocker(unittest.TestCase):
         plano = gerar_plano(self.contexto, destino="pasta-demo", custo_estimado_centavos=0,
                             nivel_ingestao=nivel, janela_ingestao=janela,
                             proposta_ingestao=self.proposta if nivel == "n1" else None)
+        pronto = planejar_com_cliente_falso(plano, self.contexto, self.base)
+        self.assertEqual(pronto["estado"], "pronto")
+        plano = ler_json(Path(pronto["pasta"]) / "plano.json")
         self.registro.registrar(plano)
         self.registro.decidir_plano(plano["project_id"], plano["plan_version"], "Revisor fictício do teste", True)
         return plano
@@ -132,8 +134,11 @@ class TestWorkerIngestaoDocker(unittest.TestCase):
         for nivel in ("n0", "n1"):
             plano = self.aprovar(nivel, {"kind": "full_batch"})
             run = nivel + "-" + uuid.uuid4().hex
+            cliente = ClienteChatFalso([escrever(modelos_de_referencia()), RespostaChat.texto("Concluído.", tokens=(0, 0))])
             with patch.object(worker, "LocalDockerSandbox", ObservarMontagem):
-                worker.executar(self.registro, plano, run, raiz=self.base, fontes=self.fontes)
+                worker.executar(self.registro, plano, run, raiz=self.base, fontes=self.fontes, cfg=FALSO, cliente_llm=cliente)
+            self.assertEqual(len(cliente.pedidos), 2)
+            self.assertIn(plano["construction"]["document"], cliente.pedidos[0][1]["content"])
             self.assertEqual(self.registro.consultar(run)["state"], "aguardando_aprovacao_entrega")
             revisao = self.base / "revisao" / run
             pastas[nivel] = revisao / "resultados"
@@ -141,8 +146,11 @@ class TestWorkerIngestaoDocker(unittest.TestCase):
             self.assertTrue(laudo["aprovado"], laudo)
             self.assertEqual(laudo["divergencias"], 0)
             medicao = ler_json(revisao / "medicao.json")
-            self.assertEqual((medicao["executor"], medicao["custo_centavos"]), ("roteirizado", 0))
+            self.assertEqual((medicao["executor"], medicao["custo_centavos"]), ("falso", 0))
             self.assertTrue(medicao["synthetic"] and medicao["custo_completo"])
+            documento = (revisao / "documento_base.md").read_bytes()
+            self.assertEqual(documento, plano["construction"]["document"].encode("utf-8"))
+            self.assertEqual(medicao["documento_base"]["sha256"], hashlib.sha256(documento).hexdigest())
             ingestao = ler_json(revisao / "ingestao.json")
             self.assertEqual(ingestao["nivel"], nivel)
             self.assertEqual(ingestao["janela"], {"kind": "full_batch"})
@@ -156,6 +164,8 @@ class TestWorkerIngestaoDocker(unittest.TestCase):
                 publicada = entregar(self.registro, self.base, run, plano["destination"])
                 self.assertEqual(self.registro.consultar(run)["state"], "promovida")
                 with ZipFile(publicada / "pacote.zip") as pacote:
+                    decisoes = json.loads(pacote.read("decisoes.json"))
+                    self.assertEqual(decisoes["construction_sha256"], medicao["documento_base"]["sha256"])
                     execucao = json.loads(pacote.read("execucao.json"))
                     self.assertEqual(execucao["run_id"], run)
                     self.assertEqual(execucao["plan_version"], plano["plan_version"])
@@ -208,9 +218,11 @@ class TestWorkerIngestaoDocker(unittest.TestCase):
 
         plano = self.aprovar("n1", {"kind": "simulated_as_of", "as_of": "2026-09-02"})
         run = "parcial-" + uuid.uuid4().hex
+        cliente = ClienteChatFalso([])
         with patch.object(worker, "LocalDockerSandbox", side_effect=AssertionError("Build para janela parcial")):
             with self.assertRaises(worker.FalhaExecucao):
-                worker.executar(self.registro, plano, run, raiz=self.base, fontes=self.fontes)
+                worker.executar(self.registro, plano, run, raiz=self.base, fontes=self.fontes, cfg=FALSO, cliente_llm=cliente)
+        self.assertFalse(cliente.pedidos)
         estado = self.registro.consultar(run)
         self.assertEqual(estado["state"], "falhou", estado)
         self.assertIsNone(estado["manifesto"])

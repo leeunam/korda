@@ -13,8 +13,16 @@ from pathlib import Path
 from evaluation.worker.avaliador import avaliar
 from services.planning.korda_planning import validar_plano
 
+from . import caminhos
 from .artefatos import capturar, manifesto_revisao
-from .construcao import preparar_construcao, construir_modelos
+from .construcao import (
+    FalhaPreparo,
+    classificar_falha_dbt as classificar_falha_dbt,
+    construir_modelos,
+    modelos_a_mao as modelos_a_mao,
+    preparar_construcao,
+)
+from .harness.config import ConfigHarness
 from .harness.contexto import projetar_plano
 from .lote import preparar_lote
 from .pacote import montar_pacote
@@ -75,8 +83,13 @@ def _validar_parametros(plano: dict, run_id: str) -> None:
         raise FalhaExecucao("run_id exige um identificador local de até 64 caracteres")
     if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}", plano["destination"] or ""):
         raise FalhaExecucao("defina um identificador de destino local válido antes da execução")
-    if "ingestion" not in plano and plano["editable_models"] != [MODELO_CTE]:
-        raise FalhaExecucao("a lista de modelos autorizados diverge do projeto de execução")
+    if not plano["editable_models"]:
+        raise FalhaExecucao("nenhum modelo autorizado no plano")
+    for padrao in plano["editable_models"]:
+        try:
+            caminhos.padrao_modelo(padrao)
+        except caminhos.CaminhoRecusado as exc:
+            raise FalhaExecucao(str(exc)) from None
     # A mesma verificação é repetida pelo ponto de entrada protegido dentro da sandbox.
     from services.execution.pipeline.projeto.ingerir import validar_regras
     validar_regras({chave: regra["value"] for chave, regra in plano["rules"].items()})
@@ -126,7 +139,7 @@ def _avaliar(resultados, plano, snapshot, regras, landing, janela, revisao, even
         raise FalhaExecucao(f"avaliação externa recusou os resultados ({laudo['classe']})")
 
 
-def _modelar(sandbox, plano, revisao, eventos, verificar_ativa, config):
+def _modelar(sandbox, plano, revisao, eventos, verificar_ativa, config, cliente_llm):
     publico = projetar_plano(plano)
     publico.update({k: plano[k] for k in ("project_id", "dataset")})
     ferramentas = FerramentasRestritas(sandbox, eventos, plano_aprovado=publico,
@@ -145,22 +158,40 @@ def _modelar(sandbox, plano, revisao, eventos, verificar_ativa, config):
                                    stdin=json.dumps(regras).encode())
     if not bronze.ok:
         raise FalhaExecucao("projeção da landing em bronze falhou: " + bronze.stderr[-1000:])
+
+    def exportar():
+        verificar_ativa()
+        return sandbox.rodar_comando(["python", "/work/projeto/exportar.py"], timeout_s=120)
+
     if config is None:
         resultado = _build_legado(ferramentas, eventos, plano["limits"]["max_repair_attempts_per_step"],
                                   verificar_ativa)
+        if resultado["ok"]:
+            exportacao = exportar()
+            if not exportacao.ok:
+                raise FalhaExecucao("exportação falhou: " + exportacao.stderr[-1000:])
     else:
-        resultado = construir_modelos(config, plano, ferramentas, eventos, revisao, verificar_ativa)
+        resultado = construir_modelos(config, plano, ferramentas, eventos, revisao, verificar_ativa,
+                                      cliente_llm=cliente_llm, exportar=exportar)
     if not resultado["ok"]:
-        raise FalhaExecucao(resultado["erro"])
-    verificar_ativa()
-    exportacao = sandbox.rodar_comando(["python", "/work/projeto/exportar.py"], timeout_s=120)
-    if not exportacao.ok:
-        raise FalhaExecucao("exportação falhou: " + exportacao.stderr[-1000:])
+        raise FalhaExecucao(f"{resultado['codigo']}: {resultado['erro']}")
 
 
-def executar(registro, plano, run_id, *, raiz: Path, fontes: Path) -> dict:
+def executar(registro, plano, run_id, *, raiz: Path, fontes: Path, cfg: ConfigHarness | None = None,
+             cliente_llm=None) -> dict:
     """Processa a landing N0/N1 autorizada e congela a entrega para a segunda aprovação."""
+    cfg = cfg or ConfigHarness.de_ambiente()
     _validar_parametros(plano, run_id)
+    legado = (plano["schema_version"] == "0.1.0" and plano["editable_models"] == [MODELO_CTE])
+    if legado:
+        if cfg.executor != "roteirizado":
+            raise FalhaExecucao("esta versão do plano autoriza apenas a correção roteirizada do modelo CT-e")
+        config = None
+    else:
+        try:
+            config = preparar_construcao(plano, cfg, cliente_llm=cliente_llm)
+        except FalhaPreparo as exc:
+            raise FalhaExecucao(str(exc)) from None
     raiz = Path(raiz).resolve()
     regras = {chave: regra["value"] for chave, regra in plano["rules"].items()}
     registro.iniciar(plano["project_id"], plano["plan_version"], run_id)
@@ -177,10 +208,8 @@ def executar(registro, plano, run_id, *, raiz: Path, fontes: Path) -> dict:
         revisao.mkdir(mode=0o700, parents=True, exist_ok=False)
         revisao_criada = True
         eventos.emit_event("plano", "run_started", "Iniciada a versão aprovada do plano",
-                           project_id=plano["project_id"], plan_version=plano["plan_version"])
-        config = preparar_construcao(plano) if "ingestion" in plano else None
-        if config is None and os.environ.get("KORDA_EXECUTOR", "").strip() not in ("", "roteirizado"):
-            raise FalhaExecucao("o plano v0.1 autoriza apenas a correção roteirizada do modelo CT-e")
+                           project_id=plano["project_id"], plan_version=plano["plan_version"],
+                           executor=cfg.executor)
         with tempfile.TemporaryDirectory(dir=revisao, prefix="fontes-") as temp:
             temporario = Path(temp)
             snapshot = temporario / "brutos"
@@ -197,12 +226,20 @@ def executar(registro, plano, run_id, *, raiz: Path, fontes: Path) -> dict:
                                          modelos_vazios=config is not None)
             try:
                 sandbox.criar()
-                _modelar(sandbox, plano, revisao, eventos, verificar_ativa, config)
+                _modelar(sandbox, plano, revisao, eventos, verificar_ativa, config, cliente_llm)
+                if "ingestion" in plano:
+                    verificar_ativa()
+                    # O catálogo tem target próprio para preservar a prova do build que foi avaliado.
+                    docs = sandbox.rodar_comando(["env", "DBT_TARGET_PATH=/work/saida/docs", "dbt",
+                                                  "--no-use-colors", "docs", "generate"], timeout_s=180)
+                    if not docs.ok:
+                        raise FalhaExecucao("falha ao gerar o catálogo dbt da entrega: " + docs.stderr[-1000:])
                 sandbox.destruir(apagar_diretorio=False)
                 manifesto = capturar(sandbox.dir_run / "saida/resultados", resultados)
                 verificar_ativa()
                 _avaliar(resultados, plano, snapshot, regras, landing, janela, revisao, eventos)
-                if config is not None:
+                if "ingestion" in plano:
+                    verificar_ativa()
                     montar_pacote(sandbox.dir_run / "projeto", resultados, revisao, plano)
                     manifesto = manifesto_revisao(resultados)
             finally:

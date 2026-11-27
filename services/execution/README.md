@@ -1,6 +1,6 @@
 # Worker de execução da Korda
 
-O worker recebe um plano aprovado para a transportadora sintética `01_demo`, prepara as fontes autorizadas e constrói frete por entrega, OTIF e ocupação. O avaliador compara os três indicadores e os resultados por pedido e viagem. A publicação em uma pasta local depende de uma segunda decisão humana. [Planejador](../planning/README.md) · [Pipeline logístico](pipeline/README.md) · [Avaliador](../../evaluation/worker/README.md)
+A demo transforma as fontes da transportadora fictícia `01_demo` em frete por entrega, OTIF e ocupação. O operador aprova a versão do plano que autoriza o trabalho. Depois do build, um avaliador independente confere os três indicadores e cada pedido e viagem. Uma segunda decisão humana autoriza promover a entrega para o destino local daquele plano. [Planejador](../planning/README.md) · [Pipeline logístico](pipeline/README.md) · [Avaliador](../../evaluation/worker/README.md)
 
 ## Escolher a ingestão
 
@@ -9,9 +9,9 @@ O worker recebe um plano aprovado para a transportadora sintética `01_demo`, pr
 | N0 · arquivos exportados | Cinco CSVs do ERP/TMS e os XMLs de CT-e entram no contêiner de ingestão. O formato de saída é Parquet com manifesto. | Arquivo e linha para registros de CSV. Arquivo, chave e SHA-256 para cada parcela de CT-e usada no custo. |
 | N1 · sistemas simulados | O simulador da 01 alimenta o ERP em PostgreSQL, o TMS por API e uma pasta de entrega de CT-e. A ingestão de referência segue a proposta aprovada e materializa as tabelas na mesma estrutura de landing. | Origem lógica, chave da entidade e carga para ERP/TMS. Arquivo de entrega, SHA-256, chave, carga e centavos para CT-e. |
 
-O operador mantém compatibilidade com o plano v0.1 aprovado para a 01. Ele conserva a versão e a única permissão de correção em `models/prata_ctes.sql`; depois de validado, o revisor pode promover os três arquivos originais. O ZIP e a construção dos cinco modelos são entregas da v0.2. [Plano legado reproduzível](../../packages/contracts/plan/v0.1.0/examples/01_demo.json)
+O plano `plan/v0.2.0` vincula nível, janela, proposta de ingestão e os cinco caminhos SQL editáveis à versão aprovada. A proposta N1 precisa corresponder à empresa, ao projeto e à revisão do contexto. Para N1 integral, o worker percorre o replay até a última data. Num corte parcial, registra a ingestão e a necessidade de uma referência do mesmo período. A avaliação mensal da 01 só autoriza o lote integral. [Contrato do plano](../../packages/contracts/plan/v0.2.0/README.md) · [Proposta de ingestão](../../packages/contracts/ingestion_plan/v0.1.0/README.md)
 
-O plano `plan/v0.2.0` inclui nível, janela, proposta de ingestão e lista de modelos editáveis na versão que o operador aprova. O lote integral permite comparar N0 e N1 com o gabarito da 01. Em uma janela parcial N1, o worker registra o relatório da ingestão e a falta de referência adequada, interrompe a execução e mantém a entrega bloqueada. A proposta N1 exige o contexto confirmado da mesma empresa, projeto e revisão. [Contrato do plano](../../packages/contracts/plan/v0.2.0/README.md) · [Proposta e exemplos de ingestão](../../packages/contracts/ingestion_plan/v0.1.0/README.md)
+Planos históricos v0.1 usam N0. A versão que autoriza `models/*` constrói os modelos sob esse escopo. A fixture mais antiga, que autorizou apenas corrigir `models/prata_ctes.sql`, continua executável pelo caminho roteirizado original. O manifesto da entrega v0.1 contém os três arquivos de resultados. A v0.2 acrescenta o pacote de reprodução. [Contrato legado](../../packages/contracts/plan/v0.1.0/README.md)
 
 ## Preparar o ambiente e o plano
 
@@ -27,7 +27,7 @@ export KORDA_EXECUTOR=roteirizado
 mkdir -p runs/preparo
 ```
 
-Para N0, gere o plano com a revisão confirmada e a estimativa do ensaio.
+Para N0, gere o plano base com a revisão confirmada. O valor zero é a estimativa de custo de provedor para o ensaio roteirizado. Para usar o gateway, informe a estimativa aprovada para o ensaio em centavos no comando que gera o plano.
 
 ```bash
 python -m services.planning.korda_planning \
@@ -51,10 +51,27 @@ python -m services.planning.korda_planning \
 
 ## Revisar, executar e entregar
 
-Escolha um dos arquivos em `PLANO`. O exemplo usa N1. Defina `REVISOR` com a identificação de quem tomou a decisão e `RUN_ID` com um identificador novo. O registro guarda pessoa, decisão e instante UTC em SQLite. A identificação do revisor é declarada pelo operador com acesso ao host.
+Escolha o plano base de N0 ou de N1. O exemplo usa N1. No modo padrão `roteirizado`, registre o plano base diretamente. A construção usa os modelos de referência do host.
 
 ```bash
 PLANO=runs/preparo/plano-n1.json
+```
+
+Para construção por chat, configure as variáveis do gateway no host e rode `planejar` **antes da primeira aprovação**. Essa chamada usa o contexto que originou o plano e pede à API da Feita um documento de construção ou perguntas para a descoberta. Escolha uma saída nova para essa revisão.
+
+```bash
+KORDA_EXECUTOR=chat python -m services.execution.korda_execution planejar "$PLANO" \
+  --contexto packages/contracts/context/v0.1.0/examples/02_rateio_confirmado.json \
+  --saida runs/preparo/plano-construcao.json
+```
+
+- **Código 0** indica que o documento entrou em `construction`. A nova `plan_version` cobre esse texto. Para seguir pelo gateway, defina `PLANO=runs/preparo/plano-construcao.json` e `export KORDA_EXECUTOR=chat`.
+- **Código 3** indica perguntas. Consulte `perguntas.json` na pasta indicada pelo comando, devolva as lacunas à descoberta e gere outro plano base a partir da revisão respondida. A pasta mantém `documento_base.md`, `resposta.json` e `medicao.json` dessa chamada. O fluxo só chega ao registro quando houver uma versão pronta.
+- O gateway requer `KORDA_PERMITIR_LLM_REAL=1` e `KORDA_LLM_CHAVE` no host. A chamada de planejamento tem medição própria e até 6.000 tokens de saída. O teto em USD é aplicado separadamente ao planejamento e à execução aprovada. A suíte usa transporte local para verificar as duas respostas. [Planejamento da construção](korda_execution/planejamento.py) · [Configuração e medição](korda_execution/harness/README.md)
+
+Defina `REVISOR` com a identificação de quem tomou a decisão e `RUN_ID` com um identificador novo. O registro em SQLite guarda a pessoa declarada pelo operador, a decisão, a versão e o instante UTC.
+
+```bash
 RUN_ID=demo-n1-001
 VERSAO=$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["plan_version"])' "$PLANO")
 python -m services.execution.korda_execution registrar "$PLANO"
@@ -68,7 +85,7 @@ python -m services.execution.korda_execution executar "$PLANO" --run-id "$RUN_ID
 python -m services.execution.korda_execution consultar "$RUN_ID"
 ```
 
-Em `runs/worker/revisao/<run_id>/`, consulte `ingestao.json` para identificar a origem e a janela, `fontes.json` para o perfil, `documento_base.md` para a especificação usada pelo construtor, `medicao.json` para tentativas e custo, e `eventos.jsonl` para a sequência de ações. `avaliacao.json` contém a decisão técnica do avaliador. Em `resultados/` ficam `kpis.json`, `por_pedido.csv`, `por_viagem.csv` e `pacote.zip`. O ZIP reúne os modelos executados, testes, documentação de reprodução, evidências do build e os resultados com linhagem. O registro verifica o manifesto antes da promoção. [Pacote](korda_execution/pacote.py)
+Em `runs/worker/revisao/<run_id>/`, consulte `ingestao.json` para identificar a origem e a janela, `fontes.json` para o perfil, `documento_base.md` para a especificação usada pelo construtor, `medicao.json` para tentativas e custo, e `eventos.jsonl` para a sequência de ações. `avaliacao.json` contém a decisão técnica do avaliador. Em `resultados/` ficam `kpis.json`, `por_pedido.csv` e `por_viagem.csv`. Na v0.2, `pacote.zip` reúne modelos, testes, instruções de reprodução, resumo dos eventos e da medição, evidências do build e os resultados com linhagem. O registro verifica o manifesto antes da promoção. [Pacote](korda_execution/pacote.py)
 
 O revisor confere o destino, o conteúdo e o manifesto daquela execução antes de autorizar a promoção. O comando também aceita `rejeitar`. A promoção grava a entrega em `runs/worker/entregas/<destino>/<run_id>/`. A opção global `--raiz`, antes do subcomando, permite escolher outra raiz do operador.
 
@@ -81,12 +98,12 @@ python -m services.execution.korda_execution promover "$RUN_ID" revisao-logistic
 
 | Executor | Construção, correção e medição |
 | --- | --- |
-| `roteirizado` | Usa o documento do plano e escreve os modelos de referência autorizados. O operador pode reproduzir a demo offline. O relatório identifica o modo e o custo de provedor zero. |
-| `falso` | Exercita o protocolo de chat e suas ferramentas a partir de respostas preparadas. O teste integrado usa esse transporte para construir os modelos, observar a falha de unicidade do CT-e, corrigir o modelo e repetir o build. A medição é sintética. |
-| `chat` | Usa o gateway configurado no host para gerar o documento-base e construir e corrigir os modelos. Exige habilitação explícita e credencial. A medição registra uso informado e custo estimado. |
-| `agente_sdk` | Usa construção roteirizada e o SDK na correção. Exige a dependência opcional no host, credencial e habilitação explícita. |
+| `roteirizado` | Padrão. Escreve os modelos SQL de referência pelos caminhos autorizados. O custo de provedor é zero. |
+| `falso` | Transporte de teste injetado no host. Exercita a construção a partir de `construction`, uma falha de dbt e sua correção. A medição é sintética. |
+| `chat` | O gateway no host recebe o documento já aprovado e ferramentas para construir e corrigir os modelos. O operador acompanha turnos, tokens e custo estimado. |
+| `agente_sdk` | Adaptador experimental de correção preservado no harness. O worker da demo recusa esse modo. |
 
-Cada execução começa com arquivos SQL vazios para os modelos autorizados. As fontes e a configuração do dbt chegam em leitura. O worker limita o número de correções por etapa e registra a intervenção quando faltam condições para prosseguir. Uma nova regra ou outro nível de ingestão exige reavaliar o plano e registrar uma aprovação compatível. O transporte falso e a construção roteirizada permitem verificar o fluxo inteiro com dados sintéticos e custo de provedor zero. [Harness e variáveis](korda_execution/harness/README.md) · [Documento-base](korda_execution/documento_base.py) · [Ciclo de correção](korda_execution/correcao.py)
+Para os planos de construção, os modelos começam sem SQL de referência na sandbox. O adaptador protegido apresenta a landing como tabelas bronze. O harness escreve prata e ouro, executa `dbt build` com os testes protegidos e verifica a exportação. Falhas de implementação podem voltar para até três correções. Esgotar o limite, identificar uma inconsistência de dados ou perder a infraestrutura requer intervenção. Mudar uma regra, o escopo dos modelos, a construção ou a ingestão exige reconsiderar a versão a aprovar. [Harness e variáveis](korda_execution/harness/README.md) · [Ciclo de correção](korda_execution/correcao.py)
 
 ## Montagens, credenciais e separação do avaliador
 
@@ -94,18 +111,23 @@ Cada execução começa com arquivos SQL vazios para os modelos autorizados. As 
 | --- | --- |
 | Ingestão N0 | Contêiner efêmero sem rede, arquivos autorizados em leitura e landing de saída. |
 | Ingestão N1 | Contêiner efêmero na rede interna do simulador. O código de ingestão e o plano são de leitura, a landing recebe as cargas e o processo recebe credenciais temporárias dos serviços. |
-| Construção e testes dbt | Contêiner sem rede. `/work/fontes` contém a landing com manifesto em leitura. O projeto protegido inclui macros, definições e testes. Cada arquivo de `editable_models` e `/work/saida` recebe escrita. |
+| Construção e testes dbt | Contêiner sem rede. `/work/fontes` contém a landing com manifesto em leitura. O projeto protegido inclui macros, definições e testes. Na v0.2 há uma montagem gravável por modelo autorizado, além de `/work/saida`. No escopo histórico `models/*`, o host publica pelas ferramentas os arquivos SQL autorizados sobre a montagem de leitura. |
 | Avaliação e entrega | O host encerra o produtor e compara as saídas congeladas. O avaliador lê as respostas esperadas fora das montagens de construção. O registro serializa as decisões e a promoção para o destino autorizado. |
 
 O isolamento foi desenhado para uma demonstração sintética. O contêiner compartilha o kernel do host. O controle usa o daemon Docker e quem administra o host controla os arquivos e os serviços. A API do TMS e o PostgreSQL pertencem ao simulador local da equipe. A autenticação dos usuários da interface e a integração com sistemas reais dependem de trabalho próprio. [Sandbox](korda_execution/sandbox.py) · [Simulador](../../infra/sistemas-simulados/README.md) · [Ingestão de referência](referencia/README.md)
 
 ## Verificação reproduzível
 
-A suíte de execução no GitHub Actions constrói as imagens e prepara os lotes de ajuste. Estes comandos, a partir da raiz, executam os testes de ponta a ponta depois de preparar as imagens e o ambiente acima. A variável de exigência faz a suíte falhar se Docker ou uma imagem estiver indisponível.
+A suíte de execução no GitHub Actions constrói as imagens e prepara os lotes de ajuste. Para a revisão local rápida, rode os testes de planejamento, do harness, do pipeline e do avaliador. Estes comandos, a partir da raiz, executam os testes de ponta a ponta depois de preparar as imagens e o ambiente acima. A variável de exigência faz a suíte falhar se Docker ou uma imagem estiver indisponível.
 
 ```bash
-KORDA_EXIGIR_DOCKER=1 python -m unittest discover -s services/execution/tests \
-  -t services/execution -p 'test_worker*docker.py' -v
+python scripts/check_repo.py
+python -m unittest discover -s services/planning/tests
+python -m unittest discover -s services/execution/tests/harness -t services/execution
+python -m unittest discover -s services/execution/pipeline/tests
+python -m unittest discover -s evaluation/worker/tests
+python data/synthetic/generator/generate.py --empresa 02_variacao
+KORDA_EXIGIR_DOCKER=1 python -m unittest discover -s services/execution/tests -t services/execution -v
 ```
 
 Para guardar a evidência do lote integral depois que os diretórios temporários forem removidos, defina `KORDA_EVIDENCIA_LOCAL` com o caminho de uma pasta nova ou vazia antes de executar o teste. Quando todas as verificações de paridade e linhagem passam, o teste grava oito arquivos. As pastas `n0/` e `n1/` contêm, cada uma, `pacote.zip`, `avaliacao.json`, `ingestao.json` e `medicao.json`. O pacote reúne os resultados da empresa fictícia. Os três JSONs permitem conferir, respectivamente, o aceite técnico, a origem da carga e o custo medido do executor roteirizado.
