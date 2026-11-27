@@ -51,6 +51,22 @@ contextctl close demo
 contextctl usage demo
 ```
 
+Um número identifica um participante; não limita quantas áreas ele pode representar.
+Para uma pessoa responder por operação e financeiro no mesmo WhatsApp, cadastre-a
+uma única vez, repetindo `--role`:
+
+```bash
+contextctl participant-add demo --wa-id IDENTIFICADOR_DO_PARTICIPANTE --name 'Responsável sintético' --role operacao --role financeiro
+```
+
+Como alternativa, mantenha dois participantes, cada um com um papel, como nos
+comandos anteriores. Os papéis são autorizações explícitas do operador: o modelo
+não pode adicioná-los a partir de uma fala. Cada confirmação registra o papel
+exigido pelo tópico e a identidade de quem respondeu. A migração `context_0002`
+preserva IDs, histórico e o papel dos cadastros existentes, convertendo-o em uma
+lista com um item; não concede outra área automaticamente. `role` permanece como
+primeiro papel por compatibilidade, e `roles` contém a lista de autorizações.
+
 project-create lê um token forte de CONTEXT_PROJECT_TOKEN (ou --token-env), armazena
 apenas o hash e cria a revisão inicial. Não imprime o token. Telefone ou BSUID e
 demais identificadores operacionais ficam privados. Alegar um papel na conversa

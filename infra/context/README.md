@@ -125,8 +125,12 @@ docker compose --env-file ../../services/context/.env exec api contextctl usage 
 ```
 
 Os identificadores entre `<...>` são substituídos pelo operador e não são valores
-de exemplo utilizáveis. Cadastrar também o participante financeiro, papel
-`financeiro`. Os papéis autorizados vêm do cadastro. O roteiro logístico padrão
+de exemplo utilizáveis. Autorizar também o papel `financeiro`, no mesmo participante
+com `--role operacao --role financeiro` ou em outro número com `--role financeiro`.
+Um único número pode representar as duas áreas. Os papéis autorizados vêm do cadastro.
+Depois do redeploy, `migrate` aplica `context_0002`, preservando os participantes e
+o histórico existentes; os papéis novos só são concedidos explicitamente pelo operador.
+O roteiro logístico padrão
 pode ser substituído por `--topics-json`, que recebe um mapa de tópico para papel.
 
 `pause`, `resume` e `close` recebem o ID do projeto. O fechamento registra um marco

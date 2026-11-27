@@ -98,13 +98,15 @@ class Repository:
         supplied = sha256(token.encode()).hexdigest()
         return compare_digest(row["token_hash"] if row else "0" * 64, supplied) and row is not None
 
-    def add_participant(self, project_id: str, wa_id: str, name: str, role: str) -> dict:
+    def add_participant(self, project_id: str, wa_id: str, name: str, role: str | list[str]) -> dict:
+        from .participants import normalize_roles
+        roles = normalize_roles(role)
         if not all((wa_id, name, role)):
             raise ValueError("participant identity and role are required")
         with self.transaction(project_id) as session:
             return session.conn.execute(
-                """INSERT INTO ctx_participants(id,project_id,wa_id,name,role)
-                   VALUES (%s,%s,%s,%s,%s) RETURNING *""", (_id(), project_id, wa_id, name, role)
+                """INSERT INTO ctx_participants(id,project_id,wa_id,name,role,roles)
+                   VALUES (%s,%s,%s,%s,%s,%s) RETURNING *""", (_id(), project_id, wa_id, name, roles[0], roles)
             ).fetchone()
 
     def get_participant(self, phone_number_id: str, wa_id: str) -> dict | None:

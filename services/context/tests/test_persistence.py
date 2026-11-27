@@ -98,6 +98,49 @@ def test_registration_and_project_authentication(repo):
         repo.get_project("missing")
 
 
+def test_one_phone_can_have_multiple_enrolled_roles_without_duplicate_identity(repo):
+    participant = repo.add_participant("demo", "synthetic-combined", "Responsável sintético",
+                                       ["operacao", "financeiro", "operacao"])
+    loaded = repo.get_participant("phone-01", "synthetic-combined")
+    assert loaded["id"] == participant["id"]
+    assert loaded["roles"] == ["operacao", "financeiro"]
+    assert loaded["role"] == "operacao"
+    assert repo.get_participant("phone-01", "synthetic-finance")["roles"] == ["financeiro"]
+    with repo.transaction("demo") as session:
+        assert sum(p["wa_id"] == "synthetic-combined" for p in session.participants()) == 1
+    for invalid in ([], [""], ["operacao", None]):
+        with pytest.raises(ValueError, match="roles"):
+            repo.add_participant("demo", "invalid", "Inválido", invalid)
+
+
+def test_roles_migration_preserves_existing_participant_and_history():
+    schema = "ctx_test_" + uuid4().hex
+    with psycopg.connect(DATABASE_URL, autocommit=True) as conn:
+        conn.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
+    dsn = make_conninfo(DATABASE_URL, options=f"-csearch_path={schema},public")
+    engine = create_engine("postgresql+psycopg://", creator=lambda: psycopg.connect(dsn))
+    config = Config(str(SERVICE / "alembic.ini"))
+    try:
+        with engine.begin() as connection:
+            config.attributes["connection"] = connection
+            command.upgrade(config, "context_0001")
+        with psycopg.connect(dsn) as conn:
+            conn.execute("INSERT INTO ctx_projects(id,name,phone_number_id,token_hash) VALUES ('demo','Sintética','phone','hash')")
+            conn.execute("INSERT INTO ctx_participants(id,project_id,wa_id,name,role) VALUES ('existing','demo','synthetic','Responsável','financeiro')")
+            conn.execute("INSERT INTO ctx_revisions(project_id,revision,document) VALUES ('demo',1,'{\"preserved\":true}')")
+        with engine.begin() as connection:
+            config.attributes["connection"] = connection
+            command.upgrade(config, "head")
+        with psycopg.connect(dsn, row_factory=psycopg.rows.dict_row) as conn:
+            row = conn.execute("SELECT * FROM ctx_participants").fetchone()
+            assert row["id"] == "existing" and row["roles"] == ["financeiro"]
+            assert conn.execute("SELECT document FROM ctx_revisions").fetchone()["document"] == {"preserved": True}
+    finally:
+        engine.dispose()
+        with psycopg.connect(DATABASE_URL, autocommit=True) as conn:
+            conn.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema)))
+
+
 def test_failed_audio_cannot_be_overtaken_and_resolution_is_explicit(repo):
     audio = repo.ingest(event(kind="audio", text=None, media_id="media-01", mime_type="audio/ogg"), enqueue_marker)
     text = repo.ingest(event("wamid.synthetic-02"), enqueue_marker)

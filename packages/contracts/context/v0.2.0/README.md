@@ -10,6 +10,7 @@ O [schema](context.schema.json) é gerado a partir dos modelos de domínio do ba
 - Afirmações distinguem `declarada`, `confirmada`, `em_conflito` e `substituida`. Informações ausentes são lacunas; não se preenchem valores por inferência.
 - O papel autorizado vem de `required_topics`, definido pelo operador. Cada tópico obrigatório exige afirmações confirmadas e ausência de bloqueios antes de o contexto ficar `pronto`.
 - Confirmação exige uma resposta explícita a um desafio anterior, ligado ao participante cadastrado. O modelo não pode se atribuir autoridade nem confirmar uma nova afirmação no mesmo turno.
+- Um participante pode ter vários papéis autorizados no cadastro, com um único número WhatsApp. `participant_role` na evidência e `role` na confirmação registram o papel exercido naquele tópico, escolhido pelo backend dentre os papéis cadastrados. Dois participantes com papéis separados também são permitidos; o formato do contrato permanece o mesmo.
 - Fontes mencionadas continuam `source_verification=nao_inspecionada` e `inspected=false`.
 - Evidências localizam trechos literais, mensagem, participante, horário original e versão da transcrição. Uma transcrição é evidência derivada do áudio.
 - Encerrar a entrevista não concede aprovação de plano nem autorização de entrega. `interview_status` e `state` são independentes.

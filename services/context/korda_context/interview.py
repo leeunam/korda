@@ -8,6 +8,7 @@ from collections.abc import Callable
 from pydantic import Field, field_validator
 
 from .domain import Claim, ContextDocument, Gap, Model, NonEmpty
+from .participants import registered_roles
 
 
 class Question(Model):
@@ -84,9 +85,7 @@ class Interviewer:
 
     def choose(self, context: ContextDocument | dict, participant: dict) -> Question | None:
         document = ContextDocument.model_validate(context)
-        if not all(isinstance(participant.get(key), str) and participant[key].strip()
-                   for key in ("id", "role")):
-            raise ValueError("registered participant identity and role are required")
+        roles = registered_roles(participant)
         if document.interview_status != "ativa" or document.pending_input_ids:
             return None
         if document.state == "pronto":
@@ -96,7 +95,7 @@ class Interviewer:
 
         def authorized(topic: str) -> bool:
             required_role = document.required_topics.get(topic)
-            return required_role is None or required_role == participant["role"]
+            return required_role is None or required_role in roles
 
         active = [c for c in document.claims if c.state != "substituida"]
         claims = {c.id: c for c in active}
@@ -161,7 +160,8 @@ class Interviewer:
                   "unit": c.unit, "time_scope": c.time_scope, "state": c.state}
                  for c in context.claims if c.topic == gap.topic and c.state != "substituida"]
         payload = {"project_id": context.project_id, "revision": context.revision,
-                   "participant": {"id": participant["id"], "role": participant["role"]},
+                   "participant": {"id": participant["id"], "role": registered_roles(participant)[0],
+                                   "roles": registered_roles(participant)},
                    "selected_gap": {"topic": gap.topic, "question": gap.question,
                                     "guide": GUIDE.get(gap.topic, "Esclarecer apenas a lacuna selecionada.")},
                    "known_claims": known}

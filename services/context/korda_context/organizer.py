@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from typing import Callable, Literal
 
 from pydantic import Field, JsonValue
+from .participants import registered_roles
 
 from .domain import (
     Claim, Confirmation, ContextDocument, Entity, Evidence, Gap, Model,
@@ -106,8 +107,7 @@ def apply_proposal(
         return original.model_copy(deep=True)
     if changes.base_revision != original.revision:
         raise ValueError("stale organizer proposal")
-    if not participant.get("id") or not participant.get("role"):
-        raise ValueError("registered participant identity and role are required")
+    roles = registered_roles(participant)
     if input_kind not in {"text", "audio", "audio_transcript"}:
         raise ValueError("unsupported input kind")
     data = original.model_dump(mode="python")
@@ -122,15 +122,20 @@ def apply_proposal(
     refs: dict[str, str] = {}
     timestamp = input_timestamp or datetime.now(timezone.utc)
 
-    def evidence(quote: str) -> str:
+    def evidence(quote: str, topic: str) -> str:
         start = text.find(quote)
         if start < 0 or not quote.strip():
             raise ValueError("proposal contains a quote absent from the current input")
-        eid = identifier(original.project_id, "ev", f"{input_id}:{input_kind}:{transcription_version}:{quote}")
+        required_role = required_topics.get(topic)
+        role = required_role if required_role in roles else roles[0]
+        key = f"{input_id}:{input_kind}:{transcription_version}:{quote}"
+        # Preserve existing single-role evidence IDs and separate other enrolled roles.
+        eid = (identifier(original.project_id, "ev", key) if role == roles[0]
+               else identifier(original.project_id, "ev_role", json.dumps([key, role])))
         if eid not in evidence_by_id:
             item = Evidence(
                 id=eid, input_id=input_id, participant_id=participant["id"],
-                participant_role=participant["role"],
+                participant_role=role,
                 kind="text" if input_kind == "text" else "audio_transcript",
                 source_id=source_id or input_id, input_timestamp=timestamp,
                 quote=quote, start_offset=start, end_offset=start + len(quote),
@@ -160,7 +165,7 @@ def apply_proposal(
     for candidate in changes.claims:
         if candidate.ref in refs:
             raise ValueError("proposal references must be unique")
-        eid = evidence(candidate.quote)
+        eid = evidence(candidate.quote, candidate.topic)
         active = [c for c in data["claims"] if
                   (c["topic"], c["key"]) == (candidate.topic, candidate.key) and c["state"] != "substituida"]
         value_json = json.dumps(candidate.value, sort_keys=True, allow_nan=False)
@@ -186,7 +191,7 @@ def apply_proposal(
                 ev["id"] in prior["evidence_ids"] and ev["input_id"] in correction_input_ids
                 and ev["kind"] == "audio_transcript" and ev["participant_id"] == participant["id"]
                 for ev in data["evidence"])
-            if not transcript_correction and required_topics.get(candidate.topic, participant["role"]) != participant["role"]:
+            if not transcript_correction and required_topics.get(candidate.topic, roles[0]) not in roles:
                 raise ValueError("participant is not authorized to replace this rule")
             if not transcript_correction and not re.search(r"\b(corrig\w*|retific\w*|substitu\w*|na verdade|correcao)\b", _normalized(text)):
                 raise ValueError("replacement requires an explicit correction")
@@ -222,21 +227,22 @@ def apply_proposal(
         claim = claims[cid]
         if claim["state"] in {"substituida", "em_conflito"}:
             raise ValueError("resolve the conflict before confirming")
-        if required_topics.get(claim["topic"], participant["role"]) != participant["role"]:
+        confirmation_role = required_topics.get(claim["topic"], roles[0])
+        if confirmation_role not in roles:
             raise ValueError("participant role cannot confirm this topic")
         if not explicit_confirmation(text, len(pending_confirmation_ids), claim["value"]):
             raise ValueError("confirmation requires an explicit answer to the pending challenge")
-        eid = evidence(text)
+        eid = evidence(text, claim["topic"])
         add_evidence(claim, eid)
         claim.update(state="confirmada", confirmation=Confirmation(
-            evidence_id=eid, participant_id=participant["id"], role=participant["role"],
+            evidence_id=eid, participant_id=participant["id"], role=confirmation_role,
         ).model_dump())
 
     entity_refs = {entity["id"]: entity["id"] for entity in data["entities"]}
     for candidate in changes.entities:
         if candidate.ref in entity_refs or candidate.ref in refs:
             raise ValueError("proposal references must be unique")
-        eid = evidence(candidate.quote)
+        eid = evidence(candidate.quote, candidate.topic)
         item = next((e for e in data["entities"] if
                      (e["kind"], e["name"].casefold(), e["topic"]) ==
                      (candidate.kind, candidate.name.casefold(), candidate.topic)), None)
@@ -252,7 +258,7 @@ def apply_proposal(
         if candidate.source_ref not in entity_refs or candidate.target_ref not in entity_refs:
             raise ValueError("unknown entity reference in relation")
         source, target = entity_refs[candidate.source_ref], entity_refs[candidate.target_ref]
-        eid = evidence(candidate.quote)
+        eid = evidence(candidate.quote, candidate.topic)
         item = next((r for r in data["relations"] if
                      (r["topic"], r["source_id"], r["target_id"], r["kind"]) ==
                      (candidate.topic, source, target, candidate.kind)), None)
@@ -272,7 +278,7 @@ def apply_proposal(
                 raise ValueError("unknown claim reference in gap")
             resolved_refs.append(cid)
         gap = gap_for(candidate.topic, candidate.key, candidate.question, resolved_refs, "aberta",
-                      [evidence(candidate.quote)])
+                      [evidence(candidate.quote, candidate.topic)])
         gap["blocking"] = candidate.blocking or candidate.topic in required_topics
 
     for gap in data["gaps"]:
@@ -331,7 +337,8 @@ class Organizer:
         document = ContextDocument.model_validate(context)
         payload = {
             "context": document.model_dump(mode="json"),
-            "participant": {"id": participant["id"], "role": participant["role"]},
+            "participant": {"id": participant["id"], "role": registered_roles(participant)[0],
+                            "roles": registered_roles(participant)},
             "pending_confirmation_ids": list(pending_confirmation_ids), "current_text": text,
             "trusted_transcription_correction_input_ids": list(correction_input_ids),
         }

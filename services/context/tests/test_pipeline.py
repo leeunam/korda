@@ -141,6 +141,30 @@ def test_audio_evidence_keeps_original_and_transcription_version(repo, build):
     assert pipeline.transcriber.calls == 1
 
 
+def test_real_interviewer_routes_two_areas_to_one_phone(repo):
+    topics = {"processo": "operacao", "frete_rateio": "financeiro"}
+    repo.create_project("combined", "Empresa sintética", "phone-02", "synthetic-test-token-with-32-characters", topics)
+    participant = repo.add_participant("combined", "synthetic-combined", "Responsável sintético", ["operacao", "financeiro"])
+
+    def both(body):
+        assert body["participant"]["roles"] == ["operacao", "financeiro"]
+        return {"claims": [{"ref": topic, "topic": topic, "key": "regra", "kind": "rule",
+                            "statement": body["current_text"], "quote": body["current_text"], "value": value}
+                           for topic, value in (("processo", "TMS"), ("frete_rateio", "peso"))]}
+
+    channel = Channel()
+    pipeline = Pipeline(Settings(database_url=repo.dsn), repo, channel, Transcriber(),
+                        Model([both, confirm, confirm]), Model([]), enqueue)
+    for index, text in enumerate(("Usamos TMS e rateio por peso.", "Confirmo", "Confirmo")):
+        repo.ingest(event(f"wamid.combined-{index}", text=text, phone_number_id="phone-02", wa_id="synthetic-combined"), enqueue)
+        pipeline.process("combined")
+    context = repo.read_revision("combined")
+    assert context["state"] == "pronto"
+    assert {c["topic"]: c["confirmation"]["role"] for c in context["claims"]} == topics
+    assert {c["confirmation"]["participant_id"] for c in context["claims"]} == {participant["id"]}
+    assert {message[1] for message in channel.sent} == {"synthetic-combined"}
+
+
 def test_failed_audio_blocks_later_text_until_explicit_resolution(repo, build):
     pipeline = build([declare], transcriber=Transcriber(TransientChannelError("stt_unavailable")))
     audio = repo.ingest(event(kind="audio", text=None, media_id="media-01"), enqueue)

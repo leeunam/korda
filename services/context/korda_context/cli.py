@@ -61,7 +61,7 @@ def parser():
     participant.add_argument("project_id")
     participant.add_argument("--wa-id", required=True)
     participant.add_argument("--name", required=True)
-    participant.add_argument("--role", required=True)
+    participant.add_argument("--role", required=True, action="append", help="Papel autorizado; repita para acumular áreas no mesmo número")
     for action in ("status", "pause", "resume", "close", "retry", "usage"):
         entry = commands.add_parser(action)
         entry.add_argument("project_id")
@@ -106,7 +106,7 @@ def run(args, settings, repo):
         return {"project_id": args.project_id, "revision": 1}
     if args.action == "participant-add":
         participant = repo.add_participant(args.project_id, args.wa_id, args.name, args.role)
-        return {"participant_id": participant["id"], "role": participant["role"]}
+        return {"participant_id": participant["id"], "role": participant["role"], "roles": participant["roles"]}
     if args.action == "usage":
         with repo.transaction(args.project_id) as session:
             return {"model_calls": session.project()["model_calls"], "usage": session.model_usage()}
