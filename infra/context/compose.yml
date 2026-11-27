@@ -1,0 +1,183 @@
+name: korda-context
+
+x-context-environment: &context-environment
+  CONTEXT_DATABASE_URL: ${CONTEXT_DATABASE_URL:?Defina a URL interna do PostgreSQL}
+  CONTEXT_META_APP_SECRET: ${CONTEXT_META_APP_SECRET:-}
+  CONTEXT_META_VERIFY_TOKEN: ${CONTEXT_META_VERIFY_TOKEN:-}
+  CONTEXT_META_ACCESS_TOKEN: ${CONTEXT_META_ACCESS_TOKEN:-}
+  CONTEXT_META_GRAPH_VERSION: ${CONTEXT_META_GRAPH_VERSION:-}
+  CONTEXT_DEEPGRAM_API_KEY: ${CONTEXT_DEEPGRAM_API_KEY:-}
+  CONTEXT_LLM_API_KEY: ${CONTEXT_LLM_API_KEY:-}
+  CONTEXT_LLM_URL: ${CONTEXT_LLM_URL:-https://api.feita.ai/gateway/v1}
+  CONTEXT_INTERVIEWER_MODEL: ${CONTEXT_INTERVIEWER_MODEL:-}
+  CONTEXT_ORGANIZER_MODEL: ${CONTEXT_ORGANIZER_MODEL:-}
+  CONTEXT_REAL_PROVIDERS: ${CONTEXT_REAL_PROVIDERS:-false}
+  CONTEXT_MAX_LLM_CALLS_PER_PROJECT: ${CONTEXT_MAX_LLM_CALLS_PER_PROJECT:-120}
+  CONTEXT_MAX_OUTPUT_TOKENS: ${CONTEXT_MAX_OUTPUT_TOKENS:-1800}
+  CONTEXT_MEDIA_DIR: /var/lib/korda/media
+
+x-backend: &backend
+  image: korda-context:${CONTEXT_IMAGE_TAG:?Defina o commit da imagem}
+  build:
+    context: ../..
+    dockerfile: infra/context/Dockerfile
+  environment: *context-environment
+  read_only: true
+  tmpfs:
+    - /tmp:size=64M,mode=1777
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  init: true
+  stop_grace_period: 120s
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "3"
+
+x-backup-image: &backup-image
+  image: korda-context-ops:${CONTEXT_IMAGE_TAG:?Defina o commit da imagem}
+  build:
+    context: ./ops
+    dockerfile: Dockerfile
+
+x-backup: &backup
+  <<: *backup-image
+  environment:
+    PGHOST: postgres
+    PGUSER: ${CONTEXT_DB_USER:-korda}
+    PGDATABASE: ${CONTEXT_DB_NAME:-korda}
+    PGPASSWORD: ${CONTEXT_DB_PASSWORD:?Defina uma senha privada do banco}
+    SOURCE_IMAGE_TAG: ${CONTEXT_IMAGE_TAG:?Defina o commit da imagem}
+    CONTEXT_BACKUP_DIR: ${CONTEXT_BACKUP_DIR:?Defina um diretório privado exclusivo de backups}
+  volumes:
+    - media:/source/media:ro
+    - type: bind
+      source: ${CONTEXT_BACKUP_DIR}
+      target: /backups
+      bind:
+        create_host_path: false
+  depends_on:
+    postgres:
+      condition: service_healthy
+  entrypoint: [bash, /ops/backup.sh]
+  mem_limit: 256m
+  cpus: 0.5
+
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: ${CONTEXT_DB_USER:-korda}
+      POSTGRES_DB: ${CONTEXT_DB_NAME:-korda}
+      POSTGRES_PASSWORD: ${CONTEXT_DB_PASSWORD:?Defina uma senha privada do banco}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - database:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    mem_limit: 1g
+    cpus: 1.0
+
+  migrate:
+    <<: *backend
+    command: [contextctl, migrate]
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    mem_limit: 256m
+    cpus: 0.5
+
+  api:
+    <<: *backend
+    command: [uvicorn, "korda_context.api:create_app", --factory, --host, 0.0.0.0, --port, "8000", --no-access-log]
+    expose: ["8000"]
+    volumes:
+      - media:/var/lib/korda/media:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/readyz', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 1.0
+
+  worker:
+    <<: *backend
+    command: [python, -m, korda_context.worker]
+    volumes:
+      - media:/var/lib/korda/media
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    mem_limit: 1g
+    cpus: 1.0
+
+  backup-scheduler:
+    <<: *backup
+    entrypoint: [bash, /ops/schedule.sh]
+    restart: unless-stopped
+
+  backup:
+    <<: *backup
+    profiles: [ops]
+    restart: "no"
+
+  restore:
+    <<: *backup-image
+    profiles: [ops]
+    environment:
+      PGHOST: postgres
+      PGUSER: ${CONTEXT_DB_USER:-korda}
+      PGDATABASE: ${CONTEXT_DB_NAME:-korda}
+      PGPASSWORD: ${CONTEXT_DB_PASSWORD:?Defina uma senha privada do banco}
+    volumes:
+      - type: bind
+        source: ${CONTEXT_BACKUP_DIR}
+        target: /backups
+        read_only: true
+        bind:
+          create_host_path: false
+      - restore-media:/restore-media
+    depends_on:
+      postgres:
+        condition: service_healthy
+    entrypoint: [bash, /ops/restore.sh]
+    restart: "no"
+    mem_limit: 512m
+    cpus: 0.5
+
+  caddy:
+    image: caddy:2
+    profiles: [standalone]
+    environment:
+      CONTEXT_DOMAIN: ${CONTEXT_DOMAIN:-localhost}
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    mem_limit: 128m
+    cpus: 0.5
+
+volumes:
+  database:
+  media:
+  restore-media:
+  caddy-data:
+  caddy-config:
