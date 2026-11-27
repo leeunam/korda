@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 from korda_execution.eventos import EmissorEventos
-from korda_execution.harness.cliente_chat import ClienteChatFalso, ErroLLM, RespostaChat
+from korda_execution.harness.cliente_chat import ClienteChatFalso, ErroLLM, ErroOrcamento, RespostaChat
 from korda_execution.harness.sessao_chat import compactar_historico, executar_sessao, ferramentas_openai
 
 from .fakes import FerramentasFalsas
@@ -173,6 +173,22 @@ class TestSessaoChat(unittest.TestCase):
         saida, _ = self._sessao(cliente)
         self.assertEqual(saida.erro, "API do LLM respondeu HTTP 500")
         self.assertEqual(saida.tokens_por_turno, [[1000, 200]])
+
+
+    def test_orcamento_insuficiente_e_teto_e_mantem_as_escritas(self):
+        class _SemVerba:
+            def __init__(self):
+                self.antes = [RespostaChat.de_tool_calls([("escrever_modelo", {"caminho": MODELO, "conteudo": "select 4"})])]
+
+            def completar(self, mensagens, ferramentas):
+                if self.antes:
+                    return self.antes.pop(0)
+                raise ErroOrcamento("orçamento insuficiente para a próxima chamada")
+
+        saida, escritas = self._sessao(_SemVerba())
+        self.assertEqual(saida.subtype, "error_max_budget_usd")
+        self.assertEqual(escritas, [MODELO])
+        self.assertIn("orçamento insuficiente", saida.erro)
 
 
 if __name__ == "__main__":

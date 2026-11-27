@@ -23,7 +23,7 @@ import asyncio
 import json
 import re
 
-from .cliente_chat import ClienteChat, ErroLLM
+from .cliente_chat import ClienteChat, ErroLLM, ErroOrcamento
 from .ferramentas_agente import ESPECIFICACOES, despachar
 from .politica import PREFIXO, hook_pre_tool_use
 from .tipos import FerramentasAgente, SaidaSessao
@@ -129,6 +129,11 @@ def executar_sessao(cliente: ClienteChat, sistema: str, prompt: str, ferramentas
             compactar_historico(mensagens, manter_turnos)
         try:
             resposta = cliente.completar(mensagens, catalogo)
+        except ErroOrcamento as e:
+            # Nada foi enviado: é o teto da sessão, como error_max_budget_usd; o que foi escrito segue para o build.
+            subtype = "error_max_budget_usd"
+            erro_api = str(e)[:300]
+            break
         except ErroLLM as e:
             subtype = "error_during_execution"
             erro_api = str(e)[:300]

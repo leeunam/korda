@@ -21,6 +21,10 @@ class ErroLLM(RuntimeError):
     """Falha de comunicação com a API do LLM."""
 
 
+class ErroOrcamento(ErroLLM):
+    """A próxima chamada não cabe no orçamento autorizado: nenhuma chamada foi feita."""
+
+
 @dataclass
 class RespostaChat:
     conteudo: str
@@ -135,8 +139,10 @@ class ClienteComOrcamento:
         saldo_sessao = self.restante_usd - self.reserva_outras_etapas_usd
         verba_saida = saldo_sessao * 1_000_000 - tamanho * self.entrada
         max_tokens = min(8192, int(verba_saida / self.saida))
-        if max_tokens <= 0 or not self.custo_completo:
-            raise ErroLLM("orçamento insuficiente para a próxima chamada")
+        if not self.custo_completo:
+            raise ErroLLM("medição de custo incompleta: novas chamadas pagas bloqueadas")
+        if max_tokens <= 0:
+            raise ErroOrcamento("orçamento insuficiente para a próxima chamada")
         self.custo_completo = False
         self.chamadas += 1
         resposta = self.cliente.completar(mensagens, ferramentas, max_tokens=max_tokens)

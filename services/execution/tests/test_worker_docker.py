@@ -270,6 +270,12 @@ class TestWorkerDocker(unittest.TestCase):
         self.assertNotIn("evaluation_finished", tipos)
         self.assertFalse((self.revisao / "avaliacao.json").exists())
         self.assertEqual(self.medir()["tentativas"], 4)
+        # Os SQL escritos ficam para diagnóstico, fora da entrega, e o dbt_failed traz o erro.
+        self.assertEqual((self.revisao / "falha" / nome).read_text(), ruim[nome])
+        preservados = [e for e in eventos if e["type"] == "models_preserved"]
+        self.assertEqual(len(preservados), 1)
+        self.assertIn(nome, preservados[0]["dados"]["arquivos"])
+        self.assertTrue(all(e["dados"].get("diagnostico") for e in eventos if e["type"] == "dbt_failed"))
 
     def test_construcao_sem_modelos_escala_sem_build(self):
         plano = self.planejar_e_aprovar()

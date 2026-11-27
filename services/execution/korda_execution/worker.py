@@ -206,6 +206,38 @@ def _modelar(sandbox, plano, revisao, eventos, verificar_ativa, config, cliente_
         raise FalhaExecucao(f"{resultado['codigo']}: {resultado['erro']}")
 
 
+LIMITE_MODELO_FALHA = 256 * 1024
+
+
+def _preservar_modelos(sandbox, plano, revisao, eventos) -> None:
+    """Numa falha, guarda para diagnóstico os SQL autorizados que o agente escreveu (não vão para a entrega).
+
+    Só arquivos regulares (sem links), com teto de tamanho, e só os caminhos exatos de editable_models.
+    """
+    try:
+        sandbox.destruir(apagar_diretorio=False)
+        guardados = []
+        for relativo in plano["editable_models"]:
+            if "*" in relativo:
+                continue
+            origem = sandbox.dir_run / "projeto" / relativo
+            try:
+                info = os.lstat(origem)
+            except OSError:
+                continue
+            if not stat.S_ISREG(info.st_mode) or not 0 < info.st_size <= LIMITE_MODELO_FALHA:
+                continue
+            destino = revisao / "falha" / relativo
+            destino.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            destino.write_bytes(origem.read_bytes())
+            guardados.append(relativo)
+        if guardados:
+            eventos.emit_event("construcao", "models_preserved", "Modelos escritos guardados para diagnóstico da falha",
+                               arquivos=guardados, destino="falha/models")
+    except Exception:
+        pass  # diagnóstico é melhor esforço; a falha original segue
+
+
 def executar(registro, plano, run_id, *, raiz: Path, fontes: Path, cfg: ConfigHarness | None = None,
              cliente_llm=None) -> dict:
     """Processa a landing autorizada, chama o harness para construir, congela o resultado e monta a entrega.
@@ -265,6 +297,9 @@ def executar(registro, plano, run_id, *, raiz: Path, fontes: Path, cfg: ConfigHa
                 manifesto["infra"] = capturar_infra(sandbox.dir_run / "projeto/models",
                                                     sandbox.dir_run / "saida/target", revisao / "infra",
                                                     prata=sandbox.dir_run / "saida/prata")
+            except BaseException:
+                _preservar_modelos(sandbox, plano, revisao, eventos)
+                raise
             finally:
                 sandbox.destruir()
         # Pronto para a aprovação 2: build com os testes protegidos e o contrato de saída passaram.

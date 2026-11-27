@@ -14,7 +14,7 @@ from korda_execution import construcao
 from korda_execution.documento_base import SECOES
 from korda_execution.eventos import EmissorEventos
 from korda_execution.harness.adaptador_eventos import exportar_execucao
-from korda_execution.harness.cliente_chat import ClienteChatFalso, ClienteComOrcamento, ErroLLM, RespostaChat
+from korda_execution.harness.cliente_chat import ClienteChatFalso, ClienteComOrcamento, ErroLLM, ErroOrcamento, RespostaChat
 from korda_execution.harness.config import ConfigHarness, ErroConfiguracao
 from korda_execution.sandbox import ErroSandbox, LocalDockerSandbox
 
@@ -187,10 +187,11 @@ class TestConstrucaoWorker(unittest.TestCase):
         transporte.completar.return_value = resposta
         cliente = ClienteComOrcamento(transporte, 0.05, (4, 20), self.verificar)
         cliente.completar([], [])
-        with self.assertRaises(ErroLLM):
+        with self.assertRaises(ErroLLM) as incompleto:
             cliente.completar([], [])
+        self.assertNotIsInstance(incompleto.exception, ErroOrcamento)  # medição incompleta não é teto
         self.assertEqual(transporte.completar.call_count, 1)
-        with self.assertRaises(ErroLLM):
+        with self.assertRaises(ErroOrcamento):
             ClienteComOrcamento(transporte, .00001, (4, 20), self.verificar).completar([], [])
         self.assertEqual(transporte.completar.call_count, 1)
 

@@ -18,6 +18,7 @@ from .sandbox import DIR_SAIDA, ErroSandbox, ResultadoComando, Sandbox
 BANCO_SAIDA = f"{DIR_SAIDA}/korda.duckdb"
 LIMITE_LEITURA = 16_000
 TIMEOUT_DBT_S = 300
+LIMITE_DIAGNOSTICO = 2_000
 TIMEOUT_CONSULTA_S = 60
 FONTES = frozenset({"erp_clientes", "erp_pedidos", "tms_veiculos", "tms_viagens", "tms_entregas", "cte"})
 
@@ -99,8 +100,9 @@ class FerramentasRestritas:
             return self._recusa("rodar_dbt", str(e))
         r = self.sandbox.rodar_comando(argv, timeout_s=TIMEOUT_DBT_S)
         tipo = "dbt_passed" if r.ok else "dbt_failed"
+        extra = {} if r.ok else {"diagnostico": _diagnostico_dbt(r)}
         self._evento(tipo, " ".join(argv[2:]), codigo=r.codigo, duracao_s=r.duracao_s,
-                     estourou_tempo=r.estourou_tempo)
+                     estourou_tempo=r.estourou_tempo, **extra)
         return _resultado(r)
 
     def consultar_sql(self, sql: str) -> dict:
@@ -118,6 +120,13 @@ class FerramentasRestritas:
             return {"ok": False, "erro": erro, "estourou_tempo": r.estourou_tempo}
         self._evento("query_finished", f"{len(corpo.get('linhas', []))} linha(s)")
         return {"ok": True, **corpo}
+
+
+def _diagnostico_dbt(r: ResultadoComando) -> str:
+    """Trecho final do erro do dbt, sem o progresso dos nós que passaram, para o registro da execução."""
+    from .harness.ferramentas_agente import enxugar_saida_dbt
+
+    return enxugar_saida_dbt(((r.stdout or "") + "\n" + (r.stderr or "")).strip())[-LIMITE_DIAGNOSTICO:]
 
 
 def _objeto_json(texto: str) -> dict:
