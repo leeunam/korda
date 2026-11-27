@@ -29,6 +29,26 @@ class TestDocumentoBase(unittest.TestCase):
         self.assertAlmostEqual(doc.custo_usd, (10_000 * 4 + 2_000 * 20) / 1e6)
         self.assertEqual(doc.secoes_ausentes, [])
 
+    def test_mensagem_enxuta_sem_perder_o_que_planeja(self):
+        cliente = ClienteChatFalso([RespostaChat.texto(DOC)])
+        gerar_documento_base(cliente, CONTEXTO, PLANO, precos=PRECOS)
+        usuario = cliente.pedidos[0][1]["content"]
+        for regra, dados in CONTEXTO["rules"].items():
+            self.assertIn(f'"{regra}"', usuario)
+            for ev in dados.get("evidence_ids", []):
+                self.assertIn(ev, usuario)
+        for item in CONTEXTO["evidence"] + CONTEXTO["gaps"]:
+            self.assertIn(item["id"], usuario)
+        for fonte in CONTEXTO["sources"]:
+            self.assertIn(fonte["id"], usuario)
+            self.assertNotIn(fonte["locator"], usuario)  # metadado que não ajuda a planejar
+        self.assertNotIn("Responsável fictício", usuario)  # nome repetido em cada regra; o papel fica
+        self.assertNotIn('\n "', usuario)  # json compacto, sem indentação
+
+    def test_sistema_pede_texto_enxuto(self):
+        for trecho in ("só pelo id", "900 palavras", "uma tabela curta por camada", "nomes fixos"):
+            self.assertIn(trecho, SISTEMA_DOCUMENTO)
+
     def test_sistema_proibe_inventar(self):
         for trecho in ("lacuna", "não invente", "evidência"):
             self.assertIn(trecho, SISTEMA_DOCUMENTO.lower())

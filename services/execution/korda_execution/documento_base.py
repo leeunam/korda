@@ -38,14 +38,18 @@ quais métricas destrava. Elas voltam para a etapa de descoberta.
 - Com true, perguntas é uma lista vazia.
 
 Depois do bloco, use exatamente estas seções de nível 2: {", ".join(SECOES)}.
-- Modelos: para cada modelo, camada, nome, grão, colunas principais, chaves e de quais fontes vem.
+- Modelos: uma tabela curta por camada (modelo, grão, chaves, colunas principais, fontes). \
+Use os nomes fixos informados para os modelos obrigatórios; modelos auxiliares são livres.
 - Regras aplicadas: cada regra do plano, como implementá-la e a evidência que a sustenta.
 - Métricas: fórmula exata, grão, filtros, exclusões e denominador, como no plano.
 - Testes de aceite: um teste verificável por decisão (unicidade, conservação do rateio, exclusões, valor da métrica).
 - Premissas e lacunas: o que foi assumido e o que falta.
 
 Não invente regras, números ou fontes. Se uma informação não estiver no contexto ou no plano, \
-registre-a como lacuna em vez de supor. Não mude regras aprovadas."""
+registre-a como lacuna em vez de supor. Não mude regras aprovadas.
+
+Seja enxuto: cite a evidência só pelo id (ex.: ev-operacao), sem copiar trechos; \
+no máximo cerca de 900 palavras por seção."""
 
 
 @dataclass
@@ -116,14 +120,37 @@ def ler_decisao(texto: str) -> tuple[bool | None, list[dict]]:
 
 
 def _json(objeto) -> str:
-    return json.dumps(objeto, ensure_ascii=False, sort_keys=True, indent=1, default=str)
+    """JSON compacto: indentação custa tokens e não ajuda a planejar."""
+    return json.dumps(objeto, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+
+
+# Campos do contexto que não ajudam a planejar (metadados de versão e de origem).
+_CONTEXTO_OMITIDO = ("schema_version", "project_id", "last_processed_turn_id")
+
+
+def contexto_para_planejar(contexto: dict) -> dict:
+    """O contexto sem metadados irrelevantes; regras, evidências, perfil e lacunas ficam inteiros.
+
+    - fontes: só id e tipo (o locator e a versão não mudam o plano);
+    - regras: o confirmed_by fica só com o papel (o nome se repete em cada regra).
+    """
+    enxuto = {k: v for k, v in contexto.items() if k not in _CONTEXTO_OMITIDO}
+    enxuto["sources"] = [{k: f[k] for k in ("id", "kind") if k in f} for f in contexto.get("sources", [])]
+    regras = {}
+    for chave, regra in contexto.get("rules", {}).items():
+        regra = dict(regra)
+        if isinstance(regra.get("confirmed_by"), dict):
+            regra["confirmed_by"] = regra["confirmed_by"].get("role")
+        regras[chave] = regra
+    enxuto["rules"] = regras
+    return enxuto
 
 
 def gerar_documento_base(cliente: ClienteChat, contexto: dict, plano_publico: dict, *,
                          precos: tuple[float, float]) -> DocumentoBase:
     mensagens = [
         {"role": "system", "content": SISTEMA_DOCUMENTO},
-        {"role": "user", "content": f"Contexto validado:\n{_json(contexto)}\n\nPlano aprovado (projeção):\n"
+        {"role": "user", "content": f"Contexto validado:\n{_json(contexto_para_planejar(contexto))}\n\nPlano aprovado (projeção):\n"
                                     f"{_json(plano_publico)}\n\n{texto_contrato()}\n"},
     ]
     resposta = cliente.completar(mensagens, [])
