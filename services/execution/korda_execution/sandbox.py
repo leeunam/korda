@@ -5,8 +5,8 @@ roda só dentro do contêiner, que não tem rede, não tem root e só enxerga mo
 explícitas:
 
     /work/fontes          somente leitura  (landing zone em Parquet das fontes sintéticas)
-    /work/projeto         somente leitura  (dbt_project, profiles, definicoes/, tests/)
-    /work/projeto/models  somente os SQL autorizados para escrita (diretório inteiro na fixture avulsa)
+    /work/projeto         somente leitura  (dbt_project, profiles, definicoes/, tests/, ingerir.py, exportar.py)
+    /work/projeto/models  escrita          (no worker começa vazio: quem constrói os modelos é o harness)
     /work/saida           escrita          (banco DuckDB, target/ e logs/ do dbt)
 
 Isto é isolamento de demo, não de produção: o kernel é compartilhado com o host.
@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
-from .caminhos import DIR_PROJETO, caminho_modelo
+from .caminhos import DIR_PROJETO, CaminhoRecusado, padrao_modelo
 
 RAIZ_REPO = Path(__file__).resolve().parents[3]
 IMAGEM_PADRAO = os.environ.get("KORDA_SANDBOX_IMAGE", "korda-sandbox:dev")
@@ -142,8 +142,11 @@ class LocalDockerSandbox:
     # Subpastas das fontes que o executor não pode ver. `_gerador/` registra onde as
     # anomalias foram plantadas: seria uma folha de respostas.
     ocultar_nas_fontes: tuple[str, ...] = ("_gerador",)
-    # None é a sandbox avulsa do PR #19. O worker aprovado passa uma lista explícita,
-    # inclusive vazia quando nenhum modelo da versão pode receber correções.
+    # None é a sandbox avulsa do PR #19: models/ do projeto é copiado e fica gravável.
+    # O worker passa os padrões de editable_models do plano (ex.: ("models/*",)): models/
+    # começa vazio e gravável, porque quem constrói é o harness; o pipeline feito à mão
+    # não é copiado. Quais arquivos em models/ podem ser escritos é decidido pelas
+    # ferramentas e pelo hook; o kernel protege todo o resto do projeto.
     modelos_permitidos: tuple[str, ...] | None = None
     # `fontes` deve ser uma landing zone (ver ingestao.py), com manifesto.json na raiz.
     # O worker do plano aprovado ainda recebe fontes brutas e desliga esta exigência;
@@ -162,11 +165,11 @@ class LocalDockerSandbox:
             self.modelos_permitidos = tuple(self.modelos_permitidos)
             if len(set(self.modelos_permitidos)) != len(self.modelos_permitidos):
                 raise ErroSandbox("lista de modelos permitidos contém caminho repetido")
-            for nome in self.modelos_permitidos:
-                caminho_modelo(nome)
-                modelo = self.projeto / nome
-                if modelo.resolve() != modelo or not modelo.is_file():
-                    raise ErroSandbox(f"modelo autorizado precisa existir como arquivo regular do projeto: {nome}")
+            for padrao in self.modelos_permitidos:
+                try:
+                    padrao_modelo(padrao)
+                except CaminhoRecusado as e:
+                    raise ErroSandbox(str(e)) from None
 
     @property
     def dir_run(self) -> Path:
@@ -215,7 +218,15 @@ class LocalDockerSandbox:
     def _iniciar(self) -> None:
         projeto_run = self.dir_run / "projeto"
         saida_run = self.dir_run / "saida"
-        shutil.copytree(self.projeto, projeto_run, symlinks=False)
+        dir_models = self.projeto / "models"
+
+        def sem_modelos(diretorio: str, nomes: list[str]) -> list[str]:
+            # No worker, o conteúdo de models/ (pipeline feito à mão) nunca entra na sandbox.
+            if self.modelos_permitidos is not None and Path(diretorio) == dir_models:
+                return nomes
+            return [n for n in nomes if n == "__pycache__"]
+
+        shutil.copytree(self.projeto, projeto_run, symlinks=False, ignore=sem_modelos)
         (projeto_run / "models").mkdir(exist_ok=True)
         saida_run.mkdir(parents=True)
 
@@ -229,11 +240,7 @@ class LocalDockerSandbox:
             "--mount", f"type=bind,src={saida_run},dst={DIR_SAIDA}",
             *montagens_ocultas(self.fontes, DIR_FONTES, self.ocultar_nas_fontes),
         ]
-        if self.modelos_permitidos is None:
-            argv += ["--mount", f"type=bind,src={projeto_run / 'models'},dst={DIR_MODELS}"]
-        else:
-            for nome in self.modelos_permitidos:
-                argv += ["--mount", f"type=bind,src={projeto_run / nome},dst={caminho_modelo(nome)}"]
+        argv += ["--mount", f"type=bind,src={projeto_run / 'models'},dst={DIR_MODELS}"]
         argv.append(self.imagem)
         r = subprocess.run(argv, capture_output=True, text=True, timeout=90)
         if r.returncode != 0:

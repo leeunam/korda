@@ -111,7 +111,7 @@ def _montar(contexto, destino, custo, dataset):
         schema_version=VERSAO, context_revision=contexto["revision"], context_state=contexto["state"],
         state="aguardando_aprovacao" if contexto["state"] == "pronto_para_planejamento" else "rascunho",
         metrics=metricas, tasks=tarefas, dataset=dataset,
-        editable_models=["models/prata_ctes.sql"] if dataset == "01_demo" else [],
+        editable_models=["models/*"] if dataset == "01_demo" else [],
         period="Lote sintético de fontes autorizado para a execução inteira, sem recorte adicional de datas.",
         limits={"max_repair_attempts_per_step": 3}, destination=destino, cost_estimate_brl_cents=custo,
     )
@@ -129,6 +129,27 @@ def gerar_plano(contexto, *, destino=None, custo_estimado_centavos=None, dataset
     return plano
 
 
+def _com_construcao(plano, construcao):
+    """Acrescenta a seção de construção e recalcula a versão sobre o plano inteiro."""
+    anexado = {k: v for k, v in copy.deepcopy(plano).items() if k != "plan_version"}
+    anexado["construction"] = copy.deepcopy(construcao)
+    anexado["plan_version"] = _versao(anexado)
+    return anexado
+
+
+def anexar_construcao(plano, construcao):
+    """Anexa o plano de construção gerado pelo planejamento (LLM) para a aprovação 1 cobri-lo.
+
+    A seção entra no hash: qualquer mudança no documento muda a `plan_version`.
+    """
+    validar_plano(plano)
+    if "construction" in plano:
+        raise ValueError("o plano já tem uma seção de construção; gere outra a partir do plano base")
+    anexado = _com_construcao(plano, construcao)
+    validar_plano(anexado)
+    return anexado
+
+
 def validar_plano(plano):
     """Valida o schema, o vínculo das evidências, as projeções dos KPIs e a versão."""
     VALIDADOR.validate(plano)
@@ -136,5 +157,7 @@ def validar_plano(plano):
     contexto.update(schema_version=VERSAO, revision=plano["context_revision"], state=plano["context_state"])
     contrato_contexto.validate_context(contexto)
     esperado = _montar(contexto, plano["destination"], plano["cost_estimate_brl_cents"], plano["dataset"])
+    if "construction" in plano:
+        esperado = _com_construcao(esperado, plano["construction"])
     if plano != esperado:
         raise ValueError("conteúdo, versão ou vínculos do plano divergentes da revisão canônica")

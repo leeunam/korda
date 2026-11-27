@@ -10,7 +10,8 @@ from jsonschema.exceptions import ValidationError
 
 P2 = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(P2))
-from korda_planning import gerar_plano, validar_plano
+from korda_planning import anexar_construcao, gerar_plano, validar_plano
+from korda_planning.plano import VALIDADOR
 
 EXEMPLOS = P2.parents[1] / "packages/contracts/context/v0.1.0/examples"
 
@@ -95,7 +96,7 @@ class TestPlano(unittest.TestCase):
     def test_dataset_vinculado_sem_inferir_empresa_desconhecida(self):
         plano = gerar_plano(self.confirmado)
         self.assertEqual(plano["dataset"], "01_demo")
-        self.assertEqual(plano["editable_models"], ["models/prata_ctes.sql"])
+        self.assertEqual(plano["editable_models"], ["models/*"])
         self.confirmado["project_id"] = "outro"
         pendente = gerar_plano(self.confirmado)
         self.assertIsNone(pendente["dataset"])
@@ -103,6 +104,36 @@ class TestPlano(unittest.TestCase):
         variante = gerar_plano(self.confirmado, dataset="02_variacao")
         self.assertNotEqual(variante["plan_version"], pendente["plan_version"])
         validar_plano(variante)
+
+    def test_editable_models_aceita_caminho_ou_padrao_somente_em_models(self):
+        plano = gerar_plano(self.confirmado)
+        validar_plano(plano)
+        for valor in (["models/prata_ctes.sql"], ["models/*"], ["models/prata/*.sql"]):
+            with self.subTest(valor=valor):
+                VALIDADOR.validate({**plano, "editable_models": valor})
+        for valor in (["tests/*"], ["*"], ["models/**"], ["models/../tests/x.sql"], ["models/x.yml"], ["models/"]):
+            with self.subTest(valor=valor), self.assertRaises(ValidationError):
+                VALIDADOR.validate({**plano, "editable_models": valor})
+
+    def test_construcao_entra_no_hash_da_aprovacao(self):
+        base = gerar_plano(self.confirmado, destino="demo", custo_estimado_centavos=0)
+        construcao = {"document": "## Modelos\nprata_ctes", "model": "teste/falso", "synthetic": True}
+        plano = anexar_construcao(base, construcao)
+        self.assertNotIn("construction", base)
+        self.assertEqual(plano["construction"], construcao)
+        self.assertNotEqual(plano["plan_version"], base["plan_version"])
+        validar_plano(plano)
+        validar_plano(base)
+        adulterado = copy.deepcopy(plano)
+        adulterado["construction"]["document"] += "\nregra nova"
+        with self.assertRaisesRegex(ValueError, "divergentes"):
+            validar_plano(adulterado)
+        with self.assertRaisesRegex(ValueError, "já tem"):
+            anexar_construcao(plano, construcao)
+        with self.assertRaises(ValidationError):
+            anexar_construcao(base, {"document": "", "model": "m", "synthetic": True})
+        with self.assertRaises(ValidationError):
+            anexar_construcao(base, {**construcao, "extra": 1})
 
     def test_cli_exercita_geracao_e_validacao(self):
         cmd = [sys.executable, "-m", "korda_planning"]

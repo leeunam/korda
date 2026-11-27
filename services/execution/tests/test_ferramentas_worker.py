@@ -41,6 +41,14 @@ class TestFerramentas(unittest.TestCase):
         self.sandbox.enviar_arquivos.assert_called_once_with({f"/work/projeto/{caminho}": b"select 1"})
         self.assertEqual(self.eventos.ler()[-1]["type"], "file_written")
 
+    def test_padrao_do_plano_autoriza_qualquer_sql_em_models(self):
+        ferramentas = FerramentasRestritas(self.sandbox, self.eventos, plano_aprovado={"plan_version": 1},
+                                           modelos_permitidos=frozenset(["models/*"]))
+        self.assertTrue(ferramentas.escrever_modelo("models/ouro_kpis.sql", "select 1")["ok"])
+        self.assertFalse(ferramentas.escrever_modelo("tests/chave_fiscal_unica.sql", "select 1")["ok"])
+        self.assertFalse(ferramentas.escrever_modelo("models/fontes.yml", "x")["ok"])
+        self.sandbox.enviar_arquivos.assert_called_once_with({"/work/projeto/models/ouro_kpis.sql": b"select 1"})
+
     def test_sem_plano_e_sem_modelos_autorizados(self):
         self.assertFalse(FerramentasRestritas(self.sandbox, self.eventos).ler_plano()["ok"])
         ferramentas = FerramentasRestritas(self.sandbox, self.eventos, plano_aprovado={"version": 1})
@@ -103,21 +111,22 @@ class TestPerfil(unittest.TestCase):
 
 
 class TestPropriedadeDaExecucao(unittest.TestCase):
-    def test_plano_monta_somente_arquivo_sql_explicito_para_escrita(self):
+    def test_plano_comeca_com_models_vazio_e_gravavel_e_o_resto_somente_leitura(self):
         with tempfile.TemporaryDirectory() as temp:
             raiz = Path(temp)
             projeto = raiz / "projeto"
             modelos = projeto / "models"
-            modelos.mkdir(parents=True)
+            (modelos / "sub").mkdir(parents=True)
+            (projeto / "tests").mkdir()
             (projeto / "dbt_project.yml").write_text("name: teste")
-            (modelos / "aprovado.sql").write_text("select 7")
-            (modelos / "protegido.sql").write_text("select 9")
-            (modelos / "indireto.sql").symlink_to(modelos / "protegido.sql")
-            for nome in ("models/indireto.sql", "models/ausente.sql"):
+            (projeto / "tests" / "aceite.sql").write_text("select 1 where false")
+            (modelos / "feito_a_mao.sql").write_text("select 7")
+            (modelos / "sub" / "outro.sql").write_text("select 9")
+            for padrao in ("tests/*", "models/**", "models/x.yml"):
                 with self.assertRaises(ErroSandbox):
-                    LocalDockerSandbox("restrita", projeto, raiz, modelos_permitidos=(nome,))
+                    LocalDockerSandbox("restrita", projeto, raiz, modelos_permitidos=(padrao,))
             sb = LocalDockerSandbox("restrita", projeto, raiz, raiz_runs=raiz/"runs",
-                                    modelos_permitidos=("models/aprovado.sql",), exigir_manifesto=False)
+                                    modelos_permitidos=("models/*",), exigir_manifesto=False)
             with patch("korda_execution.sandbox.imagem_existe", return_value=True), \
                  patch("korda_execution.sandbox.os.getuid", return_value=1000), \
                  patch("korda_execution.sandbox.subprocess.run") as docker:
@@ -127,9 +136,10 @@ class TestPropriedadeDaExecucao(unittest.TestCase):
                 argv = docker.call_args.args[0]
                 montagens = [argv[i + 1] for i, arg in enumerate(argv) if arg == "--mount"]
                 gravaveis = [arg.split("dst=")[1] for arg in montagens if "readonly" not in arg]
-                self.assertCountEqual(gravaveis, ["/work/saida", "/work/projeto/models/aprovado.sql"])
+                self.assertCountEqual(gravaveis, ["/work/saida", "/work/projeto/models"])
                 self.assertTrue(any(arg.endswith("dst=/work/projeto,readonly") for arg in montagens))
-                self.assertEqual((sb.dir_run/"projeto/models/aprovado.sql").read_text(), "select 7")
+                self.assertEqual(list((sb.dir_run / "projeto/models").iterdir()), [])
+                self.assertTrue((sb.dir_run / "projeto/tests/aceite.sql").is_file())
                 sb.destruir()
 
     def test_duas_instancias_com_mesmo_id_preservam_o_dono(self):
@@ -181,11 +191,15 @@ class TestFerramentasNaSandbox(unittest.TestCase):
             run_id = f"ferramentas-{uuid.uuid4().hex[:12]}"
             with LocalDockerSandbox(run_id, projeto, fontes, raiz_runs=raiz / "runs",
                                     modelos_permitidos=("models/aprovado.sql",), exigir_manifesto=False) as sb:
-                ferramentas = FerramentasRestritas(sb, EmissorEventos(raiz / "eventos.jsonl", run_id))
+                ferramentas = FerramentasRestritas(sb, EmissorEventos(raiz / "eventos.jsonl", run_id),
+                                                   modelos_permitidos=frozenset(["models/aprovado.sql"]))
+                vazio = sb.rodar_comando(["ls", "-A", "/work/projeto/models"], timeout_s=20)
+                self.assertEqual((vazio.ok, vazio.stdout.strip()), (True, ""))
                 sb.enviar_arquivos({"/work/projeto/models/aprovado.sql": b"select 3"})
                 with self.assertRaises(ErroSandbox):
-                    sb.enviar_arquivos({"/work/projeto/models/protegido.sql": b"select 4"})
+                    sb.enviar_arquivos({"/work/projeto/tests/novo.sql": b"select 4"})
                 self.assertEqual((projeto / "models/aprovado.sql").read_text(), "select 1")
+                self.assertFalse(ferramentas.escrever_modelo("models/protegido.sql", "select 4")["ok"])
                 perfil_csv = ferramentas.inspecionar_fonte("erp_pedidos")
                 self.assertTrue(perfil_csv["ok"], perfil_csv)
                 self.assertEqual(perfil_csv["perfil"]["nulos_na_amostra"], {"pedido": 0, "peso": 1})

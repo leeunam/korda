@@ -451,10 +451,10 @@ Rodar uma vez `03_reservada` com o corretor configurado, **sem ajustar nada depo
 | # | Passo | Arquivos | Chave real? |
 |---|---|---|---|
 | B-a | ✅ Feito em 25/11 com autorização: o gateway devolve `tool_calls`, aceita `role: tool` e informa `usage`; cerca de US$ 0,005. Exigiu `User-Agent` próprio (Cloudflare 1010) | `harness/fumaca.py` | Sim (usada) |
-| B-b | Worker: trocar o build do pipeline à mão por `gerar_documento_base` + `construir_e_verificar`; `KORDA_EXECUTOR` escolhe o executor; gravar `documento_base.md` e `medicao.json` em `revisao/<run>/` | `worker.py` (#21) | Não |
-| B-c | Sandbox: projeto começa com `models/` vazio e gravável; `tests/`, `definicoes/`, macros e configuração só leitura; o pipeline à mão nunca é montado (só copiado pelo `roteirizado`) | `sandbox.py`, `worker.py` (#21) | Não |
-| B-d | Contrato do plano: `editable_models` aceitar `models/*` (hoje é `const` de `models/prata_ctes.sql`); worker deixa de exigir a lista fixa; toda falha de teste ou compilação nos modelos vira `implementacao` | `plan.schema.json`, `worker.py` (#21; K01/K06) | Não |
-| B-e | Aceites sem LLM (Docker + `ClienteChatFalso`): construção falsa escreve o pipeline e o avaliador aprova; falha sem solução chega ao limite; escrita em teste ou fonte recusada pela política e pelo kernel | testes (#21) | Não |
+| B-b | ✅ Feito em 26/11 (`feat/10-ligar-worker-harness`, sem LLM). Worker: trocar o build do pipeline à mão por `gerar_documento_base` + `construir_e_verificar`; `KORDA_EXECUTOR` escolhe o executor; gravar `documento_base.md` e `medicao.json` em `revisao/<run>/` | `worker.py` (#21) | Não |
+| B-c | ✅ Feito em 26/11 (`feat/10-ligar-worker-harness`, sem LLM). Sandbox: projeto começa com `models/` vazio e gravável; `tests/`, `definicoes/`, macros e configuração só leitura; o pipeline à mão nunca é montado (só copiado pelo `roteirizado`) | `sandbox.py`, `worker.py` (#21) | Não |
+| B-d | ✅ Feito em 26/11 (`feat/10-ligar-worker-harness`, sem LLM). Contrato do plano: `editable_models` aceitar `models/*` (hoje é `const` de `models/prata_ctes.sql`); worker deixa de exigir a lista fixa; toda falha de teste ou compilação nos modelos vira `implementacao` | `plan.schema.json`, `worker.py` (#21; K01/K06) | Não |
+| B-e | ✅ Feito em 26/11 (`feat/10-ligar-worker-harness`, sem LLM). Aceites sem LLM (Docker + `ClienteChatFalso`): construção falsa escreve o pipeline e o avaliador aprova; falha sem solução chega ao limite; escrita em teste ou fonte recusada pela política e pelo kernel | testes (#21) | Não |
 | B-f | Ensaio real no `01_demo` com `KORDA_EXECUTOR=chat`: documento-base, construção, correções, avaliador; anotar o saldo de créditos antes e depois | — | **Sim** |
 | B-g | Pacote de entrega (proposta, K13): projeto dbt, resultados, `dbt docs`, `decisoes.md`, `execucao.md` (o que o agente fez e quanto custou), manifesto | promoção (#21) | Não |
 
@@ -467,3 +467,19 @@ Rodar uma vez `03_reservada` com o corretor configurado, **sem ajustar nada depo
 - Perguntas:
   1. O documento-base passa pela aprovação 1, junto com o plano?
   2. Quem mantém o `plano.py` por template, já que ele substitui a K06 por enquanto?
+
+## Revisão de 26/11/2026: worker ligado ao harness
+
+**Decisões do Gabriel:**
+1. Fluxo: a descoberta gera o contexto (fora desta etapa); o worker faz o planejamento da construção com uma chamada à API da Feita; depois sobe a sandbox e intermedeia o harness com a mesma API. O loop do harness fica no worker, e as ferramentas rodam na sandbox. O worker não executa nada do pipeline.
+2. Lacunas: nenhuma trava determinística nova. A própria LLM do planejamento decide (`pronto_para_construir`) e, se faltar contexto, gera perguntas para a plataforma e para a descoberta (`revisao/<run>/perguntas.json`, evento `context_requested`). Sem decisão válida, não constrói.
+3. O `agente_sdk` não constrói: o worker o recusa, e ele fica guardado do #27.
+4. O contexto chega ao worker por `executar --contexto` (obrigatório com `chat`).
+
+**Feito (B-b a B-e):** worker orquestra (`worker.py`); sandbox com `models/` vazio e gravável (`sandbox.py`); `editable_models` com padrão no schema e no planejador (`models/*`); toda falha do dbt com código 1 ou 2, e da exportação no contrato de saída, vira `implementacao`; `documento_base.md`, `perguntas.json` e `medicao.json` na revisão; aceites com Docker e `ClienteChatFalso`.
+
+**Pendências:** formato de `perguntas.json` e consumo pela plataforma (P1/P4); estado "aguardando contexto" no registro (K01); ensaio real (B-f), só com "pode rodar".
+
+## Revisão de 27/11/2026: planejamento antes da aprovação 1
+
+**Decisões do Gabriel:** o planejamento da construção vira um comando próprio (`planejar`) antes da aprovação 1. A LLM gera só a parte de construção; regras, evidências e fórmulas continuam no gabarito `plano.py`. A construção entra no plano como `construction` e no hash, então a pessoa aprova o que a LLM planejou. O `executar` não faz mais chamada de planejamento e, com `chat`, exige a construção aprovada. Perguntas ficam na pasta do `planejar`. Uma chamada real econômica (saída limitada a 6.000 tokens) foi autorizada para validar o prompt.

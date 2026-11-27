@@ -5,6 +5,7 @@ Sem Docker ou sem a imagem, os testes são pulados (e isso aparece no resumo do 
 Defina KORDA_EXIGIR_DOCKER=1 para transformar o pulo em falha (usado no CI).
 """
 
+import hashlib
 import os
 import shutil
 import subprocess
@@ -230,3 +231,58 @@ class TestCriacao(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+PROJETO_DEMO = Path(__file__).resolve().parents[1] / "pipeline/projeto"
+
+
+@unittest.skipUnless(_PRONTO, f"Docker ou imagem {IMAGEM_PADRAO} indisponível")
+class TestSandboxDeConstrucao(unittest.TestCase):
+    """Sandbox do worker: o harness constrói em models/ vazio; testes e configuração são do kernel."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="korda-test-construcao-"))
+        (self.tmp / "fontes").mkdir()
+        self.sb = LocalDockerSandbox(f"construcao-{uuid.uuid4().hex[:8]}", PROJETO_DEMO, self.tmp / "fontes",
+                                     raiz_runs=self.tmp / "runs", modelos_permitidos=("models/*",),
+                                     exigir_manifesto=False)
+        self.sb.criar()
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.addCleanup(self.sb.destruir)
+
+    def test_models_comeca_vazio_e_o_pipeline_a_mao_nao_e_montado(self):
+        r = self.sb.rodar_comando(["ls", "-A", "/work/projeto/models"], timeout_s=20)
+        self.assertTrue(r.ok, r.stderr)
+        self.assertEqual(r.stdout.strip(), "")
+        self.sb.enviar_arquivos({"/work/projeto/models/ouro_kpis.sql": b"select 1"})
+        self.assertEqual((self.sb.dir_run / "projeto/models/ouro_kpis.sql").read_text(), "select 1")
+
+    def test_escrita_direta_em_tests_e_recusada_pelo_kernel(self):
+        alvo = PROJETO_DEMO / "tests/chave_fiscal_unica.sql"
+        copia = self.sb.dir_run / "projeto/tests/chave_fiscal_unica.sql"
+        antes = {c: hashlib.sha256(c.read_bytes()).hexdigest() for c in (alvo, copia)}
+        for destino in ("/work/projeto/tests/chave_fiscal_unica.sql", "/work/projeto/definicoes/fontes.yml",
+                        "/work/projeto/dbt_project.yml", "/work/projeto/profiles.yml", "/work/projeto/ingerir.py"):
+            with self.subTest(destino=destino):
+                r = self.sb.rodar_comando(["sh", "-c", 'echo invadido >> "$1"', "sh", destino], timeout_s=20)
+                self.assertNotEqual(r.codigo, 0)
+                self.assertIn("Read-only file system", r.stderr)
+        self.assertEqual({c: hashlib.sha256(c.read_bytes()).hexdigest() for c in (alvo, copia)}, antes)
+
+    def test_ferramentas_recusam_teste_e_fonte_e_o_kernel_tambem(self):
+        (self.tmp / "fontes" / "cte.csv").write_text("original\n")
+        eventos = EmissorEventos(self.tmp / "eventos.jsonl", self.sb.run_id)
+        ferramentas = FerramentasRestritas(self.sb, eventos, plano_aprovado={"plan_version": "x"},
+                                           modelos_permitidos=frozenset(["models/*"]))
+        for caminho in ("tests/chave_fiscal_unica.sql", "../fontes/cte.csv", "definicoes/fontes.yml"):
+            with self.subTest(caminho=caminho):
+                self.assertFalse(ferramentas.escrever_modelo(caminho, "select 1")["ok"])
+        self.assertEqual({e["type"] for e in eventos.ler()}, {"tool_refused"})
+        r = self.sb.rodar_comando(["sh", "-c", 'echo invadido >> "$1"', "sh", "/work/fontes/cte.csv"], timeout_s=20)
+        self.assertIn("Read-only file system", r.stderr)
+        self.assertEqual((self.tmp / "fontes" / "cte.csv").read_text(), "original\n")
+
+    def test_sem_rede(self):
+        r = self.sb.rodar_comando(["python", "-c", "import socket; socket.create_connection(('1.1.1.1', 53), 3)"],
+                                  timeout_s=20)
+        self.assertNotEqual(r.codigo, 0)

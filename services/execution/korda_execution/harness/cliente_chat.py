@@ -60,11 +60,13 @@ class ClienteChat(Protocol):
 
 
 class ClienteChatHttp:
-    def __init__(self, url_base: str, chave: str, modelo: str, timeout_s: float = 300):
+    def __init__(self, url_base: str, chave: str, modelo: str, timeout_s: float = 300,
+                 max_tokens: int | None = None):
         self.url = url_base.rstrip("/") + "/chat/completions"
         self._chave = chave
         self.modelo = modelo
         self.timeout_s = timeout_s
+        self.max_tokens = max_tokens  # teto de saída por chamada; None deixa o padrão do provedor
 
     def __repr__(self) -> str:
         return f"ClienteChatHttp(url={self.url!r}, modelo={self.modelo!r})"
@@ -73,6 +75,8 @@ class ClienteChatHttp:
         dados = {"model": self.modelo, "messages": mensagens}
         if ferramentas:
             dados["tools"] = ferramentas
+        if self.max_tokens is not None:
+            dados["max_tokens"] = self.max_tokens
         corpo = json.dumps(dados).encode("utf-8")
         pedido = urllib.request.Request(self.url, data=corpo, method="POST", headers={
             "Authorization": f"Bearer {self._chave}", "Content-Type": "application/json", "User-Agent": USER_AGENT})

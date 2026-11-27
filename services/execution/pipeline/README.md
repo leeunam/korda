@@ -2,6 +2,8 @@
 
 O projeto dbt implementa o layout físico de `01_demo` e as nove decisões do exemplo de contexto v0.1.0 com rateio confirmado. A execução depende da aprovação humana do plano correspondente. Alterar uma regra ou apresentar outro layout exige um plano compatível e implementação correspondente.
 
+Os modelos em `projeto/models/` são escritos à mão: referência e plano B (`KORDA_EXECUTOR=roteirizado`). O worker não os monta na sandbox; ali `models/` começa vazio, e quem escreve é o harness. Testes, definições, `ingerir.py` e `exportar.py` (o contrato de saída) são montados somente leitura.
+
 | Etapa | Origem e destino | Verificação |
 | --- | --- | --- |
 | Ingestão | `ingerir.py` abre os quatro CSV de pedidos, entregas, veículos e viagens e os XML da pasta `cte/`. Escreve cinco tabelas bronze em uma transação. | Schema, grão e formatos das datas. Campos usados retêm arquivo e linha no CSV e arquivo e SHA-256 no XML. O evento precisa coincidir com o retorno. |
