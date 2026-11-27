@@ -4,21 +4,23 @@
 
 ## Papel
 
-Decisão do responsável pela execução (25/11/2026): **o harness constrói o pipeline; o worker só orquestra.** O worker gera o documento-base (uma chamada à API da Feita), prepara a sandbox, intermedeia o harness com a mesma API e depois avalia e entrega. Se a LLM do planejamento disser que falta contexto, o worker grava as perguntas em `perguntas.json` e para antes da sandbox. O pipeline dbt feito à mão no #21 deixa de ser o produto e vira o executor `roteirizado` (plano B da demo), fora do alcance do agente.
+Decisão do responsável pela execução (25 e 27/11/2026): **o harness constrói o pipeline; o worker só orquestra.** Antes da aprovação 1, o comando `planejar` ([`planejamento.py`](../planejamento.py)) faz uma chamada à API da Feita que gera a construção, anexada ao plano, ou as perguntas para a descoberta. Depois da aprovação, o `executar` prepara a sandbox, intermedeia o harness com a mesma API e avalia. O pipeline dbt feito à mão no #21 deixa de ser o produto e vira o executor `roteirizado` (plano B da demo), fora do alcance do agente.
 
 ```
-contexto das entrevistas (P1) ─┐
-plano aprovado (aprovação 1) ──┴─▶ worker: gerar_documento_base()  ── 1 chamada de API, sem ferramentas
+contexto (P1) ─▶ korda_planning (gabarito) ─▶ plano base
+plano base + contexto ─▶ planejar: 1 chamada de API, sem ferramentas
+        ├─ falta contexto ─▶ perguntas.json ─▶ descoberta (sem plano novo)
+        └─ pronto ─▶ plano + construction (nova plan_version)
                                         │
-                     falta contexto? ── sim ─▶ perguntas.json → descoberta (sem sandbox)
-                                        │ não
-                                        ▼
-                         worker: sandbox (sem rede, testes e fontes só leitura, models/ gravável)
+                               aprovação 1 (cobre a construção)
                                         │
                                         ▼
-               harness: construir_e_verificar()
-                 1. ExecutorChat.construir(documento_base)  → escreve bronze/prata/ouro
-                 2. dbt build (testes protegidos)
+                         executar: sandbox (sem rede, testes e fontes só leitura, models/ vazio)
+                                        │
+                                        ▼
+               harness: construir_e_verificar(documento_base = construction.document)
+                 1. ExecutorChat.construir(...)  → escreve bronze/prata/ouro
+                 2. dbt build (testes protegidos) + exportação no contrato de saída
                  3. falhou? ExecutorChat(falha, tentativa)  → até 3 correções; depois, pede ajuda
                                         │
                                         ▼
@@ -36,7 +38,7 @@ O modelo nunca executa nada: ele só pede ferramentas. Cada pedido passa pela po
 | `roteirizado` | [`roteirizado.py`](roteirizado.py) | Não | Plano B: `ConstrutorRoteirizado` copia o pipeline feito à mão; `CorretorRoteirizado` restaura o modelo revisado. **Não demonstra construção por IA.** |
 | `falso` | [`falso.py`](falso.py), `ClienteChatFalso` | Não | Testes. Roteiro fixo de chamadas pelo mesmo caminho do agente; tokens e custo sintéticos. |
 
-O documento-base é gerado por [`documento_base.py`](../documento_base.py), responsabilidade do worker. Entram o contexto e o plano. Saem as seções Modelos, Regras aplicadas, Métricas, Testes de aceite e Premissas e lacunas, mais um bloco ```` ```json ```` final com `pronto_para_construir` e `perguntas` (pergunta, lacuna, métricas afetadas, motivo). O prompt proíbe inventar regras. Lacuna que não impede construir fica em Premissas e lacunas. Se a lacuna impedir, a LLM gera as perguntas para a descoberta. Sem um bloco válido, o worker não constrói.
+O documento-base (construção) é gerado no `planejar`, com o prompt de [`documento_base.py`](../documento_base.py). Entram o contexto e o plano base. Saem as seções Modelos, Regras aplicadas, Métricas, Testes de aceite e Premissas e lacunas, mais um bloco ```` ```json ```` final com `pronto_para_construir` e `perguntas` (pergunta, lacuna, métricas afetadas, motivo). O prompt proíbe inventar regras. Lacuna que não impede construir fica em Premissas e lacunas. Se a lacuna impedir, a LLM gera as perguntas para a descoberta. Sem um bloco válido, nenhum plano é gerado. O bloco é removido antes de o documento entrar no plano como `construction`.
 
 ## Variáveis
 
@@ -128,13 +130,13 @@ Evidências, fontes, destino e fórmulas não entram. As respostas esperadas (`e
 | `run_id`, `executor`, `modelo` | Identificação. |
 | `synthetic` | `true` com `falso` ou `roteirizado`: os números não medem um LLM real. |
 | `tentativas`, `turnos`, `duracao_s` | Soma das sessões do agente (construção = tentativa 0); a duração inclui o documento-base. |
-| `documento_base` | Tokens, custo, duração e seções ausentes da chamada do worker, ou `null` sem documento-base. |
+| `documento_base` | Reservado para uma chamada de documento-base dentro da execução; hoje `null`, porque o planejamento tem a própria `medicao.json`. |
 | `tokens_entrada`, `tokens_saida`, `tokens_cache_leitura` | Soma dos tokens informados. |
 | `custo_usd`, `custo_centavos` | Custo informado; centavos de real pela taxa configurada. |
 | `custo_completo` | `false` se alguma tentativa não informou o custo. |
 | `por_tentativa` | Detalhe de cada tentativa, inclusive arquivos escritos e motivo de parada. |
 
-A construção aparece como tentativa `0`. O worker grava `revisao/<run>/medicao.json`, com um bloco `documento_base` (tokens, custo, seções ausentes) que entra nos totais. O custo do documento-base também sai do orçamento do `ExecutorChat` (`descontar_documento_base`).
+A construção aparece como tentativa `0`. O worker grava `revisao/<run>/medicao.json`. O custo do planejamento fica no `medicao.json` da pasta do `planejar`; o orçamento de US$ 8 da execução cobre construção e correções.
 
 ## Orçamento do executor `chat`
 

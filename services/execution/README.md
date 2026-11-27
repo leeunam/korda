@@ -1,8 +1,8 @@
 # Worker de execução da Korda
 
-O worker processa o **lote sintético 01_demo**. Ele lê a versão de plano aprovada pelo operador e **só orquestra**; não executa nada do pipeline:
+O worker processa o **lote sintético 01_demo** e **só orquestra**; não executa nada do pipeline:
 
-1. **Planejamento da construção.** Uma chamada à API da Feita gera o documento-base (plano de construção) a partir do contexto da descoberta e do plano. A própria LLM decide se há contexto para construir. Se não houver, ela gera perguntas para a descoberta, o worker grava `perguntas.json` e para antes de abrir a sandbox.
+1. **Planejamento da construção (`planejar`, antes da aprovação 1).** Uma chamada à API da Feita transforma o plano base (gabarito do [planejador](../planning/README.md)) e o contexto da descoberta no plano de construção. A própria LLM decide se há contexto para construir. Se houver, o documento entra no plano como `construction`, com nova `plan_version`, e a aprovação 1 cobre o que a LLM planejou. Se não houver, ela gera perguntas para a descoberta em `perguntas.json`, e nenhum plano novo é gerado.
 2. **Sandbox.** Contêiner sem rede, com `models/` vazio.
 3. **Harness.** O [harness](korda_execution/harness/README.md) constrói frete por entrega, OTIF e ocupação com DuckDB/dbt e corrige até três vezes. O loop roda no worker e conversa com a API da Feita; cada ferramenta que o modelo pede executa dentro da sandbox, e a chave nunca entra nela.
 4. **Avaliação.** Um avaliador independente confere os resultados. Uma segunda decisão humana autoriza a cópia para uma pasta local. O [planejamento da integração](../../docs/plano-integracao-worker.md) situa essa entrega nas 17 issues do projeto.
@@ -21,8 +21,13 @@ mkdir -p runs/preparo
 python -m services.planning.korda_planning \
   packages/contracts/context/v0.1.0/examples/02_rateio_confirmado.json \
   --destino revisao-logistica --custo-estimado-centavos 0 > runs/preparo/plano.json
-python -m services.execution.korda_execution registrar runs/preparo/plano.json
+set -a; . ./.env; set +a          # KORDA_EXECUTOR=chat, KORDA_PERMITIR_LLM_REAL=1 e KORDA_LLM_CHAVE (ignorado pelo Git)
+python -m services.execution.korda_execution planejar runs/preparo/plano.json \
+  --contexto packages/contracts/context/v0.1.0/examples/02_rateio_confirmado.json --saida runs/preparo/plano_construcao.json
+python -m services.execution.korda_execution registrar runs/preparo/plano_construcao.json
 ```
+
+O `planejar` faz uma chamada (saída limitada a 6.000 tokens) e grava em `runs/worker/planejamento/<versão>-<instante>/`: `documento_base.md`, `resposta.json` (resposta bruta), `medicao.json` (tokens e custo estimado) e, conforme a decisão da LLM, `plano.json` ou `perguntas.json`. Sai com código 0 quando o plano está pronto e 3 quando há perguntas. As perguntas trazem pergunta, lacuna, métricas afetadas e motivo, mais `plan_version`, `context_id` e `context_revision`; voltam para a descoberta, e uma nova revisão de contexto gera outro plano base. Como a plataforma consome esse arquivo ainda está em aberto (P1/P4). Para o plano B, sem LLM, registre o plano base direto.
 
 O valor zero exemplifica a estimativa do operador para um ensaio local sem chamada a provedor. O custo de infraestrutura depende do ambiente. Para demonstrar uma lacuna, use a revisão `01_rateio_pendente.json`. Nela, o custo fica bloqueado até a confirmação do financeiro. Uma alteração de regras, destino ou estimativa muda o identificador da versão. [Contrato do plano](../../packages/contracts/plan/v0.1.0/README.md)
 
@@ -32,16 +37,13 @@ O comando `registrar` exibe projeto e versão. A pessoa responsável confere o p
 
 ```bash
 python -m services.execution.korda_execution decidir-plano demo-01 "$VERSAO" aprovar --pessoa "$REVISOR"
-python -m services.execution.korda_execution executar runs/preparo/plano.json --run-id demo-001 \
-  --contexto packages/contracts/context/v0.1.0/examples/02_rateio_confirmado.json
+python -m services.execution.korda_execution executar runs/preparo/plano_construcao.json --run-id demo-001
 python -m services.execution.korda_execution consultar demo-001
 ```
 
-Quem constrói é escolhido por `KORDA_EXECUTOR` ([variáveis](korda_execution/harness/README.md#variáveis)). O padrão é `roteirizado`: o plano B, que copia o pipeline feito à mão, sem LLM. `chat` usa a API da Feita, gasta créditos e só roda com `KORDA_PERMITIR_LLM_REAL=1` e `KORDA_LLM_CHAVE`. O worker recusa `agente_sdk` (guardado do #27, fora da demo). O executor `chat` exige `--contexto`, a revisão de contexto que originou o plano, porque gera o documento-base a partir dela. A configuração é lida antes de reservar a execução: chave ou executor inválido falha sem criar sandbox.
+Quem constrói é escolhido por `KORDA_EXECUTOR` ([variáveis](korda_execution/harness/README.md#variáveis)). O padrão é `roteirizado`: o plano B, que copia o pipeline feito à mão, sem LLM. `chat` usa a API da Feita, gasta créditos e só roda com `KORDA_PERMITIR_LLM_REAL=1` e `KORDA_LLM_CHAVE`. O worker recusa `agente_sdk` (guardado do #27, fora da demo). Com `chat`, o `executar` exige que o plano aprovado tenha `construction` e não faz nenhuma chamada de planejamento: o harness constrói a partir dela. A configuração é lida antes de reservar a execução: chave ou executor inválido falha sem criar sandbox.
 
-Se a LLM do planejamento disser que falta contexto, a execução termina como `falhou`, sem sandbox, com o evento `context_requested` e `perguntas.json` (pergunta, lacuna, métricas afetadas e motivo, mais `plan_version`, `context_id` e `context_revision`). As perguntas voltam para a descoberta; uma nova revisão de contexto gera outro plano. Como a plataforma consome esse arquivo ainda está em aberto (P1/P4).
-
-O operador revisa o laudo e os resultados em `runs/worker/revisao/demo-001/`: `documento_base.md`, `eventos.jsonl`, `fontes.json`, `medicao.json` (tempo, tokens e custo estimado, `synthetic: true` sem LLM real), `avaliacao.json` e `resultados/`. Após conferir o destino e os três arquivos do manifesto, pode registrar a segunda decisão e promover a entrega.
+O operador revisa o laudo e os resultados em `runs/worker/revisao/demo-001/`: `documento_base.md` (cópia da construção aprovada), `eventos.jsonl`, `fontes.json`, `medicao.json` (tempo, tokens e custo estimado, `synthetic: true` sem LLM real), `avaliacao.json` e `resultados/`. Após conferir o destino e os três arquivos do manifesto, pode registrar a segunda decisão e promover a entrega.
 
 ```bash
 python -m services.execution.korda_execution decidir-entrega demo-001 aprovar --pessoa "$REVISOR"
@@ -80,7 +82,7 @@ Os testes de nível 1 também precisam de `docker build -t korda-simulados:dev i
 
 ## Estado (26/11/2026)
 
-**Rascunho para [K08](https://github.com/leeunam/korda/issues/8), [K09](https://github.com/leeunam/korda/issues/9) e [K10](https://github.com/leeunam/korda/issues/10).** Existem a sandbox local em Docker, as ferramentas restritas, a ingestão de níveis 0 e 1, o worker com as duas aprovações, o ciclo de até três correções e o avaliador independente, com testes. **O worker está ligado ao harness** (decisão de 25/11/2026: o harness constrói; o worker orquestra). A construção, as correções e o retorno de perguntas foram verificados **só sem LLM**: com o executor `falso` e com o `roteirizado`, no Docker. **A construção nunca rodou com LLM real**; o único uso real até agora foi o teste de fumaça do gateway. O planejamento da construção devolve perguntas quando falta contexto (testado só com cliente falso). O worker recusa o `agente_sdk`. **Ainda não existem nesta versão:** o ensaio real no 01_demo, a sandbox em nuvem e a unificação das duas ingestões. O worker ainda recebe fontes brutas (`exigir_manifesto=False`); a sandbox avulsa exige a landing zone. Os tipos de evento são provisórios até a [K01](https://github.com/leeunam/korda/issues/1).
+**Rascunho para [K08](https://github.com/leeunam/korda/issues/8), [K09](https://github.com/leeunam/korda/issues/9) e [K10](https://github.com/leeunam/korda/issues/10).** Existem a sandbox local em Docker, as ferramentas restritas, a ingestão de níveis 0 e 1, o worker com as duas aprovações, o ciclo de até três correções e o avaliador independente, com testes. **O worker está ligado ao harness** (decisão de 25/11/2026: o harness constrói; o worker orquestra). A construção, as correções e o retorno de perguntas foram verificados **só sem LLM**: com o executor `falso` e com o `roteirizado`, no Docker. **A construção nunca rodou com LLM real**; o único uso real até agora foi o teste de fumaça do gateway. O `planejar` gera a construção antes da aprovação 1 ou devolve perguntas quando falta contexto. O worker recusa o `agente_sdk`. **Ainda não existem nesta versão:** o ensaio real no 01_demo, a sandbox em nuvem e a unificação das duas ingestões. O worker ainda recebe fontes brutas (`exigir_manifesto=False`); a sandbox avulsa exige a landing zone. Os tipos de evento são provisórios até a [K01](https://github.com/leeunam/korda/issues/1).
 
 ## Componentes
 
@@ -96,7 +98,8 @@ Os testes de nível 1 também precisam de `docker build -t korda-simulados:dev i
 | [`korda_execution/ferramentas.py`](korda_execution/ferramentas.py) | Ferramentas que o harness expõe ao agente. |
 | [`korda_execution/caminhos.py`](korda_execution/caminhos.py) | Política de caminhos e lista branca do dbt. |
 | [`korda_execution/harness/`](korda_execution/harness/README.md) | Executores (`chat` constrói e corrige pela API da Feita; `roteirizado` como plano B; `falso` para testes; `agente_sdk` guardado, recusado pelo worker), política e hook, contexto, orçamento, medição, `construir_e_verificar` e adaptador provisório de eventos (com custo) para o front. |
-| [`korda_execution/documento_base.py`](korda_execution/documento_base.py) | Chamada de API do worker que gera o documento-base (especificação) a partir do contexto e do plano. |
+| [`korda_execution/planejamento.py`](korda_execution/planejamento.py) | Comando `planejar`: uma chamada à API gera a construção (anexada ao plano) ou as perguntas para a descoberta. |
+| [`korda_execution/documento_base.py`](korda_execution/documento_base.py) | Prompt do planejamento da construção e leitura da decisão (`pronto_para_construir`, `perguntas`). |
 | [`korda_execution/eventos.py`](korda_execution/eventos.py) | `emit_event` provisório (JSONL por execução). |
 | [`korda_execution/smoke.py`](korda_execution/smoke.py) | Teste de fumaça: ingere as fontes do gerador e sobe a sandbox sobre a landing. |
 | [`pipeline/`](pipeline/README.md) | Projeto dbt da 01: testes, definições, ingestão e exportação (montados na sandbox) e o pipeline escrito à mão em `models/` (referência e plano B, nunca montado). |

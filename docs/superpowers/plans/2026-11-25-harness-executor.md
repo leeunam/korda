@@ -479,3 +479,7 @@ Rodar uma vez `03_reservada` com o corretor configurado, **sem ajustar nada depo
 **Feito (B-b a B-e):** worker orquestra (`worker.py`); sandbox com `models/` vazio e gravável (`sandbox.py`); `editable_models` com padrão no schema e no planejador (`models/*`); toda falha do dbt com código 1 ou 2, e da exportação no contrato de saída, vira `implementacao`; `documento_base.md`, `perguntas.json` e `medicao.json` na revisão; aceites com Docker e `ClienteChatFalso`.
 
 **Pendências:** formato de `perguntas.json` e consumo pela plataforma (P1/P4); estado "aguardando contexto" no registro (K01); ensaio real (B-f), só com "pode rodar".
+
+## Revisão de 27/11/2026: planejamento antes da aprovação 1
+
+**Decisões do Gabriel:** o planejamento da construção vira um comando próprio (`planejar`) antes da aprovação 1. A LLM gera só a parte de construção; regras, evidências e fórmulas continuam no gabarito `plano.py`. A construção entra no plano como `construction` e no hash, então a pessoa aprova o que a LLM planejou. O `executar` não faz mais chamada de planejamento e, com `chat`, exige a construção aprovada. Perguntas ficam na pasta do `planejar`. Uma chamada real econômica (saída limitada a 6.000 tokens) foi autorizada para validar o prompt.
