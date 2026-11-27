@@ -35,9 +35,6 @@ def main(argv=None):
     rodar = sub.add_parser("executar", help="processar o lote sintético da versão aprovada")
     rodar.add_argument("plano", type=Path)
     rodar.add_argument("--run-id", help="identificador novo; o padrão é aleatório")
-    rodar.add_argument("--contexto", type=Path,
-                       help="contexto validado das entrevistas (contrato context v0.1.0) que originou o plano; "
-                            "obrigatório com KORDA_EXECUTOR=chat, que gera o documento-base")
     sub.add_parser("consultar", help="ver estado, manifesto e histórico").add_argument("run_id")
     entrega = sub.add_parser("decidir-entrega", help="registrar a decisão humana sobre a entrega avaliada")
     entrega.add_argument("run_id")
@@ -58,8 +55,7 @@ def main(argv=None):
             else:
                 run_id = args.run_id or uuid.uuid4().hex
                 print(f"Execução {run_id}", file=sys.stderr, flush=True)
-                contexto = json.loads(args.contexto.read_text(encoding="utf-8")) if args.contexto else None
-                resultado = executar(registro, plano, run_id, raiz=raiz, contexto=contexto,
+                resultado = executar(registro, plano, run_id, raiz=raiz,
                                      fontes=RAIZ_REPO / "data/synthetic/output/01_demo")
         elif args.comando == "planejar":
             from .planejamento import planejar as gerar

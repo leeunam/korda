@@ -38,7 +38,8 @@ def _sem_deduplicacao(sql):
     return defeituoso
 
 
-PRONTO = '\n```json\n{"pronto_para_construir": true, "perguntas": []}\n```\n'
+DOC_CONSTRUCAO = ("## Modelos\nprata_ctes, prata_rateios, ouro_*\n## Regras aplicadas\n…\n## Métricas\n…\n"
+                  "## Testes de aceite\n…\n## Premissas e lacunas\n…\n")
 
 
 def _escreve(modelos):
@@ -63,15 +64,17 @@ class TestWorkerDocker(unittest.TestCase):
     def setUp(self):
         from korda_execution import worker
         from korda_execution.aprovacoes import Registro
-        from services.planning.korda_planning import gerar_plano
+        from services.planning.korda_planning import anexar_construcao, gerar_plano
 
         self.worker = worker
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.base = Path(self.tmp.name)
         self.contexto = json.loads(CONTEXTO.read_text(encoding="utf-8"))
-        self.plano = gerar_plano(self.contexto, destino="pasta-demo", custo_estimado_centavos=0)
-        self.assertEqual(self.plano["editable_models"], ["models/*"])
+        base = gerar_plano(self.contexto, destino="pasta-demo", custo_estimado_centavos=0)
+        self.assertEqual(base["editable_models"], ["models/*"])
+        # Construção aprovada junto com o plano (o comando planejar a gera; aqui, sintética).
+        self.plano = anexar_construcao(base, {"document": DOC_CONSTRUCAO, "model": "falso", "synthetic": True})
         self.registro = Registro(self.base / "controle")
         self.registro.registrar(self.plano)
         self.registro.decidir_plano(self.plano["project_id"], self.plano["plan_version"], "Pessoa fictícia (teste)", True)
@@ -82,8 +85,7 @@ class TestWorkerDocker(unittest.TestCase):
     def _executar(self, executor, cliente=None):
         cfg = ConfigHarness.de_ambiente({"KORDA_EXECUTOR": executor})
         return self.worker.executar(self.registro, self.plano, self.run_id, raiz=self.base,
-                                    fontes=self.fontes / "01_demo", contexto=self.contexto, cfg=cfg,
-                                    cliente_llm=cliente)
+                                    fontes=self.fontes / "01_demo", cfg=cfg, cliente_llm=cliente)
 
     def _eventos(self):
         return EmissorEventos(self.base / "revisao" / self.run_id / "eventos.jsonl", self.run_id).ler()
@@ -98,8 +100,6 @@ class TestWorkerDocker(unittest.TestCase):
     def test_agente_falso_constroi_de_models_vazio_e_a_avaliacao_aprova(self):
         modelos = self.worker.modelos_a_mao()
         cliente = ClienteChatFalso([
-            RespostaChat.texto("## Modelos\n…\n## Regras aplicadas\n…\n## Métricas\n…\n## Testes de aceite\n…\n"
-                               "## Premissas e lacunas\n…" + PRONTO, tokens=(3000, 800)),
             RespostaChat.de_tool_calls([("ler_arquivo", {"caminho": "exportar.py"})]),
             # Escrita em teste protegido: o hook recusa antes de chegar às ferramentas.
             RespostaChat.de_tool_calls([("escrever_modelo", {"caminho": "tests/chave_fiscal_unica.sql",
@@ -109,9 +109,8 @@ class TestWorkerDocker(unittest.TestCase):
         ])
         estado = self._executar("falso", cliente)
         self.assertEqual(estado["state"], "aguardando_aprovacao_entrega", estado)
-        self.assertIn("Contexto validado", cliente.pedidos[0][1]["content"])
         self.assertIn("SINTÉTICO", self._arquivo("documento_base.md").read_text(encoding="utf-8"))
-        self.assertIn("## Métricas", cliente.pedidos[1][1]["content"])  # o documento-base chega ao harness
+        self.assertIn("prata_ctes, prata_rateios", cliente.pedidos[0][1]["content"])  # a construção aprovada chega ao harness
 
         eventos = self._eventos()
         recusa = [e for e in eventos if e["type"] == "tool_refused"]
@@ -125,12 +124,12 @@ class TestWorkerDocker(unittest.TestCase):
                          ["build_started", "agent_finished", "dbt_passed", "test_passed", "evaluation_finished"])
         self.assertTrue(eventos[-1]["dados"]["aprovado"])
         custo = [e for e in eventos if e["type"] == "agent_finished"][0]["dados"]
-        self.assertGreater(custo["custo_total_centavos"], custo["custo_centavos"])  # inclui o documento-base
+        self.assertEqual(custo["custo_total_centavos"], custo["custo_centavos"])  # o planejamento é medido à parte
 
         medicao = json.loads(self._arquivo("medicao.json").read_text(encoding="utf-8"))
         self.assertTrue(medicao["synthetic"])
         self.assertEqual(medicao["executor"], "falso")
-        self.assertEqual(medicao["documento_base"]["tokens_entrada"], 3000)
+        self.assertIsNone(medicao["documento_base"])
         self.assertEqual([t["tentativa"] for t in medicao["por_tentativa"]], [0])
 
     def test_falha_sem_solucao_para_no_limite_e_nao_avalia(self):
@@ -138,7 +137,7 @@ class TestWorkerDocker(unittest.TestCase):
         ruim = {**modelos, self.worker.MODELO_CTE: _sem_deduplicacao(modelos[self.worker.MODELO_CTE])}
         corrige_errado = _escreve({self.worker.MODELO_CTE: ruim[self.worker.MODELO_CTE]})
         cliente = ClienteChatFalso([
-            RespostaChat.texto("## Modelos\n" + PRONTO), _escreve(ruim), RespostaChat.texto("pronto"),
+            _escreve(ruim), RespostaChat.texto("pronto"),
             corrige_errado, RespostaChat.texto("tentei"),
             corrige_errado, RespostaChat.texto("tentei"),
             corrige_errado, RespostaChat.texto("tentei"),
@@ -160,7 +159,7 @@ class TestWorkerDocker(unittest.TestCase):
         self.assertEqual(json.loads(self._arquivo("medicao.json").read_text())["tentativas"], 4)
 
     def test_construcao_sem_modelos_escala_sem_build(self):
-        cliente = ClienteChatFalso([RespostaChat.texto("## Modelos\n" + PRONTO), RespostaChat.texto("Não consigo.")])
+        cliente = ClienteChatFalso([RespostaChat.texto("Não consigo.")])
         with self.assertRaisesRegex(self.worker.FalhaExecucao, "construcao_falhou"):
             self._executar("falso", cliente)
         tipos = [e["type"] for e in self._eventos()]
