@@ -1,15 +1,17 @@
 # Harness do executor (K08, K09, K10)
 
-**Status (25/11/2026): em construção.** O código e os testes com cliente falso existem. **Ainda não está ligado ao worker** (depende do PR #21). A única chamada real até agora foi o teste de fumaça do gateway (abaixo); a construção nunca rodou com LLM real. Plano: [`2026-11-25-harness-executor.md`](../../../../docs/superpowers/plans/2026-11-25-harness-executor.md).
+**Status (26/11/2026): ligado ao worker.** O [`worker.py`](../worker.py) gera o documento-base, cria a sandbox com `models/` vazio e chama `construir_e_verificar`. Os aceites com Docker usam o cliente falso e o `roteirizado`. A única chamada real até agora foi o teste de fumaça do gateway (abaixo); **a construção nunca rodou com LLM real**. Plano: [`2026-11-25-harness-executor.md`](../../../../docs/superpowers/plans/2026-11-25-harness-executor.md).
 
 ## Papel
 
-Decisão do responsável pela execução (25/11/2026): **o harness constrói o pipeline; o worker só orquestra.** O worker gera o documento-base (uma chamada de API), prepara a sandbox, chama o harness e depois avalia e entrega. O pipeline dbt feito à mão no #21 deixa de ser o produto e vira o executor `roteirizado` (plano B da demo), fora do alcance do agente.
+Decisão do responsável pela execução (25/11/2026): **o harness constrói o pipeline; o worker só orquestra.** O worker gera o documento-base (uma chamada à API da Feita), prepara a sandbox, intermedeia o harness com a mesma API e depois avalia e entrega. Se a LLM do planejamento disser que falta contexto, o worker grava as perguntas em `perguntas.json` e para antes da sandbox. O pipeline dbt feito à mão no #21 deixa de ser o produto e vira o executor `roteirizado` (plano B da demo), fora do alcance do agente.
 
 ```
 contexto das entrevistas (P1) ─┐
 plano aprovado (aprovação 1) ──┴─▶ worker: gerar_documento_base()  ── 1 chamada de API, sem ferramentas
                                         │
+                     falta contexto? ── sim ─▶ perguntas.json → descoberta (sem sandbox)
+                                        │ não
                                         ▼
                          worker: sandbox (sem rede, testes e fontes só leitura, models/ gravável)
                                         │
@@ -30,11 +32,11 @@ O modelo nunca executa nada: ele só pede ferramentas. Cada pedido passa pela po
 | `KORDA_EXECUTOR` | Arquivo | Usa LLM? | O que faz |
 | --- | --- | --- | --- |
 | `chat` | [`executor_chat.py`](executor_chat.py), [`sessao_chat.py`](sessao_chat.py), [`cliente_chat.py`](cliente_chat.py) | **Sim** | Constrói e corrige com loop próprio de ferramentas sobre uma API chat/completions (gateway da Feita). Custo estimado pelos tokens. |
-| `agente_sdk` | [`agente_sdk.py`](agente_sdk.py) | **Sim** | Só correção, com o Claude Agent SDK. Exige chave da Anthropic. Guardado para quando houver uma. |
+| `agente_sdk` | [`agente_sdk.py`](agente_sdk.py) | **Sim** | Só correção, com o Claude Agent SDK. Guardado do #27 e **recusado pelo worker**: a construção usa a API da Feita. |
 | `roteirizado` | [`roteirizado.py`](roteirizado.py) | Não | Plano B: `ConstrutorRoteirizado` copia o pipeline feito à mão; `CorretorRoteirizado` restaura o modelo revisado. **Não demonstra construção por IA.** |
 | `falso` | [`falso.py`](falso.py), `ClienteChatFalso` | Não | Testes. Roteiro fixo de chamadas pelo mesmo caminho do agente; tokens e custo sintéticos. |
 
-O documento-base é gerado por [`documento_base.py`](../documento_base.py), responsabilidade do worker: contexto + plano entram, saem as seções Modelos, Regras aplicadas, Métricas, Testes de aceite e Premissas e lacunas. O prompt proíbe inventar regras; o que falta vira lacuna.
+O documento-base é gerado por [`documento_base.py`](../documento_base.py), responsabilidade do worker. Entram o contexto e o plano. Saem as seções Modelos, Regras aplicadas, Métricas, Testes de aceite e Premissas e lacunas, mais um bloco ```` ```json ```` final com `pronto_para_construir` e `perguntas` (pergunta, lacuna, métricas afetadas, motivo). O prompt proíbe inventar regras. Lacuna que não impede construir fica em Premissas e lacunas. Se a lacuna impedir, a LLM gera as perguntas para a descoberta. Sem um bloco válido, o worker não constrói.
 
 ## Variáveis
 
@@ -42,7 +44,7 @@ Exemplo em [`.env.example`](../../../../.env.example). Validadas por `ConfigHarn
 
 | Variável | Padrão | Efeito |
 | --- | --- | --- |
-| `KORDA_EXECUTOR` | `roteirizado` | `roteirizado` (plano B, sem LLM), `falso` (testes, sem LLM), `chat` (LLM real via chat/completions) ou `agente_sdk` (LLM real via Claude Agent SDK). |
+| `KORDA_EXECUTOR` | `roteirizado` | `roteirizado` (plano B, sem LLM), `falso` (testes, sem LLM), `chat` (LLM real via chat/completions) ou `agente_sdk` (LLM real via Claude Agent SDK; guardado, recusado pelo worker). |
 | `KORDA_PERMITIR_LLM_REAL` | vazio | Precisa ser `1` para `chat` ou `agente_sdk` rodarem. Proteção contra gasto acidental. |
 | `KORDA_LLM_CHAVE` | vazio | Chave do gateway (Feita) para `chat`. Fica no host; nunca vai para a sandbox, eventos ou logs. |
 | `KORDA_LLM_URL` | `https://api.feita.ai/gateway/v1` | Base da API chat/completions. Só `https`. |
@@ -84,8 +86,8 @@ Resultado de cada tentativa: `ok: True` só se o agente escreveu um modelo autor
 
 Em ordem de autoridade:
 
-1. **Kernel (a barreira real).** A sandbox monta o projeto dbt em modo somente leitura e deixa graváveis só os arquivos de `editable_models`, sem rede (`--network none`). No #21, isso fica em `sandbox.py`. Nesta branch a montagem por arquivo ainda não existe na `main`.
-2. **Ferramentas restritas.** `caminhos.caminho_modelo` aceita só `models/**/*.sql`, e `FerramentasRestritas` recusa modelos fora do plano.
+1. **Kernel (a barreira real).** A sandbox ([`sandbox.py`](../sandbox.py)) monta o projeto dbt em modo somente leitura (`tests/`, `definicoes/`, configuração, `ingerir.py`, `exportar.py`) e só `models/` gravável, vazio no início, sem rede (`--network none`). O pipeline feito à mão não é montado.
+2. **Ferramentas restritas.** `caminhos.caminho_modelo` aceita só `models/**/*.sql`, e `FerramentasRestritas` recusa o que não casa com `editable_models` (caminho exato ou padrão, como `models/*`; `caminhos.modelo_autorizado`).
 3. **Hook `PreToolUse`** ([`politica.py`](politica.py)). Recusa qualquer ferramenta fora de `mcp__korda__*` e qualquer escrita fora de `editable_models`, com motivo para o agente e evento `tool_refused` (`dados.origem = "hook"`). A mensagem do evento não repete a entrada da ferramenta.
 
 O hook é uma camada extra. Sozinho, não garante isolamento.
@@ -123,15 +125,16 @@ Evidências, fontes, destino e fórmulas não entram. As respostas esperadas (`e
 
 | Campo | Conteúdo |
 | --- | --- |
-| `run_id`, `corretor`, `modelo` | Identificação. |
-| `synthetic` | `true` quando o corretor não é o `agente`: os números não medem um LLM real. |
-| `tentativas`, `turnos`, `duracao_s` | Soma das tentativas do corretor. |
+| `run_id`, `executor`, `modelo` | Identificação. |
+| `synthetic` | `true` com `falso` ou `roteirizado`: os números não medem um LLM real. |
+| `tentativas`, `turnos`, `duracao_s` | Soma das sessões do agente (construção = tentativa 0); a duração inclui o documento-base. |
+| `documento_base` | Tokens, custo, duração e seções ausentes da chamada do worker, ou `null` sem documento-base. |
 | `tokens_entrada`, `tokens_saida`, `tokens_cache_leitura` | Soma dos tokens informados. |
 | `custo_usd`, `custo_centavos` | Custo informado; centavos de real pela taxa configurada. |
 | `custo_completo` | `false` se alguma tentativa não informou o custo. |
 | `por_tentativa` | Detalhe de cada tentativa, inclusive arquivos escritos e motivo de parada. |
 
-A construção aparece como tentativa `0`. A ligação com o worker (gravar em `revisao/<run>/medicao.json`) depende do #21.
+A construção aparece como tentativa `0`. O worker grava `revisao/<run>/medicao.json`, com um bloco `documento_base` (tokens, custo, seções ausentes) que entra nos totais. O custo do documento-base também sai do orçamento do `ExecutorChat` (`descontar_documento_base`).
 
 ## Orçamento do executor `chat`
 
