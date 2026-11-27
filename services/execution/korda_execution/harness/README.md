@@ -160,9 +160,10 @@ cd services/execution && python3 -m tests.harness.simulador_custo
 
 | Ensaio | Plano | Resultado | Turnos | Tokens (entrada / saída) | US$ estimado | Duração |
 | --- | --- | --- | ---: | ---: | ---: | ---: |
-| `ensaio-01` (27/11/2026) | `924f1ce5…` (v0.2, `planejar` real, US$ 0,139) | **Não aprovado.** Nenhum modelo escrito; a chamada do turno 19 falhou na API (`error_during_execution`, mensagem não registrada na época), custo incompleto, sem build nem avaliação | 18 | 338.174 / 6.417 | 1,48 + a chamada que falhou | 108 s |
+| `ensaio-01` (27/11/2026) | `924f1ce5…` (v0.2, `planejar` real, US$ 0,139) | **Não aprovado.** Nenhum modelo escrito; a chamada do turno 19 falhou na API (`error_during_execution`, mensagem não registrada na época; provavelmente saldo esgotado, ver ensaio-02), custo incompleto, sem build nem avaliação | 18 | 338.174 / 6.417 | 1,48 + a chamada que falhou | 108 s |
+| `ensaio-02` (27/11/2026) | o mesmo, com as correções abaixo | **Não rodou.** A primeira chamada recebeu HTTP 402 do gateway (créditos esgotados), registrado em `erro_api` | 0 | 0 / 0 | 0 | 0,5 s |
 
-O que o ensaio-01 mostrou, e o que mudou depois dele: o agente só investigou (~25 consultas e 5 `dbt ls`); repetiu 4 vezes a consulta ao `information_schema`, porque a compactação contava saídas e não turnos; tentou `sinteticas.bronze_documentos` em SQL direto, induzido pela redação do prompt; e o erro da API não foi registrado. Correções: compactação por turnos, colunas da bronze no prompt pelo host, regra sobre o schema `main`, lembrete para escrever e `erro_api` / `tokens_por_turno` nos eventos. Segurança no ensaio: hashes de `tests/` e `definicoes/` intactos, nenhuma recusa, só ferramentas `mcp__korda__*`.
+O que o ensaio-01 mostrou, e o que mudou depois dele: o agente só investigou (~25 consultas e 5 `dbt ls`); repetiu 4 vezes a consulta ao `information_schema`, porque a compactação contava saídas e não turnos; tentou `sinteticas.bronze_documentos` em SQL direto, induzido pela redação do prompt; e o erro da API não foi registrado. Correções: compactação por turnos, colunas da bronze no prompt pelo host, regra sobre o schema `main`, lembrete para escrever e `erro_api` / `tokens_por_turno` nos eventos. Segurança no ensaio: hashes de `tests/` e `definicoes/` intactos, nenhuma recusa, só ferramentas `mcp__korda__*`. As correções ainda não foram exercidas com LLM real: o ensaio-02 parou por falta de créditos antes do primeiro turno.
 
 ## Adaptador de eventos para o front (provisório)
 
