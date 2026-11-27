@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
 
-from korda_execution.artefatos import LIMITES, capturar, entregar
+from korda_execution.artefatos import LIMITES, LIMITES_INFRA, capturar, capturar_infra, entregar
 
 
 class RegistroTeste:
@@ -125,6 +125,72 @@ class TestArtefatos(unittest.TestCase):
             entregar(registro, self.raiz, "run-1", "demo")
         self.assertFalse(registro.promovido)
         self.assertEqual({p.name for p in self.final.iterdir()}, {"preexistente"})
+
+
+class TestCapturaInfra(unittest.TestCase):
+    """Modelos e target do dbt vêm da sandbox (não confiável) e são congelados com hash."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.raiz = Path(tmp.name)
+        self.models = self.raiz / "sandbox" / "projeto" / "models"
+        self.target = self.raiz / "sandbox" / "saida" / "target"
+        (self.models / "prata").mkdir(parents=True)
+        self.target.mkdir(parents=True)
+        (self.models / "ouro_kpis.sql").write_text("select 1 as x\n")
+        (self.models / "prata" / "prata_ctes.sql").write_text("select 2 as y\n")
+        for nome in ("manifest.json", "catalog.json", "run_results.json"):
+            (self.target / nome).write_text('{"nome": "%s"}' % nome)
+        # O dbt deixa outras saídas no target; elas não entram na entrega.
+        (self.target / "graph.gpickle").write_bytes(b"\x00")
+        (self.target / "compiled").mkdir()
+        self.destino = self.raiz / "revisao" / "run-1" / "infra"
+
+    def _sha(self, caminho):
+        return hashlib.sha256(caminho.read_bytes()).hexdigest()
+
+    def test_captura_modelos_e_tres_jsons_do_target_com_hash(self):
+        infra = capturar_infra(self.models, self.target, self.destino)
+        self.assertEqual(set(infra), {"models/ouro_kpis.sql", "models/prata/prata_ctes.sql",
+                                      "target/manifest.json", "target/catalog.json", "target/run_results.json"})
+        for rel, meta in infra.items():
+            self.assertEqual(meta["sha256"], self._sha(self.destino / rel), rel)
+            self.assertEqual(meta["bytes"], (self.destino / rel).stat().st_size)
+        self.assertFalse((self.destino / "target" / "graph.gpickle").exists())
+
+    def test_catalog_e_opcional_mas_manifest_e_modelos_nao(self):
+        (self.target / "catalog.json").unlink()
+        self.assertNotIn("target/catalog.json", capturar_infra(self.models, self.target, self.destino))
+        (self.target / "manifest.json").unlink()
+        with self.assertRaises((ValueError, OSError)):
+            capturar_infra(self.models, self.target, self.raiz / "outro")
+        self.assertFalse((self.raiz / "outro").exists())
+
+    def test_recusa_link_arquivo_fora_do_contrato_e_tamanho(self):
+        alvo = self.models / "prata" / "extra.sql"
+        casos = {
+            "symlink": lambda: alvo.symlink_to(self.models / "ouro_kpis.sql"),
+            "hardlink": lambda: os.link(self.models / "ouro_kpis.sql", alvo),
+            "yaml": lambda: (self.models / "testes.yml").write_text("version: 2\n"),
+            "grande": lambda: alvo.write_text("a" * 64),
+        }
+        for tipo, criar in casos.items():
+            with self.subTest(tipo=tipo):
+                criar()
+                with patch("korda_execution.artefatos.LIMITE_MODELO", 32), self.assertRaises((ValueError, OSError)):
+                    capturar_infra(self.models, self.target, self.destino)
+                self.assertFalse(self.destino.exists())
+                (self.models / "testes.yml").unlink(missing_ok=True)
+                alvo.unlink(missing_ok=True)
+
+    def test_recusa_target_irregular(self):
+        (self.target / "manifest.json").unlink()
+        (self.target / "manifest.json").symlink_to(self.target / "catalog.json")
+        with self.assertRaises((ValueError, OSError)):
+            capturar_infra(self.models, self.target, self.destino)
+        self.assertFalse(self.destino.exists())
+        self.assertIn("target/manifest.json", LIMITES_INFRA)
 
 
 if __name__ == "__main__":

@@ -23,7 +23,7 @@ from evaluation.worker.avaliador import avaliar
 from services.planning.korda_planning import validar_plano
 
 from . import caminhos
-from .artefatos import capturar
+from .artefatos import capturar, capturar_infra
 from .correcao import executar_etapa
 from .eventos import EmissorEventos
 from .ferramentas import FerramentasRestritas
@@ -145,6 +145,17 @@ def _tentar(ferramentas, sandbox, verificar_ativa):
     return tentar
 
 
+def _documentar(sandbox, eventos, verificar_ativa):
+    """Gera manifest e catalog do dbt (sem rede) para a entrega. Falhar aqui não reprova o build."""
+    verificar_ativa()
+    docs = sandbox.rodar_comando(["dbt", "--no-use-colors", "docs", "generate"], timeout_s=180)
+    if docs.ok:
+        eventos.emit_event("entrega", "docs_generated", "dbt docs generate gerou manifest e catalog")
+    else:
+        eventos.emit_event("entrega", "docs_failed", "dbt docs generate falhou; a entrega sai sem catalog",
+                           erro=(docs.stdout + "\n" + docs.stderr)[-1500:], estourou_tempo=docs.estourou_tempo)
+
+
 def executar(registro, plano, run_id, *, raiz: Path, fontes: Path, cfg: ConfigHarness | None = None,
              cliente_llm=None) -> dict:
     """Reserva a execução, chama o harness para construir, congela o resultado e o entrega ao avaliador.
@@ -234,9 +245,13 @@ def executar(registro, plano, run_id, *, raiz: Path, fontes: Path, cfg: ConfigHa
                                                   documento_base=documento)
                 if not resultado["ok"]:
                     raise FalhaExecucao(f"{resultado['codigo']}: {resultado['erro']}")
+                _documentar(sandbox, eventos, verificar_ativa)
                 # Fechar o produtor antes de abrir arquivos para inspeção no host.
                 sandbox.destruir(apagar_diretorio=False)
                 manifesto = capturar(sandbox.dir_run / "saida/resultados", revisao / "resultados")
+                # A infra construída pelo agente também entra no manifesto da aprovação 2.
+                manifesto["infra"] = capturar_infra(sandbox.dir_run / "projeto/models",
+                                                    sandbox.dir_run / "saida/target", revisao / "infra")
             finally:
                 sandbox.destruir()
             laudo = avaliar(revisao / "resultados", plano["dataset"], fontes=snapshot, regras=regras)

@@ -93,6 +93,22 @@ class TestWorkerDocker(unittest.TestCase):
     def _arquivo(self, nome):
         return self.base / "revisao" / self.run_id / nome
 
+    def _confere_infra(self, modelos):
+        """A infra que o harness construiu sobrevive à sandbox, com hash no manifesto da aprovação 2."""
+        infra = self._arquivo("infra")
+        manifesto = self.registro.consultar(self.run_id)["manifesto"]
+        self.assertEqual({c for c in manifesto["infra"] if c.startswith("models/")}, set(modelos))
+        for caminho, sql in modelos.items():
+            self.assertEqual((infra / caminho).read_text(encoding="utf-8"), sql)
+        for caminho, meta in manifesto["infra"].items():
+            self.assertEqual(hashlib.sha256((infra / caminho).read_bytes()).hexdigest(), meta["sha256"], caminho)
+        dbt = json.loads((infra / "target/manifest.json").read_text(encoding="utf-8"))
+        nos = {n["name"] for n in dbt["nodes"].values() if n["resource_type"] == "model"}
+        self.assertEqual(nos, {Path(c).stem for c in modelos})
+        catalogo = json.loads((infra / "target/catalog.json").read_text(encoding="utf-8"))
+        self.assertIn("model.korda_logistica.ouro_kpis", catalogo["nodes"])
+        self.assertIn("docs_generated", [e["type"] for e in self._eventos()])
+
     def tearDown(self):
         self.assertFalse((self.base / "sandbox" / self.run_id).exists(), "a sandbox temporária deve ser removida")
         self.assertEqual(_hashes(*self.protegidos), self.hashes, "testes, definições e pipeline à mão intactos")
@@ -131,6 +147,7 @@ class TestWorkerDocker(unittest.TestCase):
         self.assertEqual(medicao["executor"], "falso")
         self.assertIsNone(medicao["documento_base"])
         self.assertEqual([t["tentativa"] for t in medicao["por_tentativa"]], [0])
+        self._confere_infra(modelos)
 
     def test_falha_sem_solucao_para_no_limite_e_nao_avalia(self):
         modelos = self.worker.modelos_a_mao()
@@ -185,6 +202,7 @@ class TestWorkerDocker(unittest.TestCase):
         self.assertEqual(por_tipo["fix_applied"]["dados"]["custo_centavos"], 0)
         self.assertIn("Não gerado", self._arquivo("documento_base.md").read_text(encoding="utf-8"))
         self.assertTrue(json.loads(self._arquivo("medicao.json").read_text())["synthetic"])
+        self._confere_infra(modelos)
 
 
 if __name__ == "__main__":
