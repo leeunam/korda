@@ -2,8 +2,8 @@
 
 Entrada: o contexto validado das entrevistas (contrato context v0.1.0) e a
 projeção do plano aprovado. Saída: um documento markdown com as seções em
-SECOES, que o harness usa como base para construir o pipeline, e um bloco
-JSON final com a decisão do planejamento: se dá para construir e, se não, as
+SECOES, que o harness usa como base para construir o pipeline, precedido de um
+bloco JSON com a decisão do planejamento: se dá para construir e, se não, as
 perguntas que voltam para a descoberta. Uma única chamada, sem ferramentas.
 O que faltar no contexto vira lacuna; o modelo não pode inventar regras. O
 custo é estimado pelos tokens.
@@ -15,6 +15,7 @@ import json
 import re
 from dataclasses import dataclass, field
 
+from .contrato_saida import texto_contrato
 from .harness.cliente_chat import ClienteChat
 
 SECOES = ("Modelos", "Regras aplicadas", "Métricas", "Testes de aceite", "Premissas e lacunas")
@@ -27,9 +28,19 @@ com um cliente (evidências, regras confirmadas, perfil das fontes e lacunas) e 
 Escreva, em português e em markdown, o documento-base que um engenheiro de dados (ou um agente) usará \
 para construir o pipeline dbt/DuckDB em camadas bronze, prata e ouro.
 
-Use exatamente estas seções de nível 2: {", ".join(SECOES)}.
-- Modelos: para cada modelo, camada, nome sugerido, grão, colunas principais, chaves e de quais fontes vem.
-- Regras aplicadas: cada regra do plano, como implementá-la e a evidência que a sustenta (fonte e trecho).
+Comece a resposta com um único bloco ```json com a decisão do planejamento, antes de qualquer seção:
+{{"pronto_para_construir": true ou false, "perguntas": [{{"pergunta": "...", "lacuna": "...", \
+"metricas_afetadas": ["..."], "motivo": "..."}}]}}
+- pronto_para_construir é false só quando uma lacuna impede construir ou testar um KPI do plano. \
+Lacuna que não impede fica em Premissas e lacunas, e pronto_para_construir é true.
+- Com false, cada pergunta é dirigida ao cliente, curta e respondível, e diz qual lacuna fecha e \
+quais métricas destrava. Elas voltam para a etapa de descoberta.
+- Com true, perguntas é uma lista vazia.
+
+Depois do bloco, use exatamente estas seções de nível 2: {", ".join(SECOES)}.
+- Modelos: uma tabela curta por camada (modelo, grão, chaves, colunas principais, fontes). \
+Use os nomes fixos informados para os modelos obrigatórios; modelos auxiliares são livres.
+- Regras aplicadas: cada regra do plano, como implementá-la e a evidência que a sustenta.
 - Métricas: fórmula exata, grão, filtros, exclusões e denominador, como no plano.
 - Testes de aceite: um teste verificável por decisão (unicidade, conservação do rateio, exclusões, valor da métrica).
 - Premissas e lacunas: o que foi assumido e o que falta.
@@ -37,14 +48,8 @@ Use exatamente estas seções de nível 2: {", ".join(SECOES)}.
 Não invente regras, números ou fontes. Se uma informação não estiver no contexto ou no plano, \
 registre-a como lacuna em vez de supor. Não mude regras aprovadas.
 
-Termine com um único bloco ```json com a decisão do planejamento:
-{{"pronto_para_construir": true ou false, "perguntas": [{{"pergunta": "...", "lacuna": "...", \
-"metricas_afetadas": ["..."], "motivo": "..."}}]}}
-- pronto_para_construir é false só quando uma lacuna impede construir ou testar um KPI do plano. \
-Lacuna que não impede fica em Premissas e lacunas, e pronto_para_construir é true.
-- Com false, cada pergunta é dirigida ao cliente, curta e respondível, e diz qual lacuna fecha e \
-quais métricas destrava. Elas voltam para a etapa de descoberta.
-- Com true, perguntas é uma lista vazia."""
+Seja enxuto: cite a evidência só pelo id (ex.: ev-operacao), sem copiar trechos; \
+no máximo cerca de 900 palavras por seção."""
 
 
 @dataclass
@@ -57,6 +62,7 @@ class DocumentoBase:
     # None: a resposta não trouxe uma decisão válida; o worker não constrói sem ela.
     pronto_para_construir: bool | None = None
     perguntas: list[dict] = field(default_factory=list)
+    finish_reason: str = ""  # "length": a resposta cortou no teto de tokens
 
 
 def _pergunta(item) -> dict | None:
@@ -72,29 +78,37 @@ def _pergunta(item) -> dict | None:
     return saida
 
 
+def _bloco_decisao(texto: str):
+    """O primeiro bloco ```json cujo objeto tem `pronto_para_construir`: (match, objeto) ou (None, None).
+
+    O prompt pede a decisão no início; blocos json de exemplo no documento são ignorados.
+    """
+    for bloco in _BLOCO_JSON.finditer(texto or ""):
+        try:
+            objeto = json.loads(bloco.group(1))
+        except ValueError:
+            continue
+        if isinstance(objeto, dict) and "pronto_para_construir" in objeto:
+            return bloco, objeto
+    return None, None
+
+
 def remover_bloco_decisao(texto: str) -> str:
-    """O documento sem o último bloco ```json (a decisão), para anexar ao plano."""
-    blocos = list(_BLOCO_JSON.finditer(texto or ""))
-    if not blocos:
+    """O documento sem o bloco ```json da decisão, para anexar ao plano."""
+    bloco, _ = _bloco_decisao(texto)
+    if bloco is None:
         return (texto or "").strip() + "\n"
-    ultimo = blocos[-1]
-    return (texto[:ultimo.start()] + texto[ultimo.end():]).strip() + "\n"
+    return (texto[:bloco.start()] + texto[bloco.end():]).strip() + "\n"
 
 
 def ler_decisao(texto: str) -> tuple[bool | None, list[dict]]:
-    """Lê o último bloco ```json do documento: (pronto_para_construir, perguntas).
+    """Lê o bloco ```json da decisão (no início ou no fim): (pronto_para_construir, perguntas).
 
     Qualquer formato inesperado devolve (None, []): sem decisão, nada é construído.
     Com pronto_para_construir false, exige ao menos uma pergunta válida.
     """
-    blocos = _BLOCO_JSON.findall(texto or "")
-    if not blocos:
-        return None, []
-    try:
-        decisao = json.loads(blocos[-1])
-    except ValueError:
-        return None, []
-    if not isinstance(decisao, dict) or type(decisao.get("pronto_para_construir")) is not bool \
+    _, decisao = _bloco_decisao(texto)
+    if decisao is None or type(decisao.get("pronto_para_construir")) is not bool \
             or not isinstance(decisao.get("perguntas"), list):
         return None, []
     if decisao["pronto_para_construir"]:
@@ -106,14 +120,38 @@ def ler_decisao(texto: str) -> tuple[bool | None, list[dict]]:
 
 
 def _json(objeto) -> str:
-    return json.dumps(objeto, ensure_ascii=False, sort_keys=True, indent=1, default=str)
+    """JSON compacto: indentação custa tokens e não ajuda a planejar."""
+    return json.dumps(objeto, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+
+
+# Campos do contexto que não ajudam a planejar (metadados de versão e de origem).
+_CONTEXTO_OMITIDO = ("schema_version", "project_id", "last_processed_turn_id")
+
+
+def contexto_para_planejar(contexto: dict) -> dict:
+    """O contexto sem metadados irrelevantes; regras, evidências, perfil e lacunas ficam inteiros.
+
+    - fontes: só id e tipo (o locator e a versão não mudam o plano);
+    - regras: o confirmed_by fica só com o papel (o nome se repete em cada regra).
+    """
+    enxuto = {k: v for k, v in contexto.items() if k not in _CONTEXTO_OMITIDO}
+    enxuto["sources"] = [{k: f[k] for k in ("id", "kind") if k in f} for f in contexto.get("sources", [])]
+    regras = {}
+    for chave, regra in contexto.get("rules", {}).items():
+        regra = dict(regra)
+        if isinstance(regra.get("confirmed_by"), dict):
+            regra["confirmed_by"] = regra["confirmed_by"].get("role")
+        regras[chave] = regra
+    enxuto["rules"] = regras
+    return enxuto
 
 
 def gerar_documento_base(cliente: ClienteChat, contexto: dict, plano_publico: dict, *,
                          precos: tuple[float, float]) -> DocumentoBase:
     mensagens = [
         {"role": "system", "content": SISTEMA_DOCUMENTO},
-        {"role": "user", "content": f"Contexto validado:\n{_json(contexto)}\n\nPlano aprovado (projeção):\n{_json(plano_publico)}\n"},
+        {"role": "user", "content": f"Contexto validado:\n{_json(contexto_para_planejar(contexto))}\n\nPlano aprovado (projeção):\n"
+                                    f"{_json(plano_publico)}\n\n{texto_contrato()}\n"},
     ]
     resposta = cliente.completar(mensagens, [])
     texto = (resposta.conteudo or "").strip()
@@ -124,4 +162,5 @@ def gerar_documento_base(cliente: ClienteChat, contexto: dict, plano_publico: di
         custo = round((resposta.tokens_entrada * precos[0] + resposta.tokens_saida * precos[1]) / 1_000_000, 6)
     ausentes = [s for s in SECOES if f"## {s}" not in texto]
     pronto, perguntas = ler_decisao(texto)
-    return DocumentoBase(texto, resposta.tokens_entrada, resposta.tokens_saida, custo, ausentes, pronto, perguntas)
+    return DocumentoBase(texto, resposta.tokens_entrada, resposta.tokens_saida, custo, ausentes, pronto, perguntas,
+                         resposta.finish_reason)
