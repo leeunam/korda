@@ -43,3 +43,7 @@ jobs:
           python scripts/check_repo.py
       - name: Validate Coolify-compatible volumes
         run: python -m unittest discover -s infra/context/tests
+      - name: Packaged backup scheduler and restore with PostgreSQL
+        run: |
+          docker build -t korda-context-ops:ci infra/context/ops
+          CONTEXT_TEST_OPS_IMAGE=korda-context-ops:ci python -m unittest discover -s infra/context/tests

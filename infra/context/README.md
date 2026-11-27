@@ -25,6 +25,8 @@ do host é publicada por API, worker ou banco. Caddy existe apenas no perfil
 5. Definir `CONTEXT_BACKUP_DIR` como diretório absoluto, privado e exclusivo desta
    aplicação no servidor. O diretório é montado apenas nos serviços de backup e
    restauração. Não usar `/`, o repositório ou diretórios de outros projetos.
+   Criá-lo previamente com permissão 700. O bind explícito usa
+   `create_host_path: false`: um caminho inexistente deve interromper o deploy.
 6. Configurar a versão da Graph API, o número de teste e credenciais da Meta,
    Deepgram, gateway e identificadores exatos dos dois modelos. A operação real
    exige `CONTEXT_REAL_PROVIDERS` habilitado explicitamente. `provider-check`
@@ -46,12 +48,51 @@ real ou chamadas pagas tenham passado no aceite.
 ### Validação do Compose antes do primeiro deploy
 
 O Coolify 4.7.9 não aceita o operador obrigatório `${VAR:?mensagem}` na origem de
-um volume. O Compose usa `${CONTEXT_BACKUP_DIR}` nos mounts e mantém a exigência
-de valor em `environment`. Informe o diretório privado na tela de variáveis antes
-de implantar. Após atualizar a branch, recarregue a definição do Compose no Coolify.
+um volume. O Compose usa `${CONTEXT_BACKUP_DIR}` em bind mounts de sintaxe longa,
+com tipo explícito, e mantém a exigência de valor em `environment`. Informe o
+diretório privado na tela de variáveis antes de implantar. Após atualizar a branch,
+recarregue a definição do Compose no Coolify.
+
+`backup`, `backup-scheduler` e `restore` usam a imagem
+`korda-context-ops:<CONTEXT_IMAGE_TAG>`, construída de `ops/Dockerfile` sobre
+PostgreSQL 17. Os scripts ficam em `/ops` dentro da imagem; não dependem de manter
+o checkout Git no servidor. O contexto de build contém apenas os scripts.
+
+### Atualização de um deploy com volumes incorretos
+
+Uma origem curta `${CONTEXT_BACKUP_DIR}:/backups` pode ter sido cadastrada pelo
+Coolify como volume nomeado quando a variável ainda não estava resolvida. O Coolify
+também pode preservar mapeamentos antigos para evitar movimentar dados implicitamente.
+O bind de sintaxe longa elimina a inferência de tipo. A troca de mount não migra
+arquivos nem autoriza apagar o volume antigo.
+
+1. Manter os volumes do banco e da mídia, a senha e o nome do recurso existentes.
+   Não executar `down -v`, prune ou exclusão de volumes.
+2. Confirmar `CONTEXT_BACKUP_DIR=/data/coolify/korda-contexto/backups` no ambiente
+   deste recurso e o diretório privado já criado no servidor. Não alterar a senha
+   de um PostgreSQL já inicializado como parte desta correção.
+3. Inspecionar o volume antigo com montagem somente leitura. Se houver backups,
+   preservá-los e copiá-los para um destino separado, sem sobrescrever arquivos,
+   antes de qualquer limpeza futura. A correção não remove esse volume.
+4. Recarregar o Compose da branch. Conferir a definição gerada e Persistent Storage:
+   `/backups` deve ser **bind**, com a origem absoluta esperada, e `/ops` não deve
+   ter montagem. Se o painel ainda gerar o volume antigo, corrigir somente o
+   mapeamento de `/backups`, preservando o volume Docker e seu conteúdo. Não usar
+   uma ação do painel que também remova o volume físico.
+5. Atualizar `CONTEXT_IMAGE_TAG` para o commit implantado e fazer novo deploy.
+   Conferir em `docker inspect` o mount `/backups` com `Type=bind`, origem esperada
+   e escrita no agendador (somente leitura no serviço `restore`). Conferir nos logs
+   `Backup complete` e os arquivos no diretório privado do host.
+
+Esse comportamento de preservação de mounts antigos está descrito em
+[Variables in host paths](https://coolify.io/docs/applications/builds/docker-compose#variables-in-host-paths).
+O erro do worker por provedores desativados é independente: manter
+`CONTEXT_REAL_PROVIDERS=false` até configurar as contas e credenciais reais.
 
 ```bash
 python3 -m unittest discover -s infra/context/tests
+docker build -t korda-context-ops:verification infra/context/ops
+CONTEXT_TEST_OPS_IMAGE=korda-context-ops:verification python3 -m unittest discover -s infra/context/tests
 ```
 
 ## Comandos locais e administração
@@ -171,3 +212,11 @@ e uma mídia: dump, restauração em base nova e verificação do hash referenci
 Também foram recusados o banco original como destino e um ID com travessia de
 diretório. Isso não substitui a verificação da imagem integrada, do servidor ou
 da exportação autenticada do contexto real.
+
+Na correção de publicação, o teste da imagem de operações executa o agendador sem
+mount de `/ops`, cria um dump em bind mount com arquivo preexistente preservado e
+restaura banco e mídia em destinos sintéticos novos. Confere o hash do áudio,
+recusa reutilização do destino e verifica rejeição de bind inexistente. O teste
+remove somente seus próprios contêineres, rede e volumes de nomes aleatórios.
+Isso não comprova o redeploy no Coolify; o mount e o primeiro backup no servidor
+precisam ser conferidos após atualizar a aplicação.
