@@ -1,0 +1,30 @@
+{
+  "schema_version": "0.2.0",
+  "project_id": "transportadora-sintetica",
+  "revision": 0,
+  "created_at": "2026-11-27T12:00:00Z",
+  "synthetic": true,
+  "interview_status": "ativa",
+  "state": "rascunho",
+  "required_topics": {
+    "frete": "financeiro"
+  },
+  "processed_input_ids": [],
+  "pending_input_ids": [],
+  "evidence": [],
+  "claims": [],
+  "entities": [],
+  "relations": [],
+  "gaps": [
+    {
+      "id": "gap_3b0f8c9aa56b577c9439c49ee01a634e",
+      "topic": "frete",
+      "key": "required",
+      "question": "O que precisamos saber sobre frete?",
+      "blocking": true,
+      "state": "aberta",
+      "claim_ids": [],
+      "evidence_ids": []
+    }
+  ]
+}
