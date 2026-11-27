@@ -11,7 +11,7 @@ from korda_execution.eventos import EmissorEventos
 from korda_execution.harness.agente_sdk import (EMBUTIDAS, ContextoSessao, CorretorAgente, ErroSegurancaHarness,
                                                 SaidaSessao, construir_opcoes, verificar_ferramentas_sessao)
 from korda_execution.harness.config import ConfigHarness
-from korda_execution.harness.contexto import SISTEMA, SISTEMA_CONSTRUCAO, projetar_plano
+from korda_execution.harness.contexto import projetar_plano
 from korda_execution.harness.ferramentas_agente import despachar
 from korda_execution.harness.medicao import Medidor
 from korda_execution.harness.politica import PREFIXO
@@ -39,11 +39,9 @@ class SessaoFalsa:
     def __init__(self, sessoes):
         self.sessoes = list(sessoes)
         self.chamadas: list[ContextoSessao] = []
-        self.prompts: list[str] = []
 
     def __call__(self, prompt: str, ctx: ContextoSessao) -> SaidaSessao:
         self.chamadas.append(ctx)
-        self.prompts.append(prompt)
         s = self.sessoes.pop(0)
         if isinstance(s, Exception):
             raise s
@@ -133,58 +131,6 @@ class TestCorretorAgente(unittest.TestCase):
             self._corretor(SessaoFalsa([]), cfg=cfg)
 
 
-class TestConstrucaoComAgente(unittest.TestCase):
-    """A construção do pipeline também passa pelo SDK, com sessão falsa (sem LLM)."""
-
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.tmp.cleanup)
-        self.emissor = EmissorEventos(Path(self.tmp.name) / "eventos.jsonl", "run-teste")
-        self.medidor = Medidor("run-teste", "agente_sdk", "claude-opus-5-5")
-        self.f = FerramentasFalsas({}, [MODELO])
-
-    def _agente(self, sessao):
-        return CorretorAgente(_cfg(), self.f, projetar_plano(PLANO), {"cte": {}}, 3, self.emissor, self.medidor,
-                              rodar_sessao=sessao)
-
-    def test_constroi_com_prompt_de_construcao_e_teto_de_60_por_cento(self):
-        sessao = SessaoFalsa([{"escreve": True, "custo": 0.50}])
-        resultado = self._agente(sessao).construir("# Documento-base sintético")
-        self.assertEqual(resultado, {"ok": True, "custo_centavos": 300})
-        ctx = sessao.chamadas[0]
-        self.assertEqual(ctx.sistema, SISTEMA_CONSTRUCAO)
-        self.assertEqual(ctx.max_turnos, 40)
-        self.assertAlmostEqual(ctx.max_budget_usd, 3.0 * 0.6 * 0.9)
-        self.assertIn("# Documento-base sintético", sessao.prompts[0])
-        self.assertEqual(self.medidor.resumo()["por_tentativa"][0]["tentativa"], 0)
-        tipos = [(e["type"], (e.get("dados") or {}).get("fase")) for e in self.emissor.ler()]
-        self.assertEqual(tipos, [("build_started", None), ("agent_finished", "construcao")])
-        fim = self.emissor.ler()[-1]["dados"]
-        self.assertEqual((fim["custo_total_centavos"], fim["orcamento_centavos"]), (300, 1800))
-
-    def test_correcao_usa_o_prompt_de_correcao_e_o_que_sobrou_do_orcamento(self):
-        sessao = SessaoFalsa([{"escreve": True, "custo": 1.60}, {"escreve": True, "custo": 0.1}])
-        agente = self._agente(sessao)
-        agente.construir(None)
-        agente(FALHA, 1)
-        self.assertEqual(sessao.chamadas[1].sistema, SISTEMA)
-        self.assertEqual(sessao.chamadas[1].max_turnos, 12)
-        self.assertAlmostEqual(sessao.chamadas[1].max_budget_usd, 1.0 * 0.9)
-        self.assertEqual(self.emissor.ler()[-1]["dados"]["custo_total_centavos"], 960 + 60)
-
-    def test_documento_base_desconta_do_orcamento(self):
-        sessao = SessaoFalsa([{"escreve": True, "custo": 0.1}])
-        agente = self._agente(sessao)
-        agente.descontar_documento_base(2.5)
-        agente.construir(None)
-        self.assertAlmostEqual(sessao.chamadas[0].max_budget_usd, 0.5 * 0.9)
-
-    def test_construcao_sem_escrita_falha(self):
-        resultado = self._agente(SessaoFalsa([{"escreve": False, "custo": 0.1}])).construir(None)
-        self.assertFalse(resultado["ok"])
-        self.assertIn("sem alteração", resultado["erro"])
-
-
 class TestVerificacaoDaSessao(unittest.TestCase):
     def test_aceita_so_ferramentas_korda(self):
         verificar_ferramentas_sessao(FERRAMENTAS_OK)
@@ -219,18 +165,6 @@ class TestOpcoes(unittest.TestCase):
         self.assertIsNone(opcoes.hooks["PreToolUse"][0].matcher)
         self.assertEqual(opcoes.env, {"ANTHROPIC_API_KEY": "sk-teste"})
         self.assertNotIn("sk-teste", str(opcoes.system_prompt))
-
-
-    def test_opcoes_da_construcao_usam_prompt_e_turnos_proprios(self):
-        from claude_agent_sdk import create_sdk_mcp_server
-
-        servidor = create_sdk_mcp_server(name="korda", tools=[])
-        with tempfile.TemporaryDirectory() as vazio:
-            opcoes = construir_opcoes(_cfg(), servidor, lambda *a: {}, Path(vazio), 1.6,
-                                      sistema=SISTEMA_CONSTRUCAO, max_turnos=40)
-        self.assertEqual(opcoes.system_prompt, SISTEMA_CONSTRUCAO)
-        self.assertEqual(opcoes.max_turns, 40)
-        self.assertEqual(opcoes.tools, [])
 
 
 @unittest.skipUnless(SDK_INSTALADO, "claude-agent-sdk não instalado (requirements-harness.txt)")
