@@ -138,6 +138,9 @@ def _tentar(ferramentas, sandbox, verificar_ativa):
                     "erro": diagnostico[-1500:] or "dbt build falhou"}
         exportacao = sandbox.rodar_comando(["python", "/work/projeto/exportar.py"], timeout_s=120)
         if exportacao.ok:
+            # A prata em Parquet entra na entrega (onde está o dado limpo).
+            exportacao = sandbox.rodar_comando(["python", "/work/projeto/exportar_prata.py"], timeout_s=120)
+        if exportacao.ok:
             return {"ok": True}
         # Tabela ou coluna de ouro fora do contrato de saída também é do modelo.
         codigo = "implementacao" if exportacao.codigo == 1 and not exportacao.estourou_tempo else "tecnico"
@@ -269,7 +272,8 @@ def executar(registro, plano, run_id, *, raiz: Path, fontes: Path, cfg: ConfigHa
                 manifesto = capturar(sandbox.dir_run / "saida/resultados", revisao / "resultados")
                 # A infra construída pelo agente também entra no manifesto da aprovação 2.
                 manifesto["infra"] = capturar_infra(sandbox.dir_run / "projeto/models",
-                                                    sandbox.dir_run / "saida/target", revisao / "infra")
+                                                    sandbox.dir_run / "saida/target", revisao / "infra",
+                                                    prata=sandbox.dir_run / "saida/prata")
             finally:
                 sandbox.destruir()
         # Pronto para a aprovação 2: build com os testes protegidos e o contrato de saída passaram.

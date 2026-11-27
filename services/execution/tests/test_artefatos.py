@@ -237,6 +237,39 @@ class TestCapturaInfra(unittest.TestCase):
                 (self.models / "testes.yml").unlink(missing_ok=True)
                 alvo.unlink(missing_ok=True)
 
+    def _prata(self):
+        prata = self.raiz / "sandbox" / "saida" / "prata"
+        prata.mkdir()
+        (prata / "prata_ctes.parquet").write_bytes(b"PAR1-ctes")
+        (prata / "prata_rateios.parquet").write_bytes(b"PAR1-rateios")
+        (prata / "linhas.json").write_text('{"prata_ctes": 3, "prata_rateios": 4}')
+        return prata
+
+    def test_captura_tabelas_prata_exportadas(self):
+        prata = self._prata()
+        infra = capturar_infra(self.models, self.target, self.destino, prata=prata)
+        for rel in ("prata/prata_ctes.parquet", "prata/prata_rateios.parquet", "prata/linhas.json"):
+            self.assertEqual(infra[rel]["sha256"], self._sha(self.destino / rel), rel)
+
+    def test_recusa_prata_fora_do_padrao(self):
+        prata = self._prata()
+        casos = {
+            "nome": lambda: (prata / "Outra Tabela.parquet").write_bytes(b"x"),
+            "extensao": lambda: (prata / "prata_x.csv").write_text("a"),
+            "subpasta": lambda: (prata / "sub").mkdir(),
+            "symlink": lambda: (prata / "prata_y.parquet").symlink_to(prata / "prata_ctes.parquet"),
+        }
+        for tipo, criar in casos.items():
+            with self.subTest(tipo=tipo):
+                criar()
+                with self.assertRaises((ValueError, OSError)):
+                    capturar_infra(self.models, self.target, self.destino, prata=prata)
+                self.assertFalse(self.destino.exists())
+                for extra in ("Outra Tabela.parquet", "prata_x.csv", "prata_y.parquet"):
+                    (prata / extra).unlink(missing_ok=True)
+                if (prata / "sub").exists():
+                    (prata / "sub").rmdir()
+
     def test_recusa_target_irregular(self):
         (self.target / "manifest.json").unlink()
         (self.target / "manifest.json").symlink_to(self.target / "catalog.json")

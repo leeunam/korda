@@ -22,6 +22,9 @@ INFRA_OBRIGATORIA = ("target/manifest.json", "target/run_results.json")
 LIMITE_MODELO = 1024**2
 MAX_MODELOS = 200
 SEGMENTO = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}")
+# Tabelas prata exportadas em Parquet (exportar_prata.py) e a contagem de linhas de cada uma.
+CAMINHO_PRATA = re.compile(r"prata/(?:[a-z0-9_]{1,64}\.parquet|linhas\.json)")
+LIMITE_PRATA, LIMITE_PRATA_TOTAL = 64 * 1024**2, 256 * 1024**2
 CAMINHO_MODELO = re.compile(r"models/(?:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}/){0,6}[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}\.sql")
 
 
@@ -81,7 +84,7 @@ def _ler_arquivos(origem, destino=None):
     return {"arquivos": {nome: _copiar(origem, nome, limite, destino) for nome, limite in LIMITES.items()}}
 
 
-def _arvore(origem, aceitar, destino=None, prefixo="", inventario=None, profundidade=0):
+def _arvore(origem, aceitar, destino=None, prefixo="", inventario=None, profundidade=0, *, subpastas=True):
     """Percorre uma árvore por descritores, sem seguir links, e devolve {caminho: {bytes, sha256}}.
 
     `aceitar(caminho_relativo)` devolve o limite em bytes do arquivo ou levanta ValueError.
@@ -95,6 +98,8 @@ def _arvore(origem, aceitar, destino=None, prefixo="", inventario=None, profundi
             raise ValueError(f"nome de artefato inválido: {relativo!r}")
         meta = os.stat(nome, dir_fd=origem, follow_symlinks=False)
         if stat.S_ISDIR(meta.st_mode):
+            if not subpastas:
+                raise ValueError(f"subpasta não permitida: {relativo}")
             with ExitStack() as abertos:
                 sub = os.open(nome, DIR, dir_fd=origem)
                 abertos.callback(os.close, sub)
@@ -153,14 +158,22 @@ def _aceitar_modelo(relativo):
     return LIMITE_MODELO
 
 
+def _aceitar_prata(relativo):
+    if not CAMINHO_PRATA.fullmatch(relativo):
+        raise ValueError(f"prata/ só pode conter <tabela>.parquet e linhas.json: {relativo}")
+    return LIMITE_PRATA
+
+
 def _aceitar_infra(relativo):
     if relativo in LIMITES_INFRA:
         return LIMITES_INFRA[relativo]
+    if relativo.startswith("prata/"):
+        return _aceitar_prata(relativo)
     return _aceitar_modelo(relativo)
 
 
-def capturar_infra(models: Path, target: Path, destino: Path) -> dict:
-    """Congela os modelos escritos na sandbox e manifest/catalog/run_results do dbt.
+def capturar_infra(models: Path, target: Path, destino: Path, *, prata: Path | None = None) -> dict:
+    """Congela os modelos escritos na sandbox, manifest/catalog/run_results do dbt e a prata exportada.
 
     Roda no host depois de parar o contêiner. Tudo o que vem de lá é tratado como não
     confiável: sem links, só arquivos regulares exclusivos, com teto por arquivo e por lote.
@@ -192,6 +205,16 @@ def capturar_infra(models: Path, target: Path, destino: Path) -> dict:
                     inventario[relativo] = _copiar(src, nome, limite, alvo)
         finally:
             os.close(alvo)
+        if prata is not None:
+            os.mkdir("prata", mode=0o700, dir_fd=lote)
+            alvo = os.open("prata", DIR, dir_fd=lote)
+            try:
+                with _diretorio(prata) as src:
+                    _arvore(src, _aceitar_prata, alvo, "prata/", inventario, subpastas=False)
+            finally:
+                os.close(alvo)
+            if sum(m["bytes"] for c, m in inventario.items() if c.startswith("prata/")) > LIMITE_PRATA_TOTAL:
+                raise ValueError("tabelas prata exportadas acima do limite")
         return inventario
 
     return _lote(destino, preencher, comparar=lambda fd: _arvore(fd, _aceitar_infra))
@@ -224,7 +247,7 @@ def _validar(manifesto):
         return
     if not isinstance(infra, dict) or not set(INFRA_OBRIGATORIA) <= set(infra):
         raise ValueError("infra do manifesto sem manifest ou run_results do dbt")
-    modelos = [c for c in infra if c not in LIMITES_INFRA]
+    modelos = [c for c in infra if c not in LIMITES_INFRA and not str(c).startswith("prata/")]
     if not modelos or len(modelos) > MAX_MODELOS:
         raise ValueError("infra do manifesto sem modelos ou com modelos demais")
     for caminho, meta in infra.items():
@@ -303,10 +326,11 @@ def _conferir_pacote(lote, aprovado):
     def secao(prefixo, novo):
         return {novo + c.removeprefix(prefixo): m for c, m in inventario.items() if c.startswith(prefixo)}
 
-    if secao("dados/", "") != aprovado["arquivos"]:
+    resultados = {c: m for c, m in secao("dados/", "").items() if not c.startswith("prata/")}
+    if resultados != aprovado["arquivos"]:
         raise ValueError("resultados do pacote diferem do manifesto aprovado")
     if "infra" in aprovado:
-        infra = secao("projeto_dbt/models/", "models/") | secao("docs_dbt/", "target/")
+        infra = secao("projeto_dbt/models/", "models/") | secao("docs_dbt/", "target/") | secao("dados/prata/", "prata/")
         if infra != aprovado["infra"]:
             raise ValueError("modelos ou target do pacote diferem do manifesto aprovado")
     return inventario

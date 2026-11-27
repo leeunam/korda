@@ -112,6 +112,14 @@ class TestWorkerDocker(unittest.TestCase):
         self.assertEqual(self._eventos()[-1]["type"], "package_built")
         self.assertIn("DADOS SINTÉTICOS", (pacote / "index.html").read_text(encoding="utf-8"))
         self.assertEqual({f"models/{p.name}" for p in (pacote / "projeto_dbt/models").iterdir()}, set(modelos))
+        # Prata exportada em Parquet, com hash no manifesto e contagem de linhas.
+        linhas = json.loads((infra / "prata/linhas.json").read_text(encoding="utf-8"))
+        self.assertEqual(set(linhas), {"prata_ctes", "prata_rateios"})
+        self.assertTrue(all(n > 0 for n in linhas.values()), linhas)
+        for tabela in linhas:
+            arquivo = infra / "prata" / f"{tabela}.parquet"
+            self.assertEqual(arquivo.read_bytes()[:4], b"PAR1")
+            self.assertIn(f"prata/{tabela}.parquet", manifesto["infra"])
         # run_results é o do build (testes com status pass), não o do docs generate.
         build = json.loads((infra / "target/run_results.json").read_text(encoding="utf-8"))
         testes = {r["unique_id"]: r["status"] for r in build["results"] if r["unique_id"].startswith("test.")}

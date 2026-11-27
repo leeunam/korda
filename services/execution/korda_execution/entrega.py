@@ -25,7 +25,7 @@ from .sandbox import RAIZ_REPO
 
 PROJETO = RAIZ_REPO / "services/execution/pipeline/projeto"
 # O que estava montado só leitura na sandbox e é preciso para reexecutar o projeto.
-ARQUIVOS_PROJETO = ("dbt_project.yml", "profiles.yml", "ingerir.py", "exportar.py")
+ARQUIVOS_PROJETO = ("dbt_project.yml", "profiles.yml", "ingerir.py", "exportar.py", "exportar_prata.py")
 PASTAS_PROJETO = ("definicoes", "tests", "macros")
 ESTADOS_EMPACOTAVEIS = {"aguardando_aprovacao_entrega", "entrega_autorizada", "entrega_rejeitada"}
 LIMITE_CSV = 32 * 1024**2
@@ -558,6 +558,8 @@ def empacotar(registro, raiz: Path, run_id: str) -> Path:
         for caminho in aprovado["infra"]:
             if caminho.startswith("target/"):
                 shutil.copyfile(revisao / "infra" / caminho, staging / "docs_dbt" / caminho.removeprefix("target/"))
+        if (revisao / "infra/prata").is_dir():
+            shutil.copytree(revisao / "infra/prata", staging / "dados/prata")
         _conferir_copias(staging, aprovado)
 
         dossie = montar_dossie(plano, revisao, run_id)
@@ -584,10 +586,12 @@ def empacotar(registro, raiz: Path, run_id: str) -> Path:
 
 
 def _conferir_copias(pacote: Path, aprovado: dict) -> None:
-    dados = artefatos.inventario(pacote / "dados")
+    dados = {c: m for c, m in artefatos.inventario(pacote / "dados").items() if not c.startswith("prata/")}
     if dados != aprovado["arquivos"]:
         raise ValueError("resultados da revisão diferem do manifesto aprovado")
     infra = {f"models/{c}": m for c, m in artefatos.inventario(pacote / "projeto_dbt/models").items()}
     infra |= {f"target/{c}": m for c, m in artefatos.inventario(pacote / "docs_dbt").items()}
+    if (pacote / "dados/prata").is_dir():
+        infra |= {f"prata/{c}": m for c, m in artefatos.inventario(pacote / "dados/prata").items()}
     if infra != aprovado["infra"]:
         raise ValueError("modelos ou target do dbt diferem do manifesto aprovado")
