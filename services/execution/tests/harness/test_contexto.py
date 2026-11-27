@@ -109,5 +109,14 @@ class TestPromptConstrucao(unittest.TestCase):
         self.assertLess(len(texto), LIMITE_DOCUMENTO + 6_000)
 
 
+class TestContratoDeSaida(unittest.TestCase):
+    def test_construcao_aponta_o_contrato_de_saida(self):
+        from korda_execution.harness.contexto import SISTEMA, SISTEMA_CONSTRUCAO
+
+        for sistema in (SISTEMA, SISTEMA_CONSTRUCAO):
+            self.assertIn("exportar.py", sistema)
+            self.assertIn("ouro_kpis", sistema)
+
+
 if __name__ == "__main__":
     unittest.main()

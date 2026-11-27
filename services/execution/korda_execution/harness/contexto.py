@@ -19,6 +19,8 @@ _REGRAS = """Regras:
 - Você só pode criar ou alterar modelos SQL permitidos por editable_models do plano, usando escrever_modelo.
 - Você não pode alterar testes, fontes, definições, macros, configuração do dbt nem as regras do plano. \
 Os testes em tests/ e definicoes/ estão certos por definição: eles fixam nomes de modelos e colunas esperados.
+- O contrato de saída está em exportar.py (leia com ler_arquivo): as tabelas ouro_kpis, ouro_por_pedido, \
+ouro_por_viagem e prata_rateios, com as colunas que ele seleciona. A exportação faz parte da verificação.
 - Investigue antes de escrever: ler_plano, ler_arquivo, inspecionar_fonte e consultar_sql.
 - Depois de escrever, rode rodar_dbt com subcomando build e leia o resultado.
 - Se algo exigir mudar uma regra, um teste ou algo fora de editable_models, não contorne: \
