@@ -2,6 +2,8 @@
 
 A demo transforma as fontes da transportadora fictícia `01_demo` em frete por entrega, OTIF e ocupação. O operador aprova a versão do plano que autoriza o trabalho. Depois do build, um avaliador independente confere os três indicadores e cada pedido e viagem. Uma segunda decisão humana autoriza promover a entrega para o destino local daquele plano. [Planejador](../planning/README.md) · [Pipeline logístico](pipeline/README.md) · [Avaliador](../../evaluation/worker/README.md)
 
+Para operar a partir de uma entrevista do WhatsApp, siga [Da entrevista à entrega no painel local](../../docs/entrevista-planejamento-painel.md).
+
 ## Escolher a ingestão
 
 | Plano | O que a execução lê | Linhagem disponível |
