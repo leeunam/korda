@@ -4,7 +4,7 @@ import json
 import unittest
 from pathlib import Path
 
-from korda_execution.documento_base import SECOES, SISTEMA_DOCUMENTO, gerar_documento_base, ler_decisao
+from korda_execution.documento_base import SECOES, SISTEMA_DOCUMENTO, gerar_documento_base, ler_decisao, remover_bloco_decisao
 from korda_execution.harness.cliente_chat import ClienteChatFalso, ErroLLM, RespostaChat
 
 RAIZ = Path(__file__).resolve().parents[3]
@@ -98,6 +98,13 @@ class TestDecisaoDoPlanejamento(unittest.TestCase):
         doc = gerar_documento_base(ClienteChatFalso([RespostaChat.texto(texto)]), CONTEXTO, PLANO, precos=PRECOS)
         self.assertIs(doc.pronto_para_construir, False)
         self.assertEqual(doc.perguntas, [PERGUNTA])
+
+    def test_remove_so_o_bloco_de_decisao(self):
+        texto = DOC + _bloco({"exemplo": 1}) + _bloco({"pronto_para_construir": True, "perguntas": []})
+        limpo = remover_bloco_decisao(texto)
+        self.assertNotIn("pronto_para_construir", limpo)
+        self.assertIn('"exemplo"', limpo)
+        self.assertTrue(limpo.startswith(DOC))
 
     def test_sistema_pede_o_bloco_de_decisao(self):
         for trecho in ("pronto_para_construir", "perguntas", "```json"):

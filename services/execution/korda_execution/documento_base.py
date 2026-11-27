@@ -72,6 +72,15 @@ def _pergunta(item) -> dict | None:
     return saida
 
 
+def remover_bloco_decisao(texto: str) -> str:
+    """O documento sem o último bloco ```json (a decisão), para anexar ao plano."""
+    blocos = list(_BLOCO_JSON.finditer(texto or ""))
+    if not blocos:
+        return (texto or "").strip() + "\n"
+    ultimo = blocos[-1]
+    return (texto[:ultimo.start()] + texto[ultimo.end():]).strip() + "\n"
+
+
 def ler_decisao(texto: str) -> tuple[bool | None, list[dict]]:
     """Lê o último bloco ```json do documento: (pronto_para_construir, perguntas).
 
