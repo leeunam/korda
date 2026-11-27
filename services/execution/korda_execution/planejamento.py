@@ -80,6 +80,7 @@ def planejar(plano: dict, contexto: dict, *, raiz: Path, cfg: ConfigHarness | No
             "synthetic": synthetic, "chamadas": medido.chamadas, "tokens_entrada": medido.tokens_entrada,
             "tokens_saida": medido.tokens_saida, "custo_usd": custo, "custo_centavos": usd_para_centavos(custo, cfg.taxa_usd_brl),
             "orcamento_usd": cfg.orcamento_execucao_usd, "custo_completo": medido.custo_completo, "custo_estimado": True,
+            "precos": cfg.precos_medicao(),
             "duracao_s": round(time.monotonic() - inicio, 3), "secoes_ausentes": doc.secoes_ausentes if doc else None,
             "pronto_para_construir": doc.pronto_para_construir if doc else None, "plan_version": plano["plan_version"],
         })

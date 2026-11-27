@@ -133,6 +133,7 @@ def construir_modelos(config, plano, ferramentas, eventos, revisao, verificar_at
     finally:
         resumo = medidor.resumo()
         resumo.update(plan_version=versao, documento_base=info_doc, orcamento_usd=config.orcamento_execucao_usd,
+                      precos=config.precos_medicao(), custo_estimado=config.executor == "chat",
                       construtor=config.executor, builds=(resultado or {}).get("tentativas", 0),
                       correcoes=(resultado or {}).get("correcoes", 0), duracao_etapa_s=round(time.monotonic() - inicio, 3))
         resumo["custo_completo"] = (resumo["custo_completo"] and (resultado or {}).get("custo_completo", True)

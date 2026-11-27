@@ -149,6 +149,7 @@ class TestConstrucaoWorker(unittest.TestCase):
         self.assertEqual((self.raiz / "documento_base.md").read_text(), self.plano["construction"]["document"])
         medicao = self.medicao()
         self.assertEqual((medicao["tokens_entrada"], medicao["tokens_saida"]), (2200, 440))
+        self.assertEqual(medicao["precos"], {"entrada_usd_mtok": 4.0, "saida_usd_mtok": 20.0, "taxa_usd_brl": 6.0})
         self.assertEqual(medicao["documento_base"]["origem"], "construction")
         pro_front = exportar_execucao(self.eventos.caminho, synthetic=False)["custo"]
         self.assertEqual(pro_front["custo_total_centavos"], medicao["custo_centavos"])

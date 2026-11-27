@@ -55,6 +55,7 @@ class TestPlanejar(unittest.TestCase):
         medicao = json.loads((pasta / "medicao.json").read_text())
         self.assertEqual((medicao["tokens_entrada"], medicao["tokens_saida"]), (4000, 2500))
         self.assertTrue(medicao["synthetic"])
+        self.assertEqual(medicao["precos"], {"entrada_usd_mtok": 4.0, "saida_usd_mtok": 20.0, "taxa_usd_brl": 6.0})
         self.assertEqual(len(self.cliente.pedidos), 1)  # uma única chamada
 
     def test_lacuna_gera_perguntas_sem_plano(self):

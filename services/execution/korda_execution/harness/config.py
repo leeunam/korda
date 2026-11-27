@@ -63,6 +63,10 @@ class ConfigHarness:
     def usa_llm(self) -> bool:
         return self.executor in CHAVE_POR_EXECUTOR
 
+    def precos_medicao(self) -> dict:
+        return {"entrada_usd_mtok": self.preco_entrada_usd_mtok, "saida_usd_mtok": self.preco_saida_usd_mtok,
+                "taxa_usd_brl": self.taxa_usd_brl}
+
     @classmethod
     def de_ambiente(cls, env: Mapping[str, str] | None = None) -> "ConfigHarness":
         env = os.environ if env is None else env
