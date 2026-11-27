@@ -43,9 +43,10 @@ x-backup: &backup
     PGDATABASE: ${CONTEXT_DB_NAME:-korda}
     PGPASSWORD: ${CONTEXT_DB_PASSWORD:?Defina uma senha privada do banco}
     SOURCE_IMAGE_TAG: ${CONTEXT_IMAGE_TAG:?Defina o commit da imagem}
+    CONTEXT_BACKUP_DIR: ${CONTEXT_BACKUP_DIR:?Defina um diretório privado exclusivo de backups}
   volumes:
     - media:/source/media:ro
-    - ${CONTEXT_BACKUP_DIR:?Defina um diretório privado exclusivo de backups}:/backups
+    - ${CONTEXT_BACKUP_DIR}:/backups
     - ./ops:/ops:ro
   depends_on:
     postgres:
@@ -133,7 +134,7 @@ services:
       PGDATABASE: ${CONTEXT_DB_NAME:-korda}
       PGPASSWORD: ${CONTEXT_DB_PASSWORD:?Defina uma senha privada do banco}
     volumes:
-      - ${CONTEXT_BACKUP_DIR:?Defina um diretório privado exclusivo de backups}:/backups:ro
+      - ${CONTEXT_BACKUP_DIR}:/backups:ro
       - restore-media:/restore-media
       - ./ops:/ops:ro
     depends_on:

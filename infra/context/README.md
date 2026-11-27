@@ -43,6 +43,17 @@ O worker recusa provedores desativados ou configuração incompleta; não substi
 o canal ou modelo real por um simulador. Saúde HTTP não comprova que uma entrevista
 real ou chamadas pagas tenham passado no aceite.
 
+### Validação do Compose antes do primeiro deploy
+
+O Coolify 4.7.9 não aceita o operador obrigatório `${VAR:?mensagem}` na origem de
+um volume. O Compose usa `${CONTEXT_BACKUP_DIR}` nos mounts e mantém a exigência
+de valor em `environment`. Informe o diretório privado na tela de variáveis antes
+de implantar. Após atualizar a branch, recarregue a definição do Compose no Coolify.
+
+```bash
+python3 -m unittest discover -s infra/context/tests
+```
+
 ## Comandos locais e administração
 
 Executar os comandos seguintes a partir de `infra/context`, com um arquivo de

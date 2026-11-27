@@ -41,3 +41,5 @@ jobs:
           uv run --locked --project services/context python -m unittest discover -s packages/contracts/context/v0.1.0/tests
           uv run --locked --project services/context python packages/contracts/context/v0.2.0/validate.py packages/contracts/context/v0.2.0/examples/*.json
           python scripts/check_repo.py
+      - name: Validate Coolify-compatible volumes
+        run: python -m unittest discover -s infra/context/tests
