@@ -104,17 +104,22 @@ class ClienteComOrcamento:
                  verificar_ativa: Callable[[], None]):
         self.cliente = cliente
         self.restante_usd = orcamento_usd
+        self.reserva_outras_etapas_usd = 0.0
         self.entrada, self.saida = precos
         self.verificar_ativa = verificar_ativa
         self.custo_completo = True
         self.tokens_entrada = 0
         self.tokens_saida = 0
 
+    def limitar_sessao(self, teto_usd: float):
+        self.reserva_outras_etapas_usd = max(0.0, self.restante_usd - teto_usd)
+
     def completar(self, mensagens, ferramentas):
         self.verificar_ativa()
         # Margem conservadora para o enquadramento do chat e um token por byte.
         tamanho = len(json.dumps([mensagens, ferramentas], ensure_ascii=False).encode()) + 256 + 16 * len(mensagens)
-        verba_saida = self.restante_usd * 1_000_000 - tamanho * self.entrada
+        saldo_sessao = self.restante_usd - self.reserva_outras_etapas_usd
+        verba_saida = saldo_sessao * 1_000_000 - tamanho * self.entrada
         max_tokens = min(8192, int(verba_saida / self.saida))
         if max_tokens <= 0 or not self.custo_completo:
             raise ErroLLM("orçamento insuficiente para a próxima chamada")

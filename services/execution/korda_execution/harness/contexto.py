@@ -20,9 +20,12 @@ _REGRAS = """Regras:
 - Você não pode alterar testes, fontes, definições, macros, configuração do dbt nem as regras do plano. \
 Os testes em tests/ e definicoes/ estão certos por definição: eles fixam nomes de modelos e colunas esperados.
 - No pipeline 01_demo, a bronze já foi materializada pelo adaptador protegido ingerir.py. Leia \
-definicoes/fontes.yml para os nomes das tabelas e exportar.py para o contrato de colunas e linhagem por pedido e viagem. \
+definicoes/fontes.yml para os nomes das tabelas. A lista de colunas e tipos da entrega está em \
+dbt_project.yml, na variável contrato_exportacao, e exportar.py especifica a linhagem por pedido e viagem. \
 Leia tests/conservacao.sql, tests/chave_fiscal_unica.sql, tests/documentos_conflitantes.sql e tests/integridade_fontes.sql \
-para conferir as relações exigidas. tests/contrato_exportacao.sql fixa nomes e tipos da saída. \
+para conferir as relações exigidas. tests/rastreabilidade_cte.sql confere as NF-e associadas ao CT-e. \
+tests/contrato_exportacao.sql valida nomes e tipos da saída. Se houver divergência de tipo, consulte \
+main_dbt_test__audit.contrato_exportacao para identificar tabela, campo, esperado e encontrado. \
 macros/meio_par.sql fornece o arredondamento compartilhado.
 - Investigue antes de escrever: ler_plano, ler_arquivo, inspecionar_fonte e consultar_sql.
 - Depois de escrever, rode rodar_dbt com subcomando build e leia o resultado.

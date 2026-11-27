@@ -16,7 +16,8 @@ from .artefatos import LIMITES, LIMITE_PACOTE, PACOTE, _diretorio
 
 REPO = Path(__file__).resolve().parents[3]
 MODELOS = ("prata_ctes", "prata_rateios", "ouro_por_pedido", "ouro_por_viagem", "ouro_kpis")
-TESTES = ("chave_fiscal_unica", "conservacao", "documentos_conflitantes", "integridade_fontes", "contrato_exportacao")
+TESTES = ("chave_fiscal_unica", "conservacao", "contrato_exportacao", "documentos_conflitantes",
+          "integridade_fontes", "rastreabilidade_cte")
 CONFIG = ("dbt_project.yml", "profiles.yml", "definicoes/fontes.yml", "macros/meio_par.sql",
           "ingerir.py", "exportar.py")
 AMBIENTE = ("Dockerfile", "requirements.txt", "consulta.py", "perfil.py",

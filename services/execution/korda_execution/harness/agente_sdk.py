@@ -15,6 +15,7 @@ rode o worker com o ambiente mínimo.
 from __future__ import annotations
 
 import asyncio
+import math
 import tempfile
 import time
 from collections.abc import Callable
@@ -154,24 +155,30 @@ class CorretorAgente:
         duracao = round(time.monotonic() - inicio, 3)
 
         # Custo desconhecido consome o teto inteiro da tentativa, por precaução.
-        self.gasto_usd += saida.total_cost_usd if saida.total_cost_usd is not None else teto
-        custo_centavos = usd_para_centavos(saida.total_cost_usd, self.cfg.taxa_usd_brl)
-        ok = bool(ctx.escritas) and saida.subtype != "error_during_execution"
+        custo = saida.total_cost_usd
+        if type(custo) not in (float, int) or not math.isfinite(custo) or custo < 0:
+            custo = None
+        self.gasto_usd += custo if custo is not None else teto
+        custo_centavos = usd_para_centavos(custo, self.cfg.taxa_usd_brl)
+        excedeu = saida.subtype == "error_max_budget_usd" or (custo is not None and custo > teto)
+        ok = bool(ctx.escritas) and custo is not None and not excedeu and saida.subtype == "success"
         uso = saida.usage or {}
         if self.medidor is not None:
             self.medidor.registrar(ResultadoTentativa(
                 tentativa=tentativa, corretor=self.nome, ok=ok, motivo_parada=saida.subtype, turnos=saida.num_turns,
                 tokens_entrada=int(uso.get("input_tokens") or 0), tokens_saida=int(uso.get("output_tokens") or 0),
-                tokens_cache_leitura=int(uso.get("cache_read_input_tokens") or 0), custo_usd=saida.total_cost_usd,
+                tokens_cache_leitura=int(uso.get("cache_read_input_tokens") or 0), custo_usd=custo,
                 custo_centavos=custo_centavos, duracao_s=duracao, arquivos_escritos=list(ctx.escritas)))
         if self.emissor is not None:
             self.emissor.emit_event(STEP, "agent_finished", f"agente terminou ({saida.subtype})", tentativa,
-                                    subtype=saida.subtype, turnos=saida.num_turns, custo_usd=saida.total_cost_usd,
+                                    subtype=saida.subtype, turnos=saida.num_turns, custo_usd=custo,
                                     custo_centavos=custo_centavos, arquivos=list(ctx.escritas),
                                     ferramentas_sessao=saida.ferramentas_sessao)
         if ok:
             return {"ok": True, "custo_centavos": custo_centavos}
-        if ctx.escritas:
+        if excedeu:
+            erro = "o SDK encerrou ou excedeu o orçamento autorizado da tentativa"
+        elif ctx.escritas:
             erro = f"sessão do agente terminou com erro ({saida.subtype})"
         else:
             erro = f"agente terminou sem alteração ({saida.subtype})"

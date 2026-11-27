@@ -150,6 +150,54 @@ class TestContratoExportacao(unittest.TestCase):
                 con.execute(sql)
 
 
+@unittest.skipUnless(Environment is not None, "a renderização dos testes dbt requer Jinja2")
+class TestReferenciasCTe(unittest.TestCase):
+    def setUp(self):
+        self.conn = sqlite3.connect(":memory:")
+        self.addCleanup(self.conn.close)
+        self.dados = renderizar(PROJETO / "tests/integridade_fontes.sql")
+        self.modelo = renderizar(PROJETO / "tests/rastreabilidade_cte.sql")
+        self.conn.executescript("""
+            create table bronze_pedidos (arquivo, origem, pedido_id, chave_nfe, qt_itens);
+            create table bronze_entregas (arquivo, origem, entrega_id, pedido_id, viagem_id);
+            create table bronze_viagens (arquivo, origem, viagem_id, veiculo_id, tipo_viagem);
+            create table bronze_veiculos (arquivo, origem, veiculo_id);
+            create table bronze_documentos (arquivo, sha256, carga, especie, chave_cte, cstat,
+                                           tipo_evento, chave_nfe, valor_centavos);
+            insert into bronze_pedidos values ('erp.csv', null, 'p1', 'N1', 1), ('erp.csv', null, 'p2', 'N2', 2);
+            insert into bronze_entregas values ('entregas.csv', null, 'e1', 'p1', 'v1'),
+                                              ('entregas.csv', null, 'e2', 'p2', 'v1');
+            insert into bronze_viagens values ('viagens.csv', null, 'v1', 'x1', 'DIST');
+            insert into bronze_veiculos values ('veiculos.csv', null, 'x1');
+            insert into bronze_documentos values ('a.xml', 'hash-a', null, 'cte', 'A', '100', null, 'N1', 1350);
+        """)
+
+    def test_nfe_errada_no_modelo_e_corrigivel_com_fontes_integras(self):
+        # A checagem da fonte roda mesmo antes de existir qualquer modelo.
+        self.assertEqual(self.conn.execute(self.dados).fetchall(), [])
+        modelo = renderizar(PROJETO / "models/prata_ctes.sql")
+        self.conn.execute("create table prata_ctes as " + modelo)
+        self.assertEqual(self.conn.execute(self.modelo).fetchall(), [])
+        for nf in ("INVENTADA", "N2"):  # N2 existe no ERP, porém pertence a outro vínculo.
+            with self.subTest(nf=nf):
+                self.conn.execute("update prata_ctes set chave_nfe = ?", [nf])
+                self.assertEqual(self.conn.execute(self.dados).fetchall(), [])
+                self.assertEqual(self.conn.execute(self.modelo).fetchall(), [("A", nf, "a.xml")])
+        self.conn.execute("drop table prata_ctes")
+        self.conn.execute("create table prata_ctes as " + modelo)
+        self.assertEqual(self.conn.execute(self.modelo).fetchall(), [])
+
+    def test_documento_sem_pedido_na_origem_so_e_excluido_com_cancelamento_homologado(self):
+        self.conn.execute("update bronze_documentos set chave_nfe = 'SEM-PEDIDO'")
+        falha = [("a.xml", "SEM-PEDIDO")]
+        self.assertEqual(self.conn.execute(self.dados).fetchall(), falha)
+        self.conn.execute("insert into bronze_documentos values "
+                          "('ev.xml', 'hash-ev', null, 'evento', 'A', '136', '110111', null, null)")
+        self.assertEqual(self.conn.execute(self.dados).fetchall(), falha)
+        self.conn.execute("update bronze_documentos set cstat = '135' where especie = 'evento'")
+        self.assertEqual(self.conn.execute(self.dados).fetchall(), [])
+
+
 class TestProjecaoLanding(unittest.TestCase):
     def test_une_nfes_a_copia_fisica_e_preserva_carga(self):
         chave = "A"

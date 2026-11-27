@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import time
 
-from .cliente_chat import ClienteChat
+from .cliente_chat import ClienteChat, ClienteComOrcamento
 from .config import ConfigHarness
 from .contexto import SISTEMA, SISTEMA_CONSTRUCAO, montar_prompt, montar_prompt_construcao
 from .politica import STEP
@@ -68,6 +68,8 @@ class ExecutorChat:
     def _sessao(self, sistema: str, prompt: str, tentativa: int, teto: float, max_turnos: int) -> dict:
         if self.restante_usd <= 0 or teto <= 0:
             return {"ok": False, "erro": "orçamento de LLM esgotado", "custo_centavos": 0}
+        if isinstance(self.cliente, ClienteComOrcamento):
+            self.cliente.limitar_sessao(teto)
         inicio = time.monotonic()
         saida, escritas = executar_sessao(
             self.cliente, sistema, prompt, self.ferramentas, self.plano_publico["editable_models"],
@@ -79,7 +81,8 @@ class ExecutorChat:
         self.gasto_usd += saida.total_cost_usd if saida.total_cost_usd is not None else teto
         custo_centavos = usd_para_centavos(saida.total_cost_usd, self.cfg.taxa_usd_brl)
         self.custo_total_centavos += custo_centavos or 0
-        ok = bool(escritas) and saida.subtype != "error_during_execution"
+        excedeu = saida.total_cost_usd is not None and saida.total_cost_usd > teto
+        ok = bool(escritas) and not excedeu and saida.total_cost_usd is not None and saida.subtype != "error_during_execution"
         if self.medidor is not None:
             self.medidor.registrar(ResultadoTentativa(
                 tentativa=tentativa, corretor=self.nome, ok=ok, motivo_parada=saida.subtype, turnos=saida.num_turns,
@@ -98,5 +101,7 @@ class ExecutorChat:
                 tokens_saida=saida.usage.get("output_tokens", 0))
         if ok:
             return {"ok": True, "custo_centavos": custo_centavos}
+        if excedeu:
+            return {"ok": False, "erro": "a sessão excedeu o orçamento autorizado", "custo_centavos": custo_centavos}
         motivo = "terminou com erro" if escritas else "terminou sem alteração"
         return {"ok": False, "erro": f"agente {motivo} ({saida.subtype})", "custo_centavos": custo_centavos}

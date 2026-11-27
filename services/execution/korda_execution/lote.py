@@ -6,16 +6,17 @@ import os
 import shutil
 import stat
 import subprocess
-import sys
 from contextlib import contextmanager
+from importlib import import_module
 from pathlib import Path
 
 from .ingestao import ErroIngestao, ingerir
 from .ingestao_n1 import ErroExecucaoIngestao, executar_ingestao
-from .sandbox import RAIZ_REPO
 
-sys.path.insert(0, str(RAIZ_REPO / "infra/sistemas-simulados"))
-from korda_simulados.controle import AmbienteSimulado, ErroSimulado
+# O pacote do simulador tem hífen no nome do diretório de infraestrutura.
+_controle = import_module("infra.sistemas-simulados.korda_simulados.controle")
+AmbienteSimulado = _controle.AmbienteSimulado
+ErroSimulado = _controle.ErroSimulado
 
 
 FORMATO = "korda.landing/v0"
@@ -80,12 +81,34 @@ def _arquivo(raiz, relativo, limite):
         yield entrada, meta.st_size
 
 
-def _projetar(landing, publico, parcial):
+def _conferir_origem(manifesto, ingestao):
+    # O produtor de arquivos (N0) omite "nivel". O simulador (N1) registra 1.
+    nivel = manifesto.get("nivel", 0)
+    esperado = 1 if ingestao["level"] == "n1" else 0
+    if type(nivel) is not int or nivel != esperado:
+        raise ValueError("nível do manifesto diverge da ingestão aprovada")
+    if nivel == 0:
+        if ("plano" in manifesto or "cargas" in manifesto or not isinstance(manifesto.get("arquivos"), list)
+                or not isinstance(manifesto.get("totais"), dict)):
+            raise ValueError("manifesto incompatível com arquivos exportados N0")
+        return
+    proposta = ingestao["proposal"]
+    # O produtor N1 usa a serialização abaixo em manifesto.plano.sha256. Já o
+    # proposal_sha256 do plano P2 usa JSON compacto UTF-8; os bytes são diferentes.
+    digest = hashlib.sha256(json.dumps(proposta, sort_keys=True).encode("utf-8")).hexdigest()
+    origem = manifesto.get("plano")
+    if (not isinstance(origem, dict) or origem.get("company_id") != proposta["company_id"]
+            or origem.get("schema_version") != proposta["schema_version"] or origem.get("sha256") != digest):
+        raise ValueError("o manifesto N1 não corresponde à proposta de ingestão aprovada")
+
+
+def _projetar(landing, publico, ingestao, parcial):
     with _arquivo(landing, Path("manifesto.json"), 16 * 1024**2) as (entrada, _):
         dados = entrada.read()
     manifesto = json.loads(dados)
     if not isinstance(manifesto, dict) or manifesto.get("formato") != FORMATO:
         raise ValueError("formato de manifesto desconhecido")
+    _conferir_origem(manifesto, ingestao)
     tabelas = manifesto.get("tabelas")
     if (not isinstance(tabelas, dict) or not tabelas or not tabelas.keys() <= TABELAS
             or not parcial and tabelas.keys() != TABELAS):
@@ -164,7 +187,7 @@ def preparar_lote(plano, snapshot, temporario, revisao, eventos, verificar_ativa
         else:
             raise ValueError("nível de ingestão desconhecido")
         verificar_ativa()
-        manifesto_sha = _projetar(landing, publico, parcial=replay is not None and replay[0] != replay[1])
+        manifesto_sha = _projetar(landing, publico, ingestao, parcial=replay is not None and replay[0] != replay[1])
         resumo = {"nivel": nivel, "formato": FORMATO, "janela": janela, "cargas": cargas,
                   "dia_atual": replay[0] if replay else None, "ultimo_dia": replay[1] if replay else None,
                   "plan_version": plano["plan_version"], "proposal_sha256": ingestao["proposal_sha256"],

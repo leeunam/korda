@@ -265,13 +265,18 @@ def _conferir_landing(ler, meta, estado, fontes, inventario, nivel, janela):
             raise ValueError(f"{t}: contagem ou caminho do manifesto diverge da tabela materializada")
     if nivel:
         registrados = _objeto(estado, "arquivos_cte", list)
-        if len(registrados) != len(locais_xml) or set(registrados) != locais_xml.keys():
+        if (any(type(n) is not str for n in registrados) or len(registrados) != len(locais_xml)
+                or set(registrados) != locais_xml.keys()):
             raise ValueError("inventário fiscal do estado diverge da landing")
     return {"locais": locais, "xml": locais_xml, "raw": tabelas_raw, "parcelas": parcelas}
 
 
-def conferir_landing(landing, fontes, inventario, nivel, janela):
-    meta = _json(landing, "manifesto.json")
+def manifesto_landing(landing):
+    return _json(landing, "manifesto.json")
+
+
+def conferir_landing(landing, fontes, inventario, nivel, janela, *, manifesto=None):
+    meta = manifesto_landing(landing) if manifesto is None else manifesto
     if meta.get("formato") != "korda.landing/v0" or type(meta.get("nivel", 0)) is not int or meta.get("nivel", 0) != nivel:
         raise ValueError("manifesto incompatível com o nível e a janela declarados")
     estado = _json(Path(landing) / "_estado", "estado.json") if nivel else None

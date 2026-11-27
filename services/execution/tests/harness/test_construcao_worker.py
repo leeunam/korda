@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+import sqlite3
 import subprocess
 import tempfile
 import unittest
@@ -15,6 +16,7 @@ from korda_execution.eventos import EmissorEventos
 from korda_execution.harness.adaptador_eventos import exportar_execucao
 from korda_execution.harness.cliente_chat import ClienteComOrcamento, ErroLLM, RespostaChat
 from korda_execution.harness.config import ConfigHarness, ErroConfiguracao
+from korda_execution.harness.tipos import SaidaSessao
 from korda_execution.sandbox import ErroSandbox, LocalDockerSandbox
 
 from .fakes import FerramentasFalsas
@@ -70,6 +72,43 @@ class TestConstrucaoWorker(unittest.TestCase):
                 self.assertEqual(medicao["documento_base"]["sha256"], hashlib.sha256(doc).hexdigest())
                 self.assertNotIn(b"destino-privado", doc)
                 self.assertTrue(all(titulo.encode() in doc for titulo in SECOES))
+
+    def test_sql_longo_valido_e_aceito_pelo_build_sem_transitar_no_chat(self):
+        nome = self.modelos[0]
+        sql = "-- " + "a" * 16_001 + "\nSELECT 42 AS resposta"
+        referencia = dict.fromkeys(self.modelos, "select 1")
+        referencia[nome] = sql
+
+        def build(subcomando):
+            self.assertEqual(subcomando, "build")
+            db = sqlite3.connect(":memory:")
+            try:
+                self.assertEqual(db.execute(self.ferramentas.modelos[nome]).fetchone(), (42,))
+            finally:
+                db.close()
+            return {"ok": True}
+
+        with patch.object(construcao, "_referencia", return_value=referencia), \
+             patch.object(self.ferramentas, "ler_arquivo", side_effect=AssertionError("releitura de SQL")), \
+             patch.object(self.ferramentas, "rodar_dbt", side_effect=build):
+            resultado = self.construir(ConfigHarness.de_ambiente({}))
+        self.assertTrue(resultado["ok"], resultado)
+        self.assertEqual(resultado["correcoes"], 0)
+
+    def test_modelo_ausente_no_build_produz_diagnostico_corrigivel(self):
+        nome = "models/prata_ctes.sql"
+        def build(subcomando):
+            self.assertEqual(subcomando, "build")
+            if build_mock.call_count == 1:
+                self.ferramentas.modelos[nome] = ""
+                return {"ok": False, "stdout": "Compilation Error: model prata_ctes was not found"}
+            self.assertTrue(self.ferramentas.modelos[nome].strip())
+            return {"ok": True}
+
+        with patch.object(self.ferramentas, "rodar_dbt", side_effect=build) as build_mock:
+            resultado = self.construir(ConfigHarness.de_ambiente({}))
+        self.assertTrue(resultado["ok"], resultado)
+        self.assertEqual(resultado["correcoes"], 1)
 
     def test_teste_protegido_de_dados_interrompe_sem_reparo(self):
         self.ferramentas.resultados_dbt = [{"ok": False, "stdout": "Failure in test integridade_fontes"}]
@@ -127,6 +166,19 @@ class TestConstrucaoWorker(unittest.TestCase):
             ClienteComOrcamento(transporte, .00001, (4, 20), self.verificar).completar([], [])
         self.assertEqual(transporte.completar.call_count, 1)
 
+    def test_chat_reserva_saldo_das_proximas_etapas_antes_do_envio(self):
+        transporte = Mock()
+        transporte.completar.return_value = RespostaChat.texto("ok", (10, 10))
+        cliente = ClienteComOrcamento(transporte, 1.00, (4, 20), self.verificar)
+        cliente.limitar_sessao(0.02)
+        cliente.completar([], [])
+        teto = transporte.completar.call_args.kwargs["max_tokens"]
+        self.assertGreater(teto, 0)
+        self.assertLess(teto, 1000)
+        cliente.limitar_sessao(.35)
+        cliente.completar([], [])
+        self.assertGreater(transporte.completar.call_args.kwargs["max_tokens"], teto)
+
     def test_documento_sem_uso_interrompe_antes_da_construcao(self):
         config = ConfigHarness.de_ambiente({"KORDA_EXECUTOR": "chat", "KORDA_PERMITIR_LLM_REAL": "1",
                                             "KORDA_LLM_CHAVE": "chave-sintetica"})
@@ -165,6 +217,28 @@ class TestConstrucaoWorker(unittest.TestCase):
         http.assert_not_called()
         self.assertEqual(self.medicao()["construtor"], "roteirizado")
         self.assertEqual(self.medicao()["executor"], "agente_sdk")
+
+    def test_sdk_estouro_de_orcamento_recusa_apesar_da_escrita_e_registra_gasto(self):
+        config = ConfigHarness.de_ambiente({"KORDA_EXECUTOR": "agente_sdk", "KORDA_PERMITIR_LLM_REAL": "1",
+                                            "ANTHROPIC_API_KEY": "chave-sintetica", "KORDA_ORCAMENTO_EXECUCAO_USD": "0.10"})
+        for subtipo, custo in [("error_max_budget_usd", 0.01), ("success", 0.12)]:
+            with self.subTest(subtipo=subtipo):
+                self.ferramentas.resultados_dbt = [{"ok": False, "stdout": "Compilation Error in model ouro_kpis"}]
+
+                def sessao(prompt, ctx):
+                    modelo = "models/ouro_kpis.sql"
+                    if ctx.ferramentas.escrever_modelo(modelo, "select 1")["ok"]:
+                        ctx.escritas.append(modelo)
+                    return SaidaSessao(subtipo, 1, custo, {}, [])
+
+                with patch("korda_execution.harness.agente_sdk.rodar_sessao_sdk", side_effect=sessao) as chamada:
+                    resultado = self.construir(config)
+                self.assertFalse(resultado["ok"])
+                self.assertEqual(resultado["codigo"], "correcao_recusada")
+                self.assertIn("orçamento", resultado["erro"])
+                chamada.assert_called_once()
+                self.assertTrue(self.medicao()["custo_completo"])
+                self.assertEqual(self.medicao()["custo_usd"], custo)
 
     def test_falha_de_transporte_do_sdk_preserva_custo_desconhecido(self):
         config = ConfigHarness.de_ambiente({"KORDA_EXECUTOR": "agente_sdk", "KORDA_PERMITIR_LLM_REAL": "1",

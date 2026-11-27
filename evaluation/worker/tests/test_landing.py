@@ -177,6 +177,12 @@ class TestLanding(unittest.TestCase):
                 self.assertEqual(r["comparados"], {})
                 self.assertEqual(r["janela_replay"], list(janela))
 
+    def test_n1_sem_datas_do_controlador_bloqueia_sem_ler_gabarito(self):
+        (self.base / "manifesto.json").write_text(json.dumps({"formato": "korda.landing/v0", "nivel": 1}))
+        r = avaliador.avaliar(self.base/"sem-resultados", "01_demo", fontes=self.base/"sem-seed",
+                              regras={}, landing=self.base)
+        self.assertEqual((r["aprovado"], r["classe"], r["nivel"], r["comparados"]), (False, "regra", 1, {}))
+
     def test_dia_final_precisa_conferir_com_semente(self):
         dados, meta, estado = self.fixture(1)
         with self.assertRaisesRegex(ValueError, "última data"):

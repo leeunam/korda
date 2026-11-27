@@ -4,6 +4,7 @@ import csv
 import hashlib
 import json
 import os
+import shutil
 import sys
 import tempfile
 import unittest
@@ -58,6 +59,23 @@ def negocio(linha, colunas_linhagem):
 
 def fiscal(itens):
     return sorted((x["chave_cte"], x["sha256"], x["frete_centavos"], x["parcela_centavos"]) for x in itens)
+
+
+def guardar_evidencia_local(pastas):
+    diretorio = os.environ.get("KORDA_EVIDENCIA_LOCAL")
+    if not diretorio:
+        return
+    destino = Path(diretorio)
+    destino.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=destino.parent) as tmp:
+        evidencia = Path(tmp) / "evidencia"
+        for nivel, resultados in pastas.items():
+            saida = evidencia / nivel
+            saida.mkdir(parents=True)
+            shutil.copyfile(resultados / "pacote.zip", saida / "pacote.zip")
+            for nome in ("avaliacao.json", "ingestao.json", "medicao.json"):
+                shutil.copyfile(resultados.parent / nome, saida / nome)
+        evidencia.rename(destino)
 
 
 @unittest.skipUnless(PRONTO, "Docker, sandbox ou sistemas simulados indisponíveis")
@@ -182,6 +200,7 @@ class TestWorkerIngestaoDocker(unittest.TestCase):
                         self.assertGreaterEqual(int(xml["carga"]), 1)
                         parcelas_xml += 1
         self.assertGreater(parcelas_xml, 0, "A 01_demo precisa exercitar o vínculo entre CT-e e rateio real")
+        guardar_evidencia_local(pastas)
 
     def test_janela_parcial_requer_referencia_compativel(self):
         from korda_execution import worker

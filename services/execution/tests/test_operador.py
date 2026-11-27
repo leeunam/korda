@@ -43,6 +43,18 @@ class TestOperador(unittest.TestCase):
         eventos = (self.raiz / "revisao/teste/eventos.jsonl").read_text().splitlines()
         self.assertEqual(json.loads(eventos[-1])["type"], "run_failed")
 
+    def test_colisao_preserva_revisao_preexistente(self):
+        self.registro.registrar(self.plano)
+        self.registro.decidir_plano("demo-01", self.plano["plan_version"], "Revisora de teste", True)
+        revisao = self.raiz / "revisao" / "ocupada"
+        revisao.mkdir(parents=True)
+        anterior = revisao / "eventos.jsonl"
+        anterior.write_bytes(b"registro anterior\n")
+        with self.assertRaises(FileExistsError):
+            executar(self.registro, self.plano, "ocupada", raiz=self.raiz, fontes=self.raiz / "ausente")
+        self.assertEqual(anterior.read_bytes(), b"registro anterior\n")
+        self.assertEqual(self.registro.consultar("ocupada")["state"], "falhou")
+
     def test_so_arquivos_aprovados_entram_no_snapshot(self):
         origem = self.raiz / "bruto"
         for pasta, nomes in {**FONTE_CSV, "cte": ["documento.xml"]}.items():

@@ -10,7 +10,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from .arquivos import _abrir_diretorio, _ler_arquivo, _sem_repeticao
-from .landing import conferir_landing, conferir_linhagem, conferir_janela
+from .landing import conferir_landing, conferir_linhagem, conferir_janela, manifesto_landing
 
 GOLDEN = Path(__file__).resolve().parents[1] / "golden"
 EMPRESAS = {"01_demo", "02_variacao", "03_reservada"}
@@ -154,6 +154,7 @@ def avaliar(diretorio_resultados, empresa_id, *, fontes=None, regras=None, landi
                  "fontes_conferidas": False, "regras_conferidas": False,
                  "comparados": {}, "divergencias": 0, "exemplos": []}
     trilha = None
+    manifesto = None
     try:
         if janela_replay is not None and landing is None:
             raise ValueError("janela de replay exige landing de nível 1")
@@ -166,6 +167,12 @@ def avaliar(diretorio_resultados, empresa_id, *, fontes=None, regras=None, landi
                 if isinstance(janela_replay, (tuple, list)):
                     relatorio["janela_replay"] = list(janela_replay)
                 conferir_janela(janela_replay)
+            relatorio["classe"] = "dados"
+            manifesto = manifesto_landing(landing)
+            if manifesto.get("nivel", 0) == 1 and janela_replay is None:
+                relatorio.update(classe="regra", nivel=1)
+                raise ValueError("o aceite N1 exige a janela completa informada pelo controlador do replay")
+            relatorio["classe"] = "regra"
         if empresa_id not in EMPRESAS:
             raise ValueError("cenário sem referência independente")
         referencia = GOLDEN / empresa_id
@@ -187,7 +194,7 @@ def avaliar(diretorio_resultados, empresa_id, *, fontes=None, regras=None, landi
             inventario = _conferir_fontes(fontes, referencia)
             relatorio["fontes_conferidas"] = True
             if landing is not None:
-                trilha = conferir_landing(landing, fontes, inventario, nivel, janela_replay)
+                trilha = conferir_landing(landing, fontes, inventario, nivel, janela_replay, manifesto=manifesto)
                 relatorio["landing_conferida"] = True
         relatorio["classe"] = "implementacao"
         with _abrir_diretorio(diretorio_resultados) as fid:

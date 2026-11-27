@@ -172,8 +172,10 @@ def executar(registro, plano, run_id, *, raiz: Path, fontes: Path) -> dict:
     revisao = raiz / "revisao" / run_id
     resultados = revisao / "resultados"
     eventos = EmissorEventos(revisao / "eventos.jsonl", run_id)
+    revisao_criada = False
     try:
         revisao.mkdir(mode=0o700, parents=True, exist_ok=False)
+        revisao_criada = True
         eventos.emit_event("plano", "run_started", "Iniciada a versão aprovada do plano",
                            project_id=plano["project_id"], plan_version=plano["plan_version"])
         config = preparar_construcao(plano) if "ingestion" in plano else None
@@ -210,7 +212,7 @@ def executar(registro, plano, run_id, *, raiz: Path, fontes: Path) -> dict:
     except BaseException as exc:
         if registro.consultar(run_id)["state"] == "executando":
             registro.finalizar(run_id, aprovado=False)
-            if revisao.is_dir():
+            if revisao_criada:
                 eventos.emit_event("execucao", "run_failed", str(exc) or type(exc).__name__)
         raise
     return registro.consultar(run_id)

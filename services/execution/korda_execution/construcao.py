@@ -109,10 +109,8 @@ def construir_modelos(config, plano, ferramentas, eventos, revisao, verificar_at
 
     def tentar():
         verificar_ativa()
-        for nome in publico["editable_models"]:
-            leitura = ferramentas.ler_arquivo(nome)
-            if not leitura.get("ok") or not leitura.get("conteudo", "").strip():
-                return {"ok": False, "codigo": "implementacao", "erro": f"modelo obrigatório sem conteúdo: {nome}"}
+        # Os testes protegidos dependem dos cinco nós. O dbt identifica modelos
+        # vazios ou ausentes sem transferir o SQL pela ferramenta de leitura do chat.
         return _resultado_build(ferramentas)
 
     try:

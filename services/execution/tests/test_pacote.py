@@ -68,6 +68,7 @@ class TestPacote(unittest.TestCase):
             self.assertEqual(pacote.read("projeto/models/prata_ctes.sql"), self.modelo.read_bytes())
             self.assertIn("referencia/ingestao_n1/fontes.py", pacote.namelist())
             self.assertIn("projeto/tests/conservacao.sql", pacote.namelist())
+            self.assertIn("projeto/tests/rastreabilidade_cte.sql", pacote.namelist())
             self.assertIn(b"dbt --no-use-colors build", pacote.read("README.md"))
             self.assertEqual(json.loads(pacote.read("execucao.json"))["avaliacao"]["comparados"], self.laudo["comparados"])
             for nome, dados in self.dados.items():
