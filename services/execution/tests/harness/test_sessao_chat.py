@@ -124,7 +124,7 @@ class TestSessaoChat(unittest.TestCase):
             RespostaChat.texto("pronto"),
         ])
         saida, escritas = executar_sessao(cliente, "sistema", "construa", self.f, ["models/*"], emissor=self.emissor,
-                                          tentativa=1, max_turnos=10, teto_usd=5.0, precos=PRECOS, manter_saidas=2)
+                                          tentativa=1, max_turnos=10, teto_usd=5.0, precos=PRECOS, manter_turnos=2)
         self.assertEqual((saida.subtype, escritas), ("success", ["models/prata_novo.sql"]))
         self.assertEqual(self.f.modelos["models/prata_novo.sql"], sql)  # a sandbox recebeu o SQL inteiro
         ultimo = cliente.pedidos[-1]
@@ -141,12 +141,38 @@ class TestSessaoChat(unittest.TestCase):
         mensagens = [{"role": "assistant", "content": None, "tool_calls": [
             {"id": "a", "type": "function", "function": {"name": "rodar_dbt", "arguments": '{"subcomando": "build"}'}}]},
             {"role": "tool", "tool_call_id": "a", "content": saida}]
-        compactar_historico(mensagens, manter=0)
+        compactar_historico(mensagens, manter_turnos=0)
         resumo = mensagens[1]["content"]
         self.assertIn("rodar_dbt build, erro", resumo)
         self.assertIn("PASS=3 WARN=0 ERROR=1", resumo)
-        compactar_historico(mensagens, manter=0)
+        compactar_historico(mensagens, manter_turnos=0)
         self.assertEqual(mensagens[1]["content"], resumo)
+
+
+    def test_compacta_por_turno_mesmo_com_chamadas_paralelas(self):
+        paralelas = [("consultar_sql", {"sql": f"select {i}"}) for i in range(6)]
+        cliente = ClienteChatFalso([RespostaChat.de_tool_calls([("ler_arquivo", {"caminho": MODELO})]),
+                                    RespostaChat.de_tool_calls(paralelas), RespostaChat.texto("fim")])
+        executar_sessao(cliente, "sistema", "construa", self.f, ["models/*"], emissor=self.emissor, tentativa=1,
+                        max_turnos=5, teto_usd=5.0, precos=PRECOS, manter_turnos=1)
+        saidas = [m["content"] for m in cliente.pedidos[-1] if m["role"] == "tool"]
+        self.assertTrue(saidas[0].startswith("[saída antiga resumida: ler_arquivo"))
+        self.assertTrue(all(json.loads(s)["ok"] for s in saidas[1:]))  # as 6 do último turno ficam íntegras
+
+    def test_lembra_de_escrever_uma_vez(self):
+        cliente = ClienteChatFalso([RespostaChat.de_tool_calls([("ler_plano", {})]) for _ in range(5)])
+        executar_sessao(cliente, "sistema", "construa", self.f, ["models/*"], emissor=self.emissor, tentativa=1,
+                        max_turnos=5, teto_usd=5.0, precos=PRECOS, turnos_ate_escrever=2)
+        lembretes = [m for m in cliente.pedidos[-1] if m["role"] == "user" and "sem escrever" in m["content"]]
+        self.assertEqual(len(lembretes), 1)
+        self.assertNotIn("sem escrever", json.dumps(cliente.pedidos[1], ensure_ascii=False))
+        self.assertIn("sem escrever", json.dumps(cliente.pedidos[2], ensure_ascii=False))
+
+    def test_erro_de_api_e_tokens_por_turno_ficam_registrados(self):
+        cliente = _ClienteQueFalha([RespostaChat.de_tool_calls([("ler_plano", {})], tokens=(1000, 200))])
+        saida, _ = self._sessao(cliente)
+        self.assertEqual(saida.erro, "API do LLM respondeu HTTP 500")
+        self.assertEqual(saida.tokens_por_turno, [[1000, 200]])
 
 
 if __name__ == "__main__":

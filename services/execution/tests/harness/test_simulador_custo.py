@@ -11,7 +11,7 @@ class TestSimuladorCusto(unittest.TestCase):
     def test_compactar_historico_reduz_a_entrada_acumulada(self):
         for nome, roteiro in (("típico", roteiro_tipico), ("longo", roteiro_longo)):
             with self.subTest(nome):
-                sem = simular(nome, roteiro(), manter_saidas=None)
+                sem = simular(nome, roteiro(), manter_turnos=None)
                 com = simular(nome, roteiro())
                 self.assertEqual((sem.subtype, com.subtype), ("success", "success"))
                 self.assertEqual(sem.turnos, com.turnos)

@@ -31,6 +31,8 @@ DOCUMENTO = RAIZ_EXEC / "tests/fixtures/planejamento/02_rateio_confirmado.md"
 CONTEXTO = REPO / "packages/contracts/context/v0.1.0/examples/02_rateio_confirmado.json"
 PRECOS = (4.0, 20.0)  # padrão de ConfigHarness (USD por milhão de tokens)
 CARACTERES_POR_TOKEN = 4
+# No ensaio-01 (27/11/2026), um roteiro equivalente estimou 152 mil tokens de entrada; o gateway informou 338 mil.
+FATOR_ENSAIO01 = 2.2
 
 MODELOS = {"models/prata_ctes.sql": 2500, "models/prata_rateios.sql": 2000, "models/ouro_por_pedido.sql": 4000,
            "models/ouro_por_viagem.sql": 3000, "models/ouro_kpis.sql": 1500}
@@ -209,6 +211,10 @@ class Resultado:
     def usd(self) -> float:
         return (self.entrada * PRECOS[0] + self.saida * PRECOS[1]) / 1_000_000
 
+    @property
+    def usd_calibrado(self) -> float:
+        return (self.entrada * FATOR_ENSAIO01 * PRECOS[0] + self.saida * PRECOS[1]) / 1_000_000
+
 
 def simular(nome: str, roteiro_e_builds, *, teto_usd: float = 4.05, max_turnos: int = 40, **sessao) -> Resultado:
     publico = plano_publico()
@@ -227,24 +233,25 @@ def simular(nome: str, roteiro_e_builds, *, teto_usd: float = 4.05, max_turnos: 
 
 
 def cenarios() -> list[Resultado]:
-    return [simular("típico, sem compactar histórico", roteiro_tipico(), manter_saidas=None),
+    return [simular("típico, sem compactar histórico", roteiro_tipico(), manter_turnos=None),
             simular("típico", roteiro_tipico()),
             simular("típico, descoberta no prompt + builds seletivos", roteiro_tipico(True, True)),
-            simular("longo, sem compactar histórico", roteiro_longo(), manter_saidas=None),
+            simular("longo, sem compactar histórico", roteiro_longo(), manter_turnos=None),
             simular("longo (3 correções)", roteiro_longo())]
 
 
 def tabela(resultados: list[Resultado]) -> str:
-    linhas = ["| Cenário | Turnos | Prompt inicial | Maior pedido | Entrada acumulada | Saída | US$ | Parada |",
-              "| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |"]
+    linhas = ["| Cenário | Turnos | Prompt inicial | Maior pedido | Entrada acumulada | Saída | US$ | US$ ×2,2 | Parada |",
+              "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |"]
     def n(valor):
         return f"{valor:,}".replace(",", ".")
 
     linhas += [f"| {r.nome} | {r.turnos} | {n(r.prompt_inicial)} | {n(r.maior_pedido)} | {n(r.entrada)} | {n(r.saida)} "
-               f"| {r.usd:.2f} | {r.subtype} |" for r in resultados]
+               f"| {r.usd:.2f} | {r.usd_calibrado:.2f} | {r.subtype} |" for r in resultados]
     return "\n".join(linhas)
 
 
 if __name__ == "__main__":
-    print("Tokens estimados por caracteres ÷ 4 (sem tokenizer); preços 4/20 US$ por MTok.\n")
+    print("Tokens estimados por caracteres ÷ 4 (sem tokenizer); preços 4/20 US$ por MTok. "
+          f"A coluna ×{FATOR_ENSAIO01} aplica à entrada o fator observado no ensaio-01.\n")
     print(tabela(cenarios()))

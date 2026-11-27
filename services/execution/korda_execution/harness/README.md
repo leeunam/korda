@@ -99,9 +99,11 @@ Entradas fora do formato (campo faltando, campo extra, valor que não é texto) 
 - a versão, os modelos autorizados, os limites, os valores das regras, as fórmulas e os testes das métricas, além das tarefas em ordem de dependência (uma vez só: o bloco de tarefas sai da projeção);
 - os perfis das fontes, cortados em 12.000 caracteres.
 
-As regras dizem que não há modelos auxiliares (etapas intermediárias são CTEs nos cinco arquivos autorizados), pedem `rodar_dbt build --select <modelo>+` durante a construção e um build completo no fim, e dão a consulta única ao `information_schema` para ver as colunas da bronze. O SQL de referência (`pipeline/projeto/models/*.sql`, plano B) nunca entra no prompt; há teste para isso.
+As regras dizem que não há modelos auxiliares (etapas intermediárias são CTEs nos cinco arquivos autorizados), pedem para escrever cedo, pedem `rodar_dbt build --select <modelo>+` durante a construção e um build completo no fim, e explicam que a bronze está no schema `main` (nos modelos, `source('sinteticas', …)`; em `consultar_sql`, `main.bronze_*`). O host consulta o `information_schema` antes da sessão e põe as colunas da bronze no prompt ([`construcao.py`](../construcao.py), `esquema_bronze`); os perfis aparecem como "perfis da landing", com os nomes crus de origem. O SQL de referência (`pipeline/projeto/models/*.sql`, plano B) nunca entra no prompt; há teste para isso.
 
-**Histórico compactado.** A cada turno o histórico inteiro é reenviado. Só as últimas 4 saídas de ferramenta seguem íntegras ([`sessao_chat.py`](sessao_chat.py), `MANTER_SAIDAS`); as anteriores viram uma linha (`[saída antiga resumida: rodar_dbt build, erro, … Done. PASS=10 … ERROR=1 …]`), e o SQL das escritas correspondentes sai dos argumentos (o agente relê o modelo com `ler_arquivo`). Um resumo nunca muda depois de feito.
+**Histórico compactado.** A cada turno o histórico inteiro é reenviado. Só as saídas de ferramenta dos últimos 3 turnos seguem íntegras ([`sessao_chat.py`](sessao_chat.py), `MANTER_TURNOS`); as anteriores viram uma linha (`[saída antiga resumida: rodar_dbt build, erro, … Done. PASS=10 … ERROR=1 …]`), e o SQL das escritas correspondentes sai dos argumentos (o agente relê o modelo com `ler_arquivo`). Um resumo nunca muda depois de feito. A conta é por turno, não por saída: no ensaio-01, contando 4 saídas, o esquema da bronze sumia no turno seguinte a uma rodada de consultas paralelas e o agente o consultava de novo.
+
+**Lembrete para escrever.** Se a sessão chega a 8 turnos (`TURNOS_ATE_ESCREVER`) sem nenhuma escrita, o host acrescenta uma mensagem pedindo para escrever os modelos e usar o build para descobrir o que falta. Uma vez por sessão.
 
 A chamada prévia de planejamento pode usar as evidências do contexto sintético. A projeção entregue às ferramentas omite as transcrições e o destino. As respostas esperadas em `evaluation/golden/` ficam fora das chamadas ao modelo.
 
@@ -118,6 +120,8 @@ A chamada prévia de planejamento pode usar as evidências do contexto sintétic
 | `custo_usd`, `custo_centavos` | Estimativa a partir dos tokens e preços configurados, convertida para centavos pela taxa configurada. |
 | `custo_completo` | `false` se alguma tentativa não informou o custo. |
 | `por_tentativa` | Detalhe de cada tentativa, inclusive arquivos escritos e motivo de parada. |
+
+Cada `agent_finished` em `eventos.jsonl` traz também `ferramentas` (o catálogo `mcp__korda__*` oferecido à sessão), `tokens_por_turno` (`[entrada, saída]` informados pelo gateway em cada chamada) e, quando a API falhou, `erro_api` com a mensagem do `ErroLLM` (código HTTP ou tipo de falha de rede, nunca a chave).
 
 A construção de chat aparece como tentativa `0`. O worker grava em `revisao/<run>/medicao.json` a versão aprovada, a identificação do documento-base, o executor, as sessões, os builds e as correções. A chamada anterior de `planejar` tem seu próprio `medicao.json` em `planejamento/<versão>-<instante>/`. Para medir o custo total do processo, some os custos dos dois registros depois de conferir `custo_completo` em cada um. [Medição](medicao.py)
 
@@ -140,15 +144,25 @@ O custo é **estimado**: tokens informados pelo gateway × `KORDA_PRECO_*`. A Fe
 cd services/execution && python3 -m tests.harness.simulador_custo
 ```
 
-| Cenário | Turnos | Entrada acumulada (antes → depois) | US$ (antes → depois) |
-| --- | ---: | ---: | ---: |
-| Típico | 18 | 217 mil → 151 mil | 0,99 → 0,73 |
-| Típico, com descoberta no prompt e builds seletivos (supõe que o agente pula 2 leituras) | 16 | 178 mil → 131 mil | 0,83 → 0,64 |
-| Longo (3 correções) | 31 | 518 mil → 286 mil | 2,26 → 1,33 |
+| Cenário | Turnos | Entrada acumulada (antes → depois) | US$ (antes → depois) | US$ depois, ×2,2 |
+| --- | ---: | ---: | ---: | ---: |
+| Típico | 18 | 217 mil → 148 mil | 0,99 → 0,71 | 1,42 |
+| Típico, com descoberta no prompt e builds seletivos (supõe que o agente pula 2 leituras) | 16 | 178 mil → 129 mil | 0,83 → 0,63 | 1,25 |
+| Longo (3 correções) | 31 | 518 mil → 275 mil | 2,26 → 1,28 | 2,60 |
 
-"Antes" é a `main` em 4560e5e. A compactação do histórico responde pela maior parte (típico sem ela: 0,96; longo: 2,19). O dbt enxuto e o prompt sem tarefas repetidas somam cerca de 3%. O prompt inicial tem ~5,6 mil tokens, a maior parte o documento-base. Com os limites atuais, o teto da construção (60% de 7,50 × 0,9 = US$ 4,05) fica bem acima do cenário longo, então os 40 turnos param a sessão antes do dinheiro; os limites não mudaram. Cada correção começa uma sessão nova e não entra nesta tabela.
+"Antes" é a `main` em 4560e5e. A compactação do histórico responde pela maior parte (típico sem ela: 0,97; longo: 2,21). O dbt enxuto e o prompt sem tarefas repetidas somam cerca de 3%. Cada correção começa uma sessão nova e não entra nesta tabela.
+
+**Calibração pelo ensaio-01.** Um roteiro equivalente ao do ensaio real (mesmo documento, perfis e plano; 18 turnos, ~25 consultas, 5 `dbt ls`) é estimado em 152 mil tokens de entrada; o gateway informou 338 mil. A coluna "×2,2" aplica esse fator à entrada. Não se sabe ainda se a diferença é um custo fixo por chamada (catálogo de ferramentas e enquadramento do provedor) ou a tokenização do português; `tokens_por_turno` no próximo ensaio responde. Mesmo calibrado, o cenário longo (US$ 2,60) fica abaixo do teto da construção com orçamento de 7,50 (60% × 0,9 = US$ 4,05) ou de 5,00 (US$ 2,70); os 40 turnos param a sessão antes do dinheiro, e os limites não mudaram.
 
 **Cache de prefixo:** não verificado. A página da Feita indicada (feita.ai/api-keys) não expõe documentação legível sem login, e não houve chamada real para testar. `tokens_cache_leitura` segue 0. Se o gateway fizer cache de prefixo, a compactação reduz o acerto apenas na fronteira que avança a cada turno.
+
+## Ensaios reais da construção
+
+| Ensaio | Plano | Resultado | Turnos | Tokens (entrada / saída) | US$ estimado | Duração |
+| --- | --- | --- | ---: | ---: | ---: | ---: |
+| `ensaio-01` (27/11/2026) | `924f1ce5…` (v0.2, `planejar` real, US$ 0,139) | **Não aprovado.** Nenhum modelo escrito; a chamada do turno 19 falhou na API (`error_during_execution`, mensagem não registrada na época), custo incompleto, sem build nem avaliação | 18 | 338.174 / 6.417 | 1,48 + a chamada que falhou | 108 s |
+
+O que o ensaio-01 mostrou, e o que mudou depois dele: o agente só investigou (~25 consultas e 5 `dbt ls`); repetiu 4 vezes a consulta ao `information_schema`, porque a compactação contava saídas e não turnos; tentou `sinteticas.bronze_documentos` em SQL direto, induzido pela redação do prompt; e o erro da API não foi registrado. Correções: compactação por turnos, colunas da bronze no prompt pelo host, regra sobre o schema `main`, lembrete para escrever e `erro_api` / `tokens_por_turno` nos eventos. Segurança no ensaio: hashes de `tests/` e `definicoes/` intactos, nenhuma recusa, só ferramentas `mcp__korda__*`.
 
 ## Adaptador de eventos para o front (provisório)
 

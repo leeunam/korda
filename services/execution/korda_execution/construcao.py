@@ -51,6 +51,24 @@ def modelos_a_mao():
     return {p.relative_to(PROJETO).as_posix(): p.read_text(encoding="utf-8") for p in (PROJETO / "models").glob("*.sql")}
 
 
+CONSULTA_BRONZE = ("select table_name, column_name, data_type from information_schema.columns "
+                   "where table_schema = 'main' and table_name like 'bronze%' order by table_name, ordinal_position")
+
+
+def esquema_bronze(ferramentas):
+    """Colunas da bronze já ingerida, consultadas pelo host para o agente não gastar turnos com isso."""
+    r = ferramentas.consultar_sql(CONSULTA_BRONZE)
+    if not r.get("ok") or not r.get("linhas"):
+        return None
+    tabelas = {}
+    for linha in r["linhas"]:
+        if not isinstance(linha, list) or len(linha) != 3:
+            return None
+        tabela, coluna, tipo = linha
+        tabelas.setdefault(tabela, []).append(f"{coluna} {str(tipo).lower()}")
+    return "\n".join(f"- main.{t}: {', '.join(c)}" for t, c in tabelas.items())
+
+
 def classificar_falha_dbt(resultado):
     if resultado.get("estourou_tempo") or resultado.get("codigo", 1) not in (1, 2):
         return "tecnico"
@@ -115,7 +133,7 @@ def construir_modelos(config, plano, ferramentas, eventos, revisao, verificar_at
             medido = ClienteComOrcamento(cliente, config.orcamento_execucao_usd,
                                          (config.preco_entrada_usd_mtok, config.preco_saida_usd_mtok), verificar_ativa)
             construtor = ExecutorChat(config, medido, ferramentas, publico, perfis, limite, eventos, medidor,
-                                     verificar_ativa=verificar_ativa)
+                                     verificar_ativa=verificar_ativa, esquema_bronze=esquema_bronze(ferramentas))
             construtor.nome = config.executor
             corretor = construtor
 

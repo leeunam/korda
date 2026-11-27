@@ -120,7 +120,7 @@ class TestPromptConstrucaoEnxuto(unittest.TestCase):
         self.assertEqual(texto.count('"depends_on"'), len(publico["tasks"]))
 
     def test_regras_falam_de_cte_selecao_e_historico_resumido(self):
-        for trecho in ("CTEs", "'<modelo>+'", "resumidos", "information_schema"):
+        for trecho in ("CTEs", "'<modelo>+'", "resumidos", "main.bronze_pedidos", "Escreva cedo"):
             self.assertIn(trecho, SISTEMA_CONSTRUCAO)
 
 

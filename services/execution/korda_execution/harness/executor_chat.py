@@ -28,7 +28,7 @@ class ExecutorChat:
 
     def __init__(self, cfg: ConfigHarness, cliente: ClienteChat, ferramentas: FerramentasAgente, plano_publico: dict,
                  perfis: dict, limite: int, emissor, medidor, *, custo_anterior_centavos: int = 0,
-                 orcamento_total_usd: float | None = None, verificar_ativa=None):
+                 orcamento_total_usd: float | None = None, verificar_ativa=None, esquema_bronze: str | None = None):
         self.cfg = cfg
         self.cliente = cliente
         self.ferramentas = ferramentas
@@ -38,6 +38,7 @@ class ExecutorChat:
         self.emissor = emissor
         self.medidor = medidor
         self.verificar_ativa = verificar_ativa
+        self.esquema_bronze = esquema_bronze
         self.documento_base = None
         self.gasto_usd = 0.0
         self.custo_total_centavos = custo_anterior_centavos
@@ -66,12 +67,13 @@ class ExecutorChat:
             self.emissor.emit_event(STEP, "build_started", "Agente iniciou a construção do pipeline a partir do plano",
                                     1, plan_version=self.plano_publico.get("plan_version"))
         self.documento_base = documento_base
-        prompt = montar_prompt_construcao(self.plano_publico, self.perfis, documento_base)
+        prompt = montar_prompt_construcao(self.plano_publico, self.perfis, documento_base, self.esquema_bronze)
         return self._sessao(SISTEMA_CONSTRUCAO, prompt, TENTATIVA_CONSTRUCAO, self.teto_construcao(),
                             self.cfg.max_turnos_construcao)
 
     def __call__(self, falha: dict, tentativa: int) -> dict:
-        prompt = montar_prompt(falha, tentativa, self.limite, self.plano_publico, self.perfis, self.documento_base)
+        prompt = montar_prompt(falha, tentativa, self.limite, self.plano_publico, self.perfis, self.documento_base,
+                               self.esquema_bronze)
         return self._sessao(SISTEMA, prompt, tentativa, self.teto_correcao(tentativa), self.cfg.max_turnos_tentativa)
 
     def _sessao(self, sistema: str, prompt: str, tentativa: int, teto: float, max_turnos: int) -> dict:
@@ -107,10 +109,12 @@ class ExecutorChat:
                 custo_centavos=custo_centavos, custo_total_centavos=self.custo_total_centavos,
                 orcamento_centavos=usd_para_centavos(self.orcamento_total_usd, self.cfg.taxa_usd_brl),
                 custo_estimado=True, tokens_entrada=saida.usage.get("input_tokens", 0),
-                tokens_saida=saida.usage.get("output_tokens", 0))
+                tokens_saida=saida.usage.get("output_tokens", 0), ferramentas=list(saida.ferramentas_sessao),
+                tokens_por_turno=saida.tokens_por_turno, **({"erro_api": saida.erro} if saida.erro else {}))
         if ok:
             return {"ok": True, "custo_centavos": custo_centavos}
         if excedeu:
             return {"ok": False, "erro": "a sessão excedeu o orçamento autorizado", "custo_centavos": custo_centavos}
         motivo = "terminou com erro" if escritas else "terminou sem alteração"
-        return {"ok": False, "erro": f"agente {motivo} ({saida.subtype})", "custo_centavos": custo_centavos}
+        detalhe = f": {saida.erro}" if saida.erro else ""
+        return {"ok": False, "erro": f"agente {motivo} ({saida.subtype}){detalhe}", "custo_centavos": custo_centavos}

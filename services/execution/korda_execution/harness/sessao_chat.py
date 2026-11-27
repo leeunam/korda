@@ -7,10 +7,14 @@ turnos ou o teto de gasto, ou se a API falhar (o que já foi escrito e gasto
 fica registrado). O custo é ESTIMADO pelos tokens e pelo preço configurado.
 
 O histórico inteiro é reenviado a cada turno, então o custo de entrada cresce
-como uma soma triangular. Para conter isso, só as últimas `MANTER_SAIDAS`
-saídas de ferramenta seguem íntegras; as anteriores viram uma linha, e o SQL
-de escritas antigas sai dos argumentos (o agente pode reler o modelo). Ver o
-simulador em `tests/harness/simulador_custo.py`.
+como uma soma triangular. Para conter isso, as saídas de ferramenta dos últimos
+`MANTER_TURNOS` turnos seguem íntegras; as anteriores viram uma linha, e o SQL
+de escritas antigas sai dos argumentos (o agente pode reler o modelo). Conta
+turnos, não saídas: no ensaio-01 o agente fazia várias consultas por turno e,
+contando saídas, o esquema da bronze sumia no turno seguinte e era consultado
+de novo. Se o agente passar `TURNOS_ATE_ESCREVER` turnos sem escrever, recebe
+um lembrete para escrever e validar com o build. Ver o simulador em
+`tests/harness/simulador_custo.py`.
 """
 
 from __future__ import annotations
@@ -24,7 +28,10 @@ from .ferramentas_agente import ESPECIFICACOES, despachar
 from .politica import PREFIXO, hook_pre_tool_use
 from .tipos import FerramentasAgente, SaidaSessao
 
-MANTER_SAIDAS = 4
+MANTER_TURNOS = 3
+TURNOS_ATE_ESCREVER = 8
+LEMBRETE_ESCREVER = ("Você já usou {n} turnos sem escrever nenhum modelo. Pare de investigar: escreva agora os "
+                     "modelos com escrever_modelo e use rodar_dbt build para descobrir o que falta.")
 _RESUMO_DBT = re.compile(r"Done\. PASS=.*|Completed with .*")
 
 
@@ -56,18 +63,22 @@ def _resumir_saida(nome: str, argumentos: dict, conteudo: str) -> str:
             "Chame a ferramenta de novo se precisar do conteúdo.]")
 
 
-def compactar_historico(mensagens: list[dict], manter: int = MANTER_SAIDAS) -> None:
-    """Resume, no lugar, as saídas de ferramenta além das `manter` mais recentes e o SQL das escritas
-    correspondentes. Mensagens já resumidas ficam iguais nos turnos seguintes (prefixo estável)."""
+def compactar_historico(mensagens: list[dict], manter_turnos: int = MANTER_TURNOS) -> None:
+    """Resume, no lugar, as saídas de ferramenta anteriores aos `manter_turnos` últimos turnos e o SQL das
+    escritas correspondentes. Mensagens já resumidas ficam iguais nos turnos seguintes (prefixo estável)."""
     # Cada saída pertence à mensagem do assistente imediatamente anterior (ids podem se repetir entre turnos).
-    pares: list[tuple[dict, dict]] = []
+    pares: list[tuple[int, dict, dict]] = []
     atuais: dict[str, dict] = {}
+    turno = 0
     for m in mensagens:
         if m.get("role") == "assistant":
+            turno += 1
             atuais = {c.get("id", ""): c for c in (m.get("tool_calls") or [])}
         elif m.get("role") == "tool":
-            pares.append((m, atuais.get(m.get("tool_call_id", ""), {})))
-    for m, chamada in pares[:max(0, len(pares) - manter)]:
+            pares.append((turno, m, atuais.get(m.get("tool_call_id", ""), {})))
+    for t, m, chamada in pares:
+        if t > turno - manter_turnos:
+            continue
         if m["content"].startswith("[saída antiga resumida"):
             continue
         funcao = chamada.get("function", {})
@@ -85,7 +96,8 @@ def compactar_historico(mensagens: list[dict], manter: int = MANTER_SAIDAS) -> N
 
 def executar_sessao(cliente: ClienteChat, sistema: str, prompt: str, ferramentas: FerramentasAgente,
                     editable_models, *, emissor, tentativa: int, max_turnos: int, teto_usd: float,
-                    precos: tuple[float, float], verificar_ativa=None, manter_saidas: int | None = MANTER_SAIDAS) -> tuple[SaidaSessao, list[str]]:
+                    precos: tuple[float, float], verificar_ativa=None, manter_turnos: int | None = MANTER_TURNOS,
+                    turnos_ate_escrever: int | None = TURNOS_ATE_ESCREVER) -> tuple[SaidaSessao, list[str]]:
     hook = hook_pre_tool_use(editable_models, emissor, obter_tentativa=lambda: tentativa)
     catalogo = ferramentas_openai()
     mensagens: list[dict] = [{"role": "system", "content": sistema}, {"role": "user", "content": prompt}]
@@ -93,6 +105,9 @@ def executar_sessao(cliente: ClienteChat, sistema: str, prompt: str, ferramentas
     entrada = saida = turnos = 0
     uso_completo = True
     subtype = "error_max_turns"
+    erro_api = None
+    por_turno: list[list[int]] = []
+    lembrou = False
 
     async def executar_chamada(chamada: dict) -> str:
         try:
@@ -110,14 +125,16 @@ def executar_sessao(cliente: ClienteChat, sistema: str, prompt: str, ferramentas
         return resultado["content"][0]["text"]
 
     while turnos < max_turnos:
-        if manter_saidas is not None:
-            compactar_historico(mensagens, manter_saidas)
+        if manter_turnos is not None:
+            compactar_historico(mensagens, manter_turnos)
         try:
             resposta = cliente.completar(mensagens, catalogo)
-        except ErroLLM:
+        except ErroLLM as e:
             subtype = "error_during_execution"
+            erro_api = str(e)[:300]
             break
         turnos += 1
+        por_turno.append([resposta.tokens_entrada, resposta.tokens_saida])
         entrada += resposta.tokens_entrada
         saida += resposta.tokens_saida
         uso_completo = uso_completo and resposta.uso_informado
@@ -136,8 +153,12 @@ def executar_sessao(cliente: ClienteChat, sistema: str, prompt: str, ferramentas
         if uso_completo and _custo(entrada, saida, precos) >= teto_usd:
             subtype = "error_max_budget_usd"
             break
+        if turnos_ate_escrever is not None and not lembrou and not escritas and turnos >= turnos_ate_escrever:
+            mensagens.append({"role": "user", "content": LEMBRETE_ESCREVER.format(n=turnos)})
+            lembrou = True
 
     custo = round(_custo(entrada, saida, precos), 6) if uso_completo else None
     return SaidaSessao(subtype=subtype, num_turns=turnos, total_cost_usd=custo,
                        usage={"input_tokens": entrada, "output_tokens": saida},
-                       ferramentas_sessao=[PREFIXO + n for n in ESPECIFICACOES]), escritas
+                       ferramentas_sessao=[PREFIXO + n for n in ESPECIFICACOES], erro=erro_api,
+                       tokens_por_turno=por_turno), escritas
