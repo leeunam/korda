@@ -1,0 +1,829 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Korda Context",
+    "version": "0.2.0"
+  },
+  "paths": {
+    "/v1/projects/{project_id}/context/revisions/{revision}/summary": {
+      "get": {
+        "summary": "Overview",
+        "operationId": "overview_v1_projects__project_id__context_revisions__revision__summary_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "revision",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Revision"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/context/revisions/{revision}/topics/{topic_id}": {
+      "get": {
+        "summary": "Topic",
+        "operationId": "topic_v1_projects__project_id__context_revisions__revision__topics__topic_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "revision",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Revision"
+            }
+          },
+          {
+            "name": "topic_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Topic Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/context/revisions/{revision}/evidence/{evidence_id}": {
+      "get": {
+        "summary": "Evidence",
+        "operationId": "evidence_v1_projects__project_id__context_revisions__revision__evidence__evidence_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "revision",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Revision"
+            }
+          },
+          {
+            "name": "evidence_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Evidence Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/context/revisions/{revision}/export": {
+      "get": {
+        "summary": "Export",
+        "operationId": "export_v1_projects__project_id__context_revisions__revision__export_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "revision",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Revision"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContextDocument"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Claim": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Id"
+          },
+          "topic": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Topic"
+          },
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Key"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "goal",
+              "process",
+              "source",
+              "rule",
+              "constraint",
+              "decision"
+            ],
+            "title": "Kind"
+          },
+          "statement": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Statement"
+          },
+          "value": {
+            "$ref": "#/components/schemas/JsonValue"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "time_scope": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time Scope"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "declarada",
+              "confirmada",
+              "em_conflito",
+              "substituida"
+            ],
+            "title": "State",
+            "default": "declarada"
+          },
+          "critical": {
+            "type": "boolean",
+            "title": "Critical"
+          },
+          "evidence_ids": {
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Evidence Ids"
+          },
+          "confirmation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Confirmation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "superseded_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Superseded By"
+          },
+          "source_verification": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "nao_inspecionada"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Verification"
+          },
+          "inspected": {
+            "type": "boolean",
+            "const": false,
+            "title": "Inspected",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "topic",
+          "key",
+          "kind",
+          "statement",
+          "value",
+          "critical",
+          "evidence_ids"
+        ],
+        "title": "Claim"
+      },
+      "Confirmation": {
+        "properties": {
+          "evidence_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Evidence Id"
+          },
+          "participant_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Participant Id"
+          },
+          "role": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Role"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "evidence_id",
+          "participant_id",
+          "role"
+        ],
+        "title": "Confirmation"
+      },
+      "ContextDocument": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "0.2.0",
+            "title": "Schema Version",
+            "default": "0.2.0"
+          },
+          "project_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Project Id"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Revision",
+            "default": 0
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "synthetic": {
+            "type": "boolean",
+            "const": true,
+            "title": "Synthetic",
+            "default": true
+          },
+          "interview_status": {
+            "type": "string",
+            "enum": [
+              "ativa",
+              "pausada",
+              "encerrada"
+            ],
+            "title": "Interview Status",
+            "default": "ativa"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "rascunho",
+              "pronto"
+            ],
+            "title": "State",
+            "default": "rascunho"
+          },
+          "required_topics": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Required Topics"
+          },
+          "processed_input_ids": {
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": "array",
+            "title": "Processed Input Ids"
+          },
+          "pending_input_ids": {
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": "array",
+            "title": "Pending Input Ids"
+          },
+          "cutoff_sequence": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cutoff Sequence"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/Evidence"
+            },
+            "type": "array",
+            "title": "Evidence"
+          },
+          "claims": {
+            "items": {
+              "$ref": "#/components/schemas/Claim"
+            },
+            "type": "array",
+            "title": "Claims"
+          },
+          "entities": {
+            "items": {
+              "$ref": "#/components/schemas/Entity"
+            },
+            "type": "array",
+            "title": "Entities"
+          },
+          "relations": {
+            "items": {
+              "$ref": "#/components/schemas/Relation"
+            },
+            "type": "array",
+            "title": "Relations"
+          },
+          "gaps": {
+            "items": {
+              "$ref": "#/components/schemas/Gap"
+            },
+            "type": "array",
+            "title": "Gaps"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "project_id"
+        ],
+        "title": "ContextDocument"
+      },
+      "Entity": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Id"
+          },
+          "topic": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Topic"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Name"
+          },
+          "kind": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Kind"
+          },
+          "evidence_ids": {
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Evidence Ids"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "topic",
+          "name",
+          "kind",
+          "evidence_ids"
+        ],
+        "title": "Entity"
+      },
+      "Evidence": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Id"
+          },
+          "input_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Input Id"
+          },
+          "participant_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Participant Id"
+          },
+          "participant_role": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Participant Role"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "text",
+              "audio_transcript"
+            ],
+            "title": "Kind"
+          },
+          "source_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Source Id"
+          },
+          "input_timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Input Timestamp"
+          },
+          "quote": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Quote"
+          },
+          "start_offset": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Start Offset"
+          },
+          "end_offset": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "End Offset"
+          },
+          "transcription_version": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transcription Version"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "input_id",
+          "participant_id",
+          "participant_role",
+          "kind",
+          "source_id",
+          "input_timestamp",
+          "quote",
+          "start_offset",
+          "end_offset"
+        ],
+        "title": "Evidence"
+      },
+      "Gap": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Id"
+          },
+          "topic": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Topic"
+          },
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Key"
+          },
+          "question": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Question"
+          },
+          "blocking": {
+            "type": "boolean",
+            "title": "Blocking",
+            "default": true
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "aberta",
+              "a_confirmar",
+              "respondida",
+              "em_conflito"
+            ],
+            "title": "State",
+            "default": "aberta"
+          },
+          "claim_ids": {
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": "array",
+            "title": "Claim Ids"
+          },
+          "evidence_ids": {
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": "array",
+            "title": "Evidence Ids"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "topic",
+          "key",
+          "question"
+        ],
+        "title": "Gap"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "JsonValue": {},
+      "Relation": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Id"
+          },
+          "topic": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Topic"
+          },
+          "source_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Source Id"
+          },
+          "target_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Target Id"
+          },
+          "kind": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Kind"
+          },
+          "evidence_ids": {
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Evidence Ids"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "topic",
+          "source_id",
+          "target_id",
+          "kind",
+          "evidence_ids"
+        ],
+        "title": "Relation"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  }
+}

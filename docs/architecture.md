@@ -21,7 +21,7 @@ A UI deve distinguir execução concluída, aguardando aprovação e entrega pro
 
 ## Base técnica proposta
 
-Python, DuckDB e dbt são a base para processamento local e modelos. O [plano técnico da descoberta](plano-arquitetura-agentes-descoberta.md), atualizado em 24/11/2026, propõe FastAPI, PostgreSQL e Procrastinate para o backend de Marcus, com pesquisa, entrevista, perfilamento e contexto versionado. LiveKit e Tavus são candidatos para a entrevista ao vivo, com retomada por texto. Essas integrações ainda serão implementadas e testadas.
+Python, DuckDB e dbt são a base para processamento local e modelos. O [backend de contexto](../services/context/README.md) implementa FastAPI, PostgreSQL e Procrastinate para entrevista WhatsApp com texto, áudio transcrito e contexto versionado. O recorte aprovado em 27/11/2026 deixa pesquisa, perfilamento e entrevista ao vivo fora desta entrega, substituindo essa parte do plano de 24/11. A publicação usa o Coolify existente; o ensaio com provedores reais depende de configurar as contas.
 
 O frontend está em desenvolvimento por outro integrante. Sua conexão ao backend ocorrerá depois, com contratos OpenAPI, exemplos de respostas e alinhamento da autenticação. A stack e a hospedagem da interface pertencem àquela frente.
 
