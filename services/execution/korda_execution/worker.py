@@ -1,8 +1,10 @@
 """Orquestra a execução da versão aprovada do plano: o harness constrói; o worker não.
 
-O worker (1) gera o documento-base com uma chamada de API, (2) prepara a sandbox com
-models/ vazio, (3) chama o harness (`construir_e_verificar`) e (4) entrega o resultado ao
-avaliador independente. O executor vem de KORDA_EXECUTOR (ver harness/config.py). O
+O worker (1) gera o documento-base (plano de construção) com uma chamada à API da Feita;
+se a LLM do planejamento disser que falta contexto, grava as perguntas para a descoberta e
+para antes da sandbox; (2) prepara a sandbox com models/ vazio; (3) intermedeia o harness
+(`construir_e_verificar`), cujo loop roda aqui e cujas ferramentas rodam na sandbox; e (4)
+entrega o resultado ao avaliador independente. O worker não executa nada do pipeline. O executor vem de KORDA_EXECUTOR (ver harness/config.py). O
 pipeline feito à mão em pipeline/projeto/models é só o plano B (`roteirizado`) e nunca é
 montado na sandbox: o roteirizado o copia pelas mesmas ferramentas do agente.
 """
@@ -28,7 +30,6 @@ from .correcao import executar_etapa
 from .documento_base import gerar_documento_base
 from .eventos import EmissorEventos
 from .ferramentas import FerramentasRestritas
-from .harness.agente_sdk import CorretorAgente
 from .harness.cliente_chat import ClienteChatHttp
 from .harness.config import ConfigHarness
 from .harness.contexto import projetar_plano
@@ -144,19 +145,31 @@ def _documento_base(cfg, cliente, contexto, plano_publico, medidor):
         return doc, aviso + doc.texto + "\n"
     motivo = {
         "roteirizado": "o executor roteirizado (plano B) copia o pipeline feito à mão e não usa documento-base",
-        "agente_sdk": "o executor agente_sdk ainda não tem cliente para gerar o documento-base; construiu só com o plano",
     }.get(cfg.executor, "sem contexto das entrevistas; o harness construiu só com o plano")
     return None, f"# Documento-base\n\n**Não gerado.** {motivo.capitalize()}.\n"
 
 
-def _executor(cfg, ferramentas, plano_publico, perfis, limite, eventos, medidor, cliente, rodar_sessao):
+def _decidir_construcao(documento, plano, revisao, eventos, *, synthetic: bool) -> None:
+    """A LLM do planejamento decide se há contexto para construir. Sem decisão, não constrói."""
+    if documento.pronto_para_construir is None:
+        raise FalhaExecucao("o documento-base não trouxe a decisão do planejamento (bloco json); nada foi construído")
+    if documento.pronto_para_construir:
+        return
+    pedido = {"synthetic": synthetic, "project_id": plano["project_id"], "plan_version": plano["plan_version"],
+              "context_id": plano["context_id"], "context_revision": plano["context_revision"],
+              "perguntas": documento.perguntas}
+    (revisao / "perguntas.json").write_text(json.dumps(pedido, ensure_ascii=False, indent=2) + "\n",
+                                            encoding="utf-8")
+    eventos.emit_event("documento_base", "context_requested",
+                       f"{len(documento.perguntas)} pergunta(s) para a descoberta antes de construir",
+                       perguntas=documento.perguntas)
+    raise FalhaExecucao(f"contexto_insuficiente: {len(documento.perguntas)} pergunta(s) em perguntas.json")
+
+
+def _executor(cfg, ferramentas, plano_publico, perfis, limite, eventos, medidor, cliente):
     """Devolve (construtor, corretor) do executor escolhido. Todos constroem a partir do plano."""
     if cfg.executor in ("chat", "falso"):
         agente = ExecutorChat(cfg, cliente, ferramentas, plano_publico, perfis, limite, eventos, medidor)
-        return agente, agente
-    if cfg.executor == "agente_sdk":
-        agente = CorretorAgente(cfg, ferramentas, plano_publico, perfis, limite, eventos, medidor,
-                                rodar_sessao=rodar_sessao)
         return agente, agente
     corretor = CorretorRoteirizado(ferramentas, MODELO_CTE,
                                    lambda: (PROJETO / MODELO_CTE).read_text(encoding="utf-8"))
@@ -183,13 +196,16 @@ def _tentar(ferramentas, sandbox, verificar_ativa):
 
 
 def executar(registro, plano, run_id, *, raiz: Path, fontes: Path, contexto: dict | None = None,
-             cfg: ConfigHarness | None = None, cliente_llm=None, rodar_sessao=None) -> dict:
+             cfg: ConfigHarness | None = None, cliente_llm=None) -> dict:
     """Reserva a execução, chama o harness para construir, congela o resultado e o entrega ao avaliador.
 
-    `cliente_llm` e `rodar_sessao` só existem para testes (executor `falso` e sessões falsas do SDK).
+    `cliente_llm` só existe para testes (executor `falso`, com respostas roteiradas).
     """
     # Lido antes de reservar a execução ou criar a sandbox: erro de chave ou de executor falha cedo.
     cfg = cfg or ConfigHarness.de_ambiente()
+    if cfg.executor == "agente_sdk":
+        # Guardado do #27 (só correção, Claude Agent SDK). A construção usa a API da Feita.
+        raise FalhaExecucao("a construção usa a API da Feita: use KORDA_EXECUTOR=chat ou roteirizado")
     if cfg.executor == "falso" and cliente_llm is None:
         raise FalhaExecucao("KORDA_EXECUTOR=falso é só para testes: exige um cliente LLM falso")
     _validar_parametros(plano, run_id)
@@ -208,7 +224,7 @@ def executar(registro, plano, run_id, *, raiz: Path, fontes: Path, contexto: dic
 
     revisao = raiz / "revisao" / run_id
     eventos = EmissorEventos(revisao / "eventos.jsonl", run_id)
-    medidor = Medidor(run_id, cfg.executor, cfg.modelo if cfg.executor in ("chat", "agente_sdk") else None)
+    medidor = Medidor(run_id, cfg.executor, cfg.modelo if cfg.usa_llm else None)
     try:
         revisao.mkdir(parents=True, exist_ok=False)
         eventos.emit_event("plano", "run_started", "Iniciada a versão aprovada do plano",
@@ -219,7 +235,8 @@ def executar(registro, plano, run_id, *, raiz: Path, fontes: Path, contexto: dic
         if documento is not None:
             eventos.emit_event("documento_base", "document_generated", "Documento-base gerado",
                                secoes_ausentes=documento.secoes_ausentes, custo_usd=documento.custo_usd,
-                               custo_estimado=True)
+                               custo_estimado=True, pronto_para_construir=documento.pronto_para_construir)
+            _decidir_construcao(documento, plano, revisao, eventos, synthetic=not cfg.usa_llm)
         with tempfile.TemporaryDirectory(dir=revisao, prefix="fontes-") as temp:
             snapshot = Path(temp)
             _snapshot(Path(fontes), snapshot)
@@ -245,7 +262,7 @@ def executar(registro, plano, run_id, *, raiz: Path, fontes: Path, contexto: dic
                 if not ingestao.ok:
                     raise FalhaExecucao("ingestão das fontes falhou: " + ingestao.stderr[-1000:])
                 construtor, corretor = _executor(cfg, ferramentas, plano_publico, perfis, limite, eventos,
-                                                 medidor, cliente_llm, rodar_sessao)
+                                                 medidor, cliente_llm)
                 if documento is not None and hasattr(construtor, "descontar_documento_base"):
                     construtor.descontar_documento_base(documento.custo_usd)
 

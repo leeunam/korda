@@ -38,6 +38,9 @@ def _sem_deduplicacao(sql):
     return defeituoso
 
 
+PRONTO = '\n```json\n{"pronto_para_construir": true, "perguntas": []}\n```\n'
+
+
 def _escreve(modelos):
     return RespostaChat.de_tool_calls([("escrever_modelo", {"caminho": c, "conteudo": s})
                                        for c, s in sorted(modelos.items())])
@@ -96,7 +99,7 @@ class TestWorkerDocker(unittest.TestCase):
         modelos = self.worker.modelos_a_mao()
         cliente = ClienteChatFalso([
             RespostaChat.texto("## Modelos\n…\n## Regras aplicadas\n…\n## Métricas\n…\n## Testes de aceite\n…\n"
-                               "## Premissas e lacunas\n…", tokens=(3000, 800)),
+                               "## Premissas e lacunas\n…" + PRONTO, tokens=(3000, 800)),
             RespostaChat.de_tool_calls([("ler_arquivo", {"caminho": "exportar.py"})]),
             # Escrita em teste protegido: o hook recusa antes de chegar às ferramentas.
             RespostaChat.de_tool_calls([("escrever_modelo", {"caminho": "tests/chave_fiscal_unica.sql",
@@ -135,7 +138,7 @@ class TestWorkerDocker(unittest.TestCase):
         ruim = {**modelos, self.worker.MODELO_CTE: _sem_deduplicacao(modelos[self.worker.MODELO_CTE])}
         corrige_errado = _escreve({self.worker.MODELO_CTE: ruim[self.worker.MODELO_CTE]})
         cliente = ClienteChatFalso([
-            RespostaChat.texto("## Modelos\n"), _escreve(ruim), RespostaChat.texto("pronto"),
+            RespostaChat.texto("## Modelos\n" + PRONTO), _escreve(ruim), RespostaChat.texto("pronto"),
             corrige_errado, RespostaChat.texto("tentei"),
             corrige_errado, RespostaChat.texto("tentei"),
             corrige_errado, RespostaChat.texto("tentei"),
@@ -157,7 +160,7 @@ class TestWorkerDocker(unittest.TestCase):
         self.assertEqual(json.loads(self._arquivo("medicao.json").read_text())["tentativas"], 4)
 
     def test_construcao_sem_modelos_escala_sem_build(self):
-        cliente = ClienteChatFalso([RespostaChat.texto("## Modelos\n"), RespostaChat.texto("Não consigo.")])
+        cliente = ClienteChatFalso([RespostaChat.texto("## Modelos\n" + PRONTO), RespostaChat.texto("Não consigo.")])
         with self.assertRaisesRegex(self.worker.FalhaExecucao, "construcao_falhou"):
             self._executar("falso", cliente)
         tipos = [e["type"] for e in self._eventos()]
