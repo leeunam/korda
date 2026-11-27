@@ -57,6 +57,7 @@ class TestPlanejar(unittest.TestCase):
         medicao = json.loads((pasta / "medicao.json").read_text())
         self.assertEqual((medicao["tokens_entrada"], medicao["tokens_saida"]), (4000, 2500))
         self.assertTrue(medicao["synthetic"])
+        self.assertEqual(medicao["precos"], {"entrada_usd_mtok": 4.0, "saida_usd_mtok": 20.0, "taxa_usd_brl": 6.0})
         self.assertEqual(len(self.cliente.pedidos), 1)  # uma única chamada
 
     def test_lacuna_gera_perguntas_sem_plano(self):
@@ -106,6 +107,44 @@ class TestPlanejar(unittest.TestCase):
         planejado = self._planejar(_decisao(True))["plano"]
         with self.assertRaisesRegex(FalhaExecucao, "construção"):
             self._planejar(_decisao(True), plano=planejado)
+
+    def test_falha_ou_documento_vazio_preserva_medicao_do_planejamento(self):
+        cliente = ClienteChatFalso([RespostaChat.texto("", tokens=(160, 4))])
+        with self.assertRaisesRegex(ValueError, "documento-base vazio"):
+            planejamento.planejar(self.plano, self.contexto, raiz=self.raiz, cfg=FALSO, cliente_llm=cliente)
+        (pasta,) = (self.raiz / "planejamento").iterdir()
+        medicao = json.loads((pasta / "medicao.json").read_text())
+        self.assertEqual((medicao["tokens_entrada"], medicao["tokens_saida"]), (160, 4))
+        self.assertTrue(medicao["custo_completo"])
+        self.assertGreater(medicao["custo_usd"], 0)
+        self.assertFalse((pasta / "plano.json").exists())
+
+    def test_planejamento_recusa_uso_desconhecido_e_preserva_tentativa(self):
+        resposta = RespostaChat.texto(_decisao(True))
+        resposta.uso_informado = False
+        with self.assertRaisesRegex(FalhaExecucao, "orçamento"):
+            planejamento.planejar(self.plano, self.contexto, raiz=self.raiz, cfg=FALSO, cliente_llm=ClienteChatFalso([resposta]))
+        (pasta,) = (self.raiz / "planejamento").iterdir()
+        medicao = json.loads((pasta / "medicao.json").read_text())
+        self.assertFalse(medicao["custo_completo"])
+        self.assertIsNone(medicao["custo_usd"])
+        self.assertFalse((pasta / "plano.json").exists())
+
+    def test_planejamento_com_saldo_insuficiente_nao_envia_pedido(self):
+        cfg = ConfigHarness.de_ambiente({"KORDA_EXECUTOR": "falso", "KORDA_ORCAMENTO_EXECUCAO_USD": "0.00001"})
+        cliente = ClienteChatFalso([])
+        with self.assertRaises(FalhaExecucao):
+            planejamento.planejar(self.plano, self.contexto, raiz=self.raiz, cfg=cfg, cliente_llm=cliente)
+        self.assertFalse(cliente.pedidos)
+        (pasta,) = (self.raiz / "planejamento").iterdir()
+        self.assertEqual(json.loads((pasta / "medicao.json").read_text())["chamadas"], 0)
+
+    def test_contexto_com_mesma_identidade_mas_outro_conteudo_e_recusado(self):
+        outro = copy.deepcopy(self.contexto)
+        outro["evidence"][0]["excerpt"] += " Texto divergente."
+        with self.assertRaisesRegex(FalhaExecucao, "revisão"):
+            self._planejar(_decisao(True), contexto=outro)
+        self.assertFalse(self.cliente.pedidos)
 
     def test_falso_exige_cliente(self):
         with self.assertRaisesRegex(FalhaExecucao, "só para testes"):

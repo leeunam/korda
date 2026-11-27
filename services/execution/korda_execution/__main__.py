@@ -36,6 +36,8 @@ def main(argv=None):
     rodar = sub.add_parser("executar", help="processar o lote sintético da versão aprovada")
     rodar.add_argument("plano", type=Path)
     rodar.add_argument("--run-id", help="identificador novo; o padrão é aleatório")
+    rodar.add_argument("--fontes", type=Path, default=RAIZ_REPO / "data/synthetic/output/01_demo",
+                       help="lote de origem gerado para a transportadora 01_demo")
     sub.add_parser("consultar", help="ver estado, manifesto e histórico").add_argument("run_id")
     entrega = sub.add_parser("decidir-entrega", help="registrar a decisão humana sobre a entrega avaliada")
     entrega.add_argument("run_id")
@@ -58,7 +60,7 @@ def main(argv=None):
                 run_id = args.run_id or uuid.uuid4().hex
                 print(f"Execução {run_id}", file=sys.stderr, flush=True)
                 resultado = executar(registro, plano, run_id, raiz=raiz,
-                                     fontes=RAIZ_REPO / "data/synthetic/output/01_demo")
+                                     fontes=args.fontes)
         elif args.comando == "planejar":
             from .planejamento import planejar as gerar
             plano = json.loads(args.plano.read_text(encoding="utf-8"))

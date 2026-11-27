@@ -1,6 +1,6 @@
 # Contratos compartilhados
 
-Definir aqui os formatos e exemplos antes de integrar as frentes. O [contexto logístico sintético v0.1.0](context/v0.1.0/README.md) possui JSON Schema, validador e exemplos de rateio pendente/confirmado para o desenvolvimento local de P1/P2. O [plano logístico v0.1.0](plan/v0.1.0/README.md) especifica o documento revisável entregue ao worker. O registro local de aprovação, os eventos e o manifesto já são usados na demo. O aceite conjunto dessas interfaces pelas quatro frentes continua pendente.
+Definir aqui os formatos e exemplos antes de integrar as frentes. O [contexto logístico sintético v0.1.0](context/v0.1.0/README.md) possui JSON Schema, validador e exemplos de rateio pendente/confirmado para o desenvolvimento local de P1/P2. O [plano v0.2.0](plan/v0.2.0/README.md) vincula os modelos e a ingestão N0 ou N1 à primeira aprovação. O worker também executa o [plano v0.1.0](plan/v0.1.0/README.md) com a permissão original. O registro local de aprovação, os eventos e o manifesto já são usados na demo. O aceite conjunto dessas interfaces pelas quatro frentes continua pendente.
 
 | Contrato | Conteúdo necessário |
 | --- | --- |

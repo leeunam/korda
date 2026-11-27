@@ -1,0 +1,349 @@
+{
+  "schema_version": "0.2.0",
+  "project_id": "demo",
+  "revision": 4,
+  "created_at": "2026-11-27T03:00:00Z",
+  "synthetic": true,
+  "interview_status": "ativa",
+  "state": "rascunho",
+  "required_topics": {
+    "frete": "financeiro",
+    "ocupacao": "operacao",
+    "otif": "operacao"
+  },
+  "processed_input_ids": [
+    "input_sources",
+    "input_old",
+    "input_rateio",
+    "input_confirm",
+    "input_occupancy",
+    "input_otif_a",
+    "input_otif_b"
+  ],
+  "pending_input_ids": [],
+  "evidence": [
+    {
+      "id": "ev_sources",
+      "input_id": "input_sources",
+      "participant_id": "operations",
+      "participant_role": "operacao",
+      "kind": "text",
+      "source_id": "wamid.synthetic.input_sources",
+      "input_timestamp": "2026-11-27T03:00:00Z",
+      "quote": "O TMS identifica o pedido no ERP; a chave da nota no ERP relaciona o CT-e que compõe o custo de frete.",
+      "start_offset": 0,
+      "end_offset": 102,
+      "transcription_version": null
+    },
+    {
+      "id": "ev_old",
+      "input_id": "input_old",
+      "participant_id": "finance",
+      "participant_role": "financeiro",
+      "kind": "text",
+      "source_id": "wamid.synthetic.input_old",
+      "input_timestamp": "2026-11-27T03:00:00Z",
+      "quote": "O rateio usa volumes.",
+      "start_offset": 0,
+      "end_offset": 21,
+      "transcription_version": null
+    },
+    {
+      "id": "ev_rateio",
+      "input_id": "input_rateio",
+      "participant_id": "finance",
+      "participant_role": "financeiro",
+      "kind": "text",
+      "source_id": "wamid.synthetic.input_rateio",
+      "input_timestamp": "2026-11-27T03:00:00Z",
+      "quote": "Corrigindo: o rateio usa peso bruto no ERP.",
+      "start_offset": 0,
+      "end_offset": 43,
+      "transcription_version": null
+    },
+    {
+      "id": "ev_confirm",
+      "input_id": "input_confirm",
+      "participant_id": "finance",
+      "participant_role": "financeiro",
+      "kind": "text",
+      "source_id": "wamid.synthetic.input_confirm",
+      "input_timestamp": "2026-11-27T03:00:00Z",
+      "quote": "Confirmo o uso do peso bruto.",
+      "start_offset": 0,
+      "end_offset": 29,
+      "transcription_version": null
+    },
+    {
+      "id": "ev_occupancy",
+      "input_id": "input_occupancy",
+      "participant_id": "operations",
+      "participant_role": "operacao",
+      "kind": "text",
+      "source_id": "wamid.synthetic.input_occupancy",
+      "input_timestamp": "2026-11-27T03:00:00Z",
+      "quote": "Confirmo a ocupação em kg; isso não define o rateio do frete.",
+      "start_offset": 0,
+      "end_offset": 61,
+      "transcription_version": null
+    },
+    {
+      "id": "ev_otif_a",
+      "input_id": "input_otif_a",
+      "participant_id": "operations",
+      "participant_role": "operacao",
+      "kind": "text",
+      "source_id": "wamid.synthetic.input_otif_a",
+      "input_timestamp": "2026-11-27T03:00:00Z",
+      "quote": "O prazo de entrega conta sábado.",
+      "start_offset": 0,
+      "end_offset": 32,
+      "transcription_version": null
+    },
+    {
+      "id": "ev_otif_b",
+      "input_id": "input_otif_b",
+      "participant_id": "operations",
+      "participant_role": "operacao",
+      "kind": "text",
+      "source_id": "wamid.synthetic.input_otif_b",
+      "input_timestamp": "2026-11-27T03:00:00Z",
+      "quote": "O prazo de entrega não conta sábado.",
+      "start_offset": 0,
+      "end_offset": 36,
+      "transcription_version": null
+    }
+  ],
+  "claims": [
+    {
+      "id": "c_sources",
+      "topic": "fontes",
+      "key": "join",
+      "kind": "source",
+      "statement": "Fontes TMS, ERP e CT-e declaradas",
+      "value": "TMS->ERP->CT-e",
+      "unit": null,
+      "time_scope": "setembro de 2026",
+      "state": "declarada",
+      "critical": false,
+      "evidence_ids": [
+        "ev_sources"
+      ],
+      "confirmation": null,
+      "superseded_by": null,
+      "source_verification": "nao_inspecionada",
+      "inspected": false
+    },
+    {
+      "id": "c_rateio_old",
+      "topic": "frete",
+      "key": "rateio",
+      "kind": "rule",
+      "statement": "O rateio usa volumes",
+      "value": "volumes",
+      "unit": null,
+      "time_scope": "setembro de 2026",
+      "state": "substituida",
+      "critical": true,
+      "evidence_ids": [
+        "ev_old"
+      ],
+      "confirmation": null,
+      "superseded_by": "c_rateio",
+      "source_verification": null,
+      "inspected": false
+    },
+    {
+      "id": "c_rateio",
+      "topic": "frete",
+      "key": "rateio",
+      "kind": "rule",
+      "statement": "O rateio usa peso bruto",
+      "value": "peso_bruto",
+      "unit": null,
+      "time_scope": "setembro de 2026",
+      "state": "confirmada",
+      "critical": true,
+      "evidence_ids": [
+        "ev_rateio",
+        "ev_confirm"
+      ],
+      "confirmation": {
+        "evidence_id": "ev_confirm",
+        "participant_id": "finance",
+        "role": "financeiro"
+      },
+      "superseded_by": null,
+      "source_verification": null,
+      "inspected": false
+    },
+    {
+      "id": "c_occupancy",
+      "topic": "ocupacao",
+      "key": "unidade",
+      "kind": "rule",
+      "statement": "A ocupação é medida em kg",
+      "value": "kg",
+      "unit": "kg",
+      "time_scope": "setembro de 2026",
+      "state": "confirmada",
+      "critical": true,
+      "evidence_ids": [
+        "ev_occupancy"
+      ],
+      "confirmation": {
+        "evidence_id": "ev_occupancy",
+        "participant_id": "operations",
+        "role": "operacao"
+      },
+      "superseded_by": null,
+      "source_verification": null,
+      "inspected": false
+    },
+    {
+      "id": "c_otif_a",
+      "topic": "otif",
+      "key": "sabado",
+      "kind": "rule",
+      "statement": "O prazo conta sábado",
+      "value": true,
+      "unit": null,
+      "time_scope": "setembro de 2026",
+      "state": "em_conflito",
+      "critical": true,
+      "evidence_ids": [
+        "ev_otif_a"
+      ],
+      "confirmation": null,
+      "superseded_by": null,
+      "source_verification": null,
+      "inspected": false
+    },
+    {
+      "id": "c_otif_b",
+      "topic": "otif",
+      "key": "sabado",
+      "kind": "rule",
+      "statement": "O prazo não conta sábado",
+      "value": false,
+      "unit": null,
+      "time_scope": "setembro de 2026",
+      "state": "em_conflito",
+      "critical": true,
+      "evidence_ids": [
+        "ev_otif_b"
+      ],
+      "confirmation": null,
+      "superseded_by": null,
+      "source_verification": null,
+      "inspected": false
+    }
+  ],
+  "entities": [
+    {
+      "id": "ent_tms",
+      "topic": "fontes",
+      "name": "TMS",
+      "kind": "system",
+      "evidence_ids": [
+        "ev_sources"
+      ]
+    },
+    {
+      "id": "ent_erp",
+      "topic": "fontes",
+      "name": "ERP",
+      "kind": "system",
+      "evidence_ids": [
+        "ev_sources"
+      ]
+    },
+    {
+      "id": "ent_cte",
+      "topic": "fontes",
+      "name": "CT-e",
+      "kind": "document",
+      "evidence_ids": [
+        "ev_sources"
+      ]
+    },
+    {
+      "id": "ent_frete",
+      "topic": "frete",
+      "name": "custo_frete",
+      "kind": "indicator",
+      "evidence_ids": [
+        "ev_sources"
+      ]
+    },
+    {
+      "id": "ent_finance",
+      "topic": "responsaveis",
+      "name": "financeiro",
+      "kind": "role",
+      "evidence_ids": [
+        "ev_confirm"
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "id": "r_tms_erp",
+      "topic": "fontes",
+      "source_id": "ent_tms",
+      "target_id": "ent_erp",
+      "kind": "identifica_pedido",
+      "evidence_ids": [
+        "ev_sources"
+      ]
+    },
+    {
+      "id": "r_erp_cte",
+      "topic": "fontes",
+      "source_id": "ent_erp",
+      "target_id": "ent_cte",
+      "kind": "relaciona_chave_nota",
+      "evidence_ids": [
+        "ev_sources"
+      ]
+    },
+    {
+      "id": "r_cte_frete",
+      "topic": "frete",
+      "source_id": "ent_cte",
+      "target_id": "ent_frete",
+      "kind": "compoe",
+      "evidence_ids": [
+        "ev_sources"
+      ]
+    },
+    {
+      "id": "r_frete_finance",
+      "topic": "responsaveis",
+      "source_id": "ent_finance",
+      "target_id": "ent_frete",
+      "kind": "confirma_regra",
+      "evidence_ids": [
+        "ev_confirm"
+      ]
+    }
+  ],
+  "gaps": [
+    {
+      "id": "g_otif",
+      "topic": "otif",
+      "key": "sabado",
+      "question": "O prazo conta sábado?",
+      "blocking": true,
+      "state": "em_conflito",
+      "claim_ids": [
+        "c_otif_a",
+        "c_otif_b"
+      ],
+      "evidence_ids": [
+        "ev_otif_a",
+        "ev_otif_b"
+      ]
+    }
+  ]
+}

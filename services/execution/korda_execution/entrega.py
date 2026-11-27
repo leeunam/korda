@@ -370,6 +370,10 @@ def montar_entrega(plano: dict, revisao: Path, run_id: str | None = None) -> dic
     run_results = _json(revisao / "infra/target/run_results.json")
     medicao = _json(revisao / "medicao.json")
     medicao = medicao if isinstance(medicao, dict) else {}
+    # Linhagem da carga (planos com ingestão N0/N1): nível, janela e o hash do manifesto da landing.
+    ingestao = _json(revisao / "ingestao.json")
+    ingestao = ({k: ingestao.get(k) for k in ("nivel", "janela", "dia_atual", "ultimo_dia", "landing_manifest_sha256")}
+                if isinstance(ingestao, dict) else None)
     tempo = _linha_do_tempo(_eventos(revisao / "eventos.jsonl"))
     modelos = _modelos(revisao / "infra")
     testes = _testes(manifest, run_results)
@@ -418,12 +422,14 @@ def montar_entrega(plano: dict, revisao: Path, run_id: str | None = None) -> dic
         "execucao": {
             "run_id": run_id or revisao.name, "project_id": plano.get("project_id"),
             "plan_version": plano.get("plan_version"), "dataset": plano.get("dataset"),
+            "context_id": plano.get("context_id"), "context_revision": plano.get("context_revision"),
             "executor": medicao.get("executor"), "llm_real": medicao.get("synthetic") is False,
             "custo_usd": medicao.get("custo_usd"), "custo_centavos": medicao.get("custo_centavos"),
             "tokens_entrada": medicao.get("tokens_entrada"), "tokens_saida": medicao.get("tokens_saida"),
             "tentativas": medicao.get("tentativas"), "duracao_s": tempo["duracao_s"],
             "escritas": tempo["escritas"], "falhas": tempo["falhas"], "correcoes": tempo["correcoes"],
             "recusas": tempo["recusas"], "fontes_perfiladas": tempo["perfis"], "linha_do_tempo": tempo["itens"],
+            "ingestao": ingestao,
         },
         "kpis": metricas, "regras": regras, "prata": prata,
         "estrutura": _estrutura(manifest, colunas, testes), "indisponivel": indisponivel,

@@ -43,11 +43,11 @@ class TestPlano(unittest.TestCase):
         self.assertEqual(plano["rules"]["rateio_cte"]["confirmed_by"]["role"], "financeiro")
         metricas = plano["metrics"]
         self.assertIn("rateio_cte", metricas["custo_frete_por_entrega"]["rule_keys"])
-        self.assertIn("cte/*.xml", metricas["custo_frete_por_entrega"]["input_files"])
+        self.assertIn("cte/cte_evento.parquet", metricas["custo_frete_por_entrega"]["input_files"])
         self.assertEqual(set(metricas["otif_pct"]["rule_keys"]),
                          {"no_prazo", "completo", "sem_data_realizada", "prazo_conta_sabado", "excluir_tipos_viagem"})
         self.assertEqual(metricas["ocupacao_pct"]["rule_keys"], ["ocupacao_unidade"])
-        self.assertIn("tms/tms_veiculos.csv", metricas["ocupacao_pct"]["input_files"])
+        self.assertIn("tms/tms_veiculos.parquet", metricas["ocupacao_pct"]["input_files"])
         validar_plano(plano)
         feitos = set()
         for tarefa in plano["tasks"]:
@@ -96,7 +96,10 @@ class TestPlano(unittest.TestCase):
     def test_dataset_vinculado_sem_inferir_empresa_desconhecida(self):
         plano = gerar_plano(self.confirmado)
         self.assertEqual(plano["dataset"], "01_demo")
-        self.assertEqual(plano["editable_models"], ["models/*"])
+        self.assertEqual(set(plano["editable_models"]), {
+            "models/prata_ctes.sql", "models/prata_rateios.sql", "models/ouro_por_pedido.sql",
+            "models/ouro_por_viagem.sql", "models/ouro_kpis.sql",
+        })
         self.confirmado["project_id"] = "outro"
         pendente = gerar_plano(self.confirmado)
         self.assertIsNone(pendente["dataset"])
@@ -105,8 +108,9 @@ class TestPlano(unittest.TestCase):
         self.assertNotEqual(variante["plan_version"], pendente["plan_version"])
         validar_plano(variante)
 
-    def test_editable_models_aceita_caminho_ou_padrao_somente_em_models(self):
-        plano = gerar_plano(self.confirmado)
+    def test_schema_v01_aceita_caminho_ou_padrao_somente_em_models(self):
+        arquivo = P2.parents[1] / "packages/contracts/plan/v0.1.0/examples/01_demo.json"
+        plano = json.loads(arquivo.read_text(encoding="utf-8"))
         validar_plano(plano)
         for valor in (["models/prata_ctes.sql"], ["models/*"], ["models/prata/*.sql"]):
             with self.subTest(valor=valor):

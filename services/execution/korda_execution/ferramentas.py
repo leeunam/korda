@@ -1,4 +1,4 @@
-"""Ferramentas restritas que o harness (K10) vai expor ao agente executor.
+"""Ferramentas restritas que o harness (K10) expõe ao agente executor.
 
 Cada ferramenta devolve um dicionário serializável em JSON (`ok`, mais dados ou `erro`)
 e registra um evento. Recusas de política não levantam exceção: viram resposta para o

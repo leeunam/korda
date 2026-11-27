@@ -61,12 +61,16 @@ def padrao_modelo(padrao: str) -> str:
 
 
 def modelo_autorizado(caminho: str, padroes: Iterable[str]) -> bool:
-    """`caminho` (já validado por `caminho_modelo`) casa com algum caminho ou padrão autorizado.
+    """Um modelo SQL válido casa com algum caminho ou padrão autorizado.
 
     `*` do fnmatch também atravessa `/`, então `models/*` cobre subpastas de models/;
     `caminho_modelo` já garante que o caminho fica em models/ e termina em .sql.
     """
-    return any(caminho == padrao or fnmatchcase(caminho, padrao) for padrao in padroes)
+    try:
+        caminho_modelo(caminho)
+    except CaminhoRecusado:
+        return False
+    return any(fnmatchcase(caminho, padrao) for padrao in padroes)
 
 
 def caminho_leitura(caminho: str) -> str:

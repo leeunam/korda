@@ -7,6 +7,7 @@ with frete as (
     select p.pedido_id, e.entrega_id, v.viagem_id, v.tipo_viagem,
         p.arquivo as arquivo_pedido, p.linha as linha_pedido,
         e.arquivo as arquivo_entrega, e.linha as linha_entrega,
+        p.origem as origem_pedido, p.carga as carga_pedido, e.origem as origem_entrega, e.carga as carga_entrega,
         p.chave_nfe, p.qt_itens, e.qt_entregue, p.peso_decimos_kg,
         case when f.pedido_id is null then 0 else 1 end as elegivel_custo,
         coalesce(f.centavos, 0) as centavos, coalesce(f.ctes, '') as ctes,

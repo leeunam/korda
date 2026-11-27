@@ -1,0 +1,323 @@
+{
+  "project_id": "demo-01",
+  "context_id": "ctx-demo-01",
+  "synthetic": true,
+  "last_processed_turn_id": "turno-2",
+  "sources": [
+    {
+      "id": "entrevista-operacao",
+      "kind": "entrevista",
+      "origin": "fornecida",
+      "scope": "empresa",
+      "version": "1",
+      "locator": "entrevista-sintetica/operacao"
+    },
+    {
+      "id": "descricao-fontes",
+      "kind": "arquivo",
+      "origin": "fornecida",
+      "scope": "empresa",
+      "version": "pr18",
+      "locator": "data/synthetic/spec/dicionario.md"
+    },
+    {
+      "id": "entrevista-financeiro",
+      "kind": "entrevista",
+      "origin": "fornecida",
+      "scope": "empresa",
+      "version": "1",
+      "locator": "entrevista-sintetica/financeiro"
+    }
+  ],
+  "evidence": [
+    {
+      "id": "ev-operacao",
+      "source_id": "entrevista-operacao",
+      "locator": "turno-1",
+      "excerpt": "Ensaio sintético: o caminhão lota por peso. Para frete, usamos o vTPrest autorizado, deduplicamos por chave e excluímos o cancelado homologado. Contamos entregas com CT-e válido, inclusive incompletas; a divisão de um CT-e compartilhado precisa ser confirmada pelo financeiro. Não excluímos tipos de viagem. OTIF compara a data realizada ao prazo prometido, de forma inclusiva, e volumes entregues >= pedidos; sem data conta como falha. O prazo considera sábado. Ocupação usa kg e todas as viagens."
+    },
+    {
+      "id": "ev-fontes",
+      "source_id": "descricao-fontes",
+      "locator": "secoes ERP, TMS e Relacoes",
+      "excerpt": "Especificação sintética: uma entrega por pedido; qt_itens e qt_entregue contam volumes. TMS.nr_ped liga ao ERP.cd_ped; ERP.ch_nfe liga ao CT-e.infNFe/chave. Datas sem offset em America/Sao_Paulo."
+    },
+    {
+      "id": "ev-financeiro",
+      "source_id": "entrevista-financeiro",
+      "locator": "turno-2",
+      "excerpt": "Ensaio sintético: confirmo que dividimos o vTPrest de cada CT-e válido pelo peso bruto de cada pedido. O campo é ps_bruto no ERP. O financeiro confirma esta regra do caso fictício."
+    }
+  ],
+  "source_profile": {
+    "grain": "uma_entrega_por_pedido",
+    "quantity_unit": "volumes",
+    "timezone": "America/Sao_Paulo",
+    "freight_link": "TMS.nr_ped = ERP.cd_ped; ERP.ch_nfe = CT-e.infNFe/chave",
+    "evidence_ids": [
+      "ev-fontes"
+    ]
+  },
+  "rules": {
+    "deduplicar_cte": {
+      "status": "confirmada",
+      "value": true,
+      "evidence_ids": [
+        "ev-operacao"
+      ],
+      "confirmed_by": {
+        "name": "Responsável fictício da operação",
+        "role": "operacao"
+      }
+    },
+    "excluir_cancelados": {
+      "status": "confirmada",
+      "value": true,
+      "evidence_ids": [
+        "ev-operacao"
+      ],
+      "confirmed_by": {
+        "name": "Responsável fictício da operação",
+        "role": "operacao"
+      }
+    },
+    "rateio_cte": {
+      "status": "confirmada",
+      "value": "peso",
+      "evidence_ids": [
+        "ev-operacao",
+        "ev-financeiro"
+      ],
+      "confirmed_by": {
+        "name": "Responsável fictício do financeiro",
+        "role": "financeiro"
+      }
+    },
+    "sem_data_realizada": {
+      "status": "confirmada",
+      "value": "falha",
+      "evidence_ids": [
+        "ev-operacao"
+      ],
+      "confirmed_by": {
+        "name": "Responsável fictício da operação",
+        "role": "operacao"
+      }
+    },
+    "ocupacao_unidade": {
+      "status": "confirmada",
+      "value": "kg",
+      "evidence_ids": [
+        "ev-operacao"
+      ],
+      "confirmed_by": {
+        "name": "Responsável fictício da operação",
+        "role": "operacao"
+      }
+    },
+    "prazo_conta_sabado": {
+      "status": "confirmada",
+      "value": true,
+      "evidence_ids": [
+        "ev-operacao"
+      ],
+      "confirmed_by": {
+        "name": "Responsável fictício da operação",
+        "role": "operacao"
+      }
+    },
+    "excluir_tipos_viagem": {
+      "status": "confirmada",
+      "value": [],
+      "evidence_ids": [
+        "ev-operacao"
+      ],
+      "confirmed_by": {
+        "name": "Responsável fictício da operação",
+        "role": "operacao"
+      }
+    },
+    "no_prazo": {
+      "status": "confirmada",
+      "value": "data(dt_realizada) <= data prevista",
+      "evidence_ids": [
+        "ev-operacao"
+      ],
+      "confirmed_by": {
+        "name": "Responsável fictício da operação",
+        "role": "operacao"
+      }
+    },
+    "completo": {
+      "status": "confirmada",
+      "value": "qt_entregue >= qt_itens",
+      "evidence_ids": [
+        "ev-operacao"
+      ],
+      "confirmed_by": {
+        "name": "Responsável fictício da operação",
+        "role": "operacao"
+      }
+    }
+  },
+  "gaps": [
+    {
+      "id": "gap-rateio",
+      "rule_key": "rateio_cte",
+      "state": "respondida",
+      "blocking": true,
+      "affected_metrics": [
+        "custo_frete_por_entrega"
+      ],
+      "question": "Como o financeiro divide o vTPrest de um CT-e que cobre vários pedidos?",
+      "responsible_role": "financeiro",
+      "evidence_ids": [
+        "ev-operacao",
+        "ev-financeiro"
+      ]
+    }
+  ],
+  "schema_version": "0.1.0",
+  "context_revision": 2,
+  "context_state": "pronto_para_planejamento",
+  "state": "aguardando_aprovacao",
+  "metrics": {
+    "custo_frete_por_entrega": {
+      "grain": "Uma entrega por pedido. Conciliar também por pedido e por viagem.",
+      "unit": "BRL/entrega",
+      "formula": "Somar o frete alocado aos pedidos elegíveis e dividir pelo número de entregas elegíveis.",
+      "denominator": "Entregas em tipos de viagem incluídos e cobertas por pelo menos um CT-e válido, inclusive entregas parciais.",
+      "input_files": [
+        "erp/erp_pedidos.csv",
+        "tms/tms_entregas.csv",
+        "tms/tms_viagens.csv",
+        "cte/*.xml"
+      ],
+      "joins": [
+        "TMS.nr_ped = ERP.cd_ped",
+        "ERP.ch_nfe = CT-e.infNFe/chave",
+        "entrega.id_viag = viagem.id_viag"
+      ],
+      "acceptance": [
+        "Aplicar a cada chave autorizada (cStat 100) as regras explícitas de deduplicação e cancelamento (evento 110111 com retorno 135).",
+        "Distribuir vTPrest pela base de rateio confirmada. Conservar os centavos por CT-e por maiores restos e desempatar por ID textual crescente.",
+        "Conferir a distribuição por pedido e a agregação elegível por viagem com o avaliador independente."
+      ],
+      "rule_keys": [
+        "deduplicar_cte",
+        "excluir_cancelados",
+        "rateio_cte",
+        "excluir_tipos_viagem"
+      ],
+      "blocking_gaps": [],
+      "state": "planejada"
+    },
+    "otif_pct": {
+      "grain": "Um pedido com uma entrega.",
+      "unit": "%",
+      "formula": "100 × pedidos elegíveis que satisfazem simultaneamente no_prazo e completo / pedidos elegíveis.",
+      "denominator": "Pedidos em tipos de viagem incluídos, aplicando a regra confirmada de data realizada ausente.",
+      "input_files": [
+        "erp/erp_pedidos.csv",
+        "tms/tms_entregas.csv",
+        "tms/tms_viagens.csv"
+      ],
+      "joins": [
+        "TMS.nr_ped = ERP.cd_ped",
+        "entrega.id_viag = viagem.id_viag"
+      ],
+      "acceptance": [
+        "Demonstrar uma entrega no prazo e incompleta e uma entrega completa e atrasada, ambas fora do numerador.",
+        "Normalizar os formatos de data e aplicar o prazo do ERP ou a contagem de dias úteis quando o prazo estiver em dias.",
+        "Conferir o denominador com datas ausentes e tipos excluídos, sem depender da cobertura por CT-e."
+      ],
+      "rule_keys": [
+        "sem_data_realizada",
+        "prazo_conta_sabado",
+        "no_prazo",
+        "completo",
+        "excluir_tipos_viagem"
+      ],
+      "blocking_gaps": [],
+      "state": "planejada"
+    },
+    "ocupacao_pct": {
+      "grain": "Uma capacidade por viagem, inclusive viagem vazia.",
+      "unit": "%",
+      "formula": "100 × soma da carga de todas as viagens / soma da capacidade dessas viagens, na mesma unidade confirmada.",
+      "denominator": "Somatório das capacidades dos veículos, uma vez por viagem, incluindo todos os tipos.",
+      "input_files": [
+        "erp/erp_pedidos.csv",
+        "tms/tms_entregas.csv",
+        "tms/tms_viagens.csv",
+        "tms/tms_veiculos.csv"
+      ],
+      "joins": [
+        "TMS.nr_ped = ERP.cd_ped",
+        "entrega.id_viag = viagem.id_viag",
+        "viagem.id_veic = veiculo.id_veic"
+      ],
+      "acceptance": [
+        "Usar carga e capacidade em kg ou m³ conforme ocupacao_unidade.",
+        "Agregar pela capacidade de cada viagem. Preservar viagens vazias e valores acima de 100%.",
+        "Conferir carga, capacidade e percentual por viagem antes do agregado."
+      ],
+      "rule_keys": [
+        "ocupacao_unidade"
+      ],
+      "blocking_gaps": [],
+      "state": "planejada"
+    }
+  },
+  "tasks": [
+    {
+      "id": "bronze",
+      "depends_on": [],
+      "output": "Relações de fontes brutas de ERP, TMS e CT-e com identificação do arquivo de origem.",
+      "verify": "Conciliar os arquivos autorizados com as relações ingeridas e preservar a chave documental dos XML."
+    },
+    {
+      "id": "prata",
+      "depends_on": [
+        "bronze"
+      ],
+      "output": "Pedidos, entregas, viagens, veículos, documentos e eventos tipados com chaves rastreáveis.",
+      "verify": "Conferir o vínculo de NF-e, datas locais, volumes e o grão de uma entrega por pedido; expor chaves inválidas."
+    },
+    {
+      "id": "ouro_custo_frete_por_entrega",
+      "depends_on": [
+        "prata"
+      ],
+      "output": "Relação de ouro com custo_frete_por_entrega e os componentes do seu numerador e denominador.",
+      "verify": "Executar os testes de metrics.custo_frete_por_entrega.acceptance e devolver null para denominador vazio."
+    },
+    {
+      "id": "ouro_otif_pct",
+      "depends_on": [
+        "prata"
+      ],
+      "output": "Relação de ouro com otif_pct e os componentes do seu numerador e denominador.",
+      "verify": "Executar os testes de metrics.otif_pct.acceptance e devolver null para denominador vazio."
+    },
+    {
+      "id": "ouro_ocupacao_pct",
+      "depends_on": [
+        "prata"
+      ],
+      "output": "Relação de ouro com ocupacao_pct e os componentes do seu numerador e denominador.",
+      "verify": "Executar os testes de metrics.ocupacao_pct.acceptance e devolver null para denominador vazio."
+    }
+  ],
+  "dataset": "01_demo",
+  "editable_models": [
+    "models/prata_ctes.sql"
+  ],
+  "period": "Lote sintético de fontes autorizado para a execução inteira, sem recorte adicional de datas.",
+  "limits": {
+    "max_repair_attempts_per_step": 3
+  },
+  "destination": "demo",
+  "cost_estimate_brl_cents": 0,
+  "plan_version": "99ba267a013801900e76c39aa178362c69e90bfaaac9a2e0a39365dc876901e0"
+}

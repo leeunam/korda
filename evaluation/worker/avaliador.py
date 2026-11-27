@@ -6,14 +6,14 @@ import hashlib
 import io
 import json
 import os
-import stat
-from contextlib import contextmanager
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
+from .arquivos import _abrir_diretorio, _ler_arquivo, _sem_repeticao
+from .landing import conferir_landing, conferir_linhagem, conferir_janela, manifesto_landing
+
 GOLDEN = Path(__file__).resolve().parents[1] / "golden"
 EMPRESAS = {"01_demo", "02_variacao", "03_reservada"}
-LIMITE_BYTES = 8 * 1024 * 1024
 LIMITE_LINHAS = 20_000
 LIMITE_EXEMPLOS = 20
 
@@ -38,45 +38,6 @@ MEIA_UNIDADE = {k: Decimal("0.00005") for k in (*KPIS, "ocupacao")}
 MEIA_UNIDADE["carga"] = Decimal("0.0005")
 REGRAS_VARIAVEIS = ("rateio_cte", "sem_data_realizada", "ocupacao_unidade",
                     "prazo_conta_sabado", "excluir_tipos_viagem")
-
-
-@contextmanager
-def _abrir_diretorio(pasta):
-    # Percorre componentes por descritores. O produtor controla os nomes dentro de saida/.
-    flags = os.O_DIRECTORY | os.O_NOFOLLOW | os.O_RDONLY
-    caminho = Path(pasta).absolute()
-    if ".." in caminho.parts:
-        raise ValueError("caminho contém componente de retorno")
-    fd = os.open("/", flags)
-    try:
-        for componente in caminho.parts[1:]:
-            proximo = os.open(componente, flags, dir_fd=fd)
-            os.close(fd)
-            fd = proximo
-        yield fd
-    finally:
-        os.close(fd)
-
-
-def _ler_arquivo(fd, nome):
-    opcoes = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
-    with os.fdopen(os.open(nome, opcoes, dir_fd=fd), "rb") as arquivo:
-        info = os.fstat(arquivo.fileno())
-        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size > LIMITE_BYTES:
-            raise ValueError(f"{nome}: exige arquivo regular, de vínculo único e até {LIMITE_BYTES} bytes")
-        dados = arquivo.read(LIMITE_BYTES + 1)
-        if len(dados) > LIMITE_BYTES:
-            raise ValueError(f"{nome}: arquivo acima do limite")
-        return dados
-
-
-def _sem_repeticao(pares):
-    valores = {}
-    for chave, valor in pares:
-        if chave in valores:
-            raise ValueError("JSON contém chave duplicada")
-        valores[chave] = valor
-    return valores
 
 
 def _kpis(fd):
@@ -184,14 +145,34 @@ def _conferir_fontes(pasta, referencia):
                         raise ValueError(f"conteúdo de fonte divergente: {chave}")
     if esperados_ausentes := esperado.keys() - encontrados.keys():
         raise ValueError(f"fonte ausente: {min(esperados_ausentes)}")
+    return esperado
 
 
-def avaliar(diretorio_resultados, empresa_id, *, fontes=None, regras=None):
+def avaliar(diretorio_resultados, empresa_id, *, fontes=None, regras=None, landing=None, janela_replay=None):
     """Retorna laudo do revisor. O chamador confiável escolhe o cenário e as fontes aprovadas."""
     relatorio = {"aprovado": False, "classe": "regra", "empresa": empresa_id,
                  "fontes_conferidas": False, "regras_conferidas": False,
                  "comparados": {}, "divergencias": 0, "exemplos": []}
+    trilha = None
+    manifesto = None
     try:
+        if janela_replay is not None and landing is None:
+            raise ValueError("janela de replay exige landing de nível 1")
+        if landing is not None:
+            if fontes is None or regras is None or empresa_id != "01_demo":
+                raise ValueError("aceite da landing exige fontes e regras da demonstração 01_demo")
+            nivel = 1 if janela_replay is not None else 0
+            relatorio.update(nivel=nivel, landing_conferida=False, linhagem_conferida=False)
+            if janela_replay is not None:
+                if isinstance(janela_replay, (tuple, list)):
+                    relatorio["janela_replay"] = list(janela_replay)
+                conferir_janela(janela_replay)
+            relatorio["classe"] = "dados"
+            manifesto = manifesto_landing(landing)
+            if manifesto.get("nivel", 0) == 1 and janela_replay is None:
+                relatorio.update(classe="regra", nivel=1)
+                raise ValueError("o aceite N1 exige a janela completa informada pelo controlador do replay")
+            relatorio["classe"] = "regra"
         if empresa_id not in EMPRESAS:
             raise ValueError("cenário sem referência independente")
         referencia = GOLDEN / empresa_id
@@ -200,15 +181,21 @@ def avaliar(diretorio_resultados, empresa_id, *, fontes=None, regras=None):
             if ref.get("empresa_id") != empresa_id:
                 raise ValueError("cenário da referência incompatível")
             if regras is not None:
+                if not isinstance(regras, dict):
+                    raise ValueError("regras aprovadas devem ser um objeto")
                 for campo in REGRAS_VARIAVEIS:
-                    if campo not in regras or regras[campo] != ref["regras_referencia"][campo]:
+                    if (campo not in regras or type(regras[campo]) is not type(ref["regras_referencia"][campo])
+                            or regras[campo] != ref["regras_referencia"][campo]):
                         raise ValueError(f"regra aprovada difere da referência em {campo}; requer revisão")
                 relatorio["regras_conferidas"] = True
             tabelas = {nome: _linhas(fid, nome, campos) for nome, campos in TABELAS.items()}
         if fontes is not None:
             relatorio["classe"] = "dados"
-            _conferir_fontes(fontes, referencia)
+            inventario = _conferir_fontes(fontes, referencia)
             relatorio["fontes_conferidas"] = True
+            if landing is not None:
+                trilha = conferir_landing(landing, fontes, inventario, nivel, janela_replay, manifesto=manifesto)
+                relatorio["landing_conferida"] = True
         relatorio["classe"] = "implementacao"
         with _abrir_diretorio(diretorio_resultados) as fid:
             encontrado = _kpis(fid)["kpis"]
@@ -221,11 +208,15 @@ def avaliar(diretorio_resultados, empresa_id, *, fontes=None, regras=None):
                     if chave not in obtido:
                         _diferenca(relatorio, nome, campos[0], chave, None)
                     else:
+                        if trilha is not None:
+                            conferir_linhagem(nome, obtido[chave], linha, trilha)
                         _comparar_campos(relatorio, f"{nome}/{chave}", campos[1:], linha, obtido[chave])
                 for chave in sorted(obtido.keys() - esperado.keys()):
                     _diferenca(relatorio, nome, campos[0], None, chave)
                 relatorio["comparados"][nome] = len(esperado.keys() & obtido.keys())
         if not relatorio["divergencias"]:
+            if trilha is not None:
+                relatorio["linhagem_conferida"] = True
             relatorio.update(aprovado=True, classe="ok")
     except (OSError, ValueError, csv.Error, RecursionError, InvalidOperation) as erro:
         relatorio["erro"] = str(erro)[:300]
@@ -237,8 +228,14 @@ def main():
     parser.add_argument("--empresa", required=True, choices=sorted(EMPRESAS))
     parser.add_argument("--resultados", type=Path, required=True)
     parser.add_argument("--fontes", type=Path, help="Diretório do cenário contendo erp, tms e cte")
+    parser.add_argument("--landing", type=Path, help="Landing congelada produzida pela ingestão da demo")
+    parser.add_argument("--regras", type=Path, help="JSON das regras efetivamente aprovadas (chave → valor)")
+    parser.add_argument("--janela-replay", nargs=2, metavar=("DIA_ATUAL", "DIA_FINAL"),
+                        help="Dias ISO informados pelo controlador do simulador N1")
     args = parser.parse_args()
-    laudo = avaliar(args.resultados, args.empresa, fontes=args.fontes)
+    regras = json.loads(args.regras.read_text(encoding="utf-8")) if args.regras else None
+    laudo = avaliar(args.resultados, args.empresa, fontes=args.fontes, regras=regras,
+                    landing=args.landing, janela_replay=args.janela_replay)
     print(json.dumps(laudo, ensure_ascii=False, indent=2))
     return 0 if laudo["aprovado"] else 1
 

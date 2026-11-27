@@ -78,6 +78,15 @@ class TestCorretorAgente(unittest.TestCase):
         self.assertEqual(fim[0]["dados"]["ferramentas_sessao"], FERRAMENTAS_OK)
         self.assertEqual(fim[0]["dados"]["subtype"], "success")
 
+    def test_nao_aceita_escrita_com_custo_ou_subtipo_fora_do_teto(self):
+        for motivo, custo in (("error_max_budget_usd", 0.01), ("success", 3.5)):
+            with self.subTest(motivo=motivo):
+                sessao = SessaoFalsa([{"subtype": motivo, "escreve": True, "custo": custo}])
+                resultado = self._corretor(sessao)(FALHA, 1)
+                self.assertFalse(resultado["ok"])
+                self.assertIn("orçamento", resultado["erro"])
+                self.assertEqual(self.medidor.tentativas[-1].custo_usd, custo)
+
     def test_teto_por_tentativa_tem_folga(self):
         sessao = SessaoFalsa([{"escreve": True, "custo": 0.1}])
         self._corretor(sessao)(FALHA, 1)

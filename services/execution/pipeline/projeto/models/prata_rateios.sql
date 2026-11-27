@@ -18,6 +18,6 @@ with bases as (
         row_number() over (partition by chave_cte order by resto desc, pedido_id) as ordem
     from inteiras
 )
-select chave_cte, chave_nfe, pedido_id, arquivo, sha256, valor_centavos,
+select chave_cte, chave_nfe, pedido_id, arquivo, sha256, carga, valor_centavos,
     parte_inteira + case when ordem <= faltam then 1 else 0 end as centavos
 from ordenadas

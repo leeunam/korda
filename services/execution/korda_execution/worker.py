@@ -1,14 +1,12 @@
-"""Orquestra a execução da versão aprovada do plano: o harness constrói; o worker não.
+"""Executa no Docker a versão aprovada do plano: o harness constrói; o worker orquestra.
 
-O planejamento da construção acontece antes, no comando `planejar` (planejamento.py),
-e entra no plano aprovado como `construction`. Aqui o worker (1) prepara a sandbox com
-models/ vazio; (2) intermedeia o harness (`construir_e_verificar`) com a API da Feita, com
-o loop aqui e as ferramentas na sandbox, a partir da construção aprovada; e (3) guarda a infra
-e os resultados com hash e monta o pacote de entrega para a aprovação 2. Não há comparação com
-gabarito no fluxo: o avaliador independente (evaluation/worker) é só ferramenta offline de
-medição. O worker não executa nada do pipeline. O executor vem de KORDA_EXECUTOR (ver harness/config.py). O
-pipeline feito à mão em pipeline/projeto/models é só o plano B (`roteirizado`) e nunca é
-montado na sandbox: o roteirizado o copia pelas mesmas ferramentas do agente.
+O planejamento da construção acontece antes, no comando `planejar` (planejamento.py), e entra
+no plano aprovado como `construction`. Aqui o worker (1) leva o lote autorizado à landing e à
+bronze; (2) intermedeia o harness (`construcao.construir_modelos`) com a API da Feita, com o
+loop aqui e as ferramentas na sandbox; e (3) guarda a infra e os resultados com hash e monta o
+pacote de entrega (`entrega.py`) para a aprovação 2. Não há comparação com gabarito no fluxo:
+o avaliador independente (evaluation/worker) é só ferramenta offline de medição (decisão de
+27/11/2026). O pipeline feito à mão em pipeline/projeto/models é só o plano B (`roteirizado`).
 """
 
 from __future__ import annotations
@@ -25,16 +23,19 @@ from services.planning.korda_planning import validar_plano
 
 from . import caminhos
 from .artefatos import capturar, capturar_infra
-from .correcao import executar_etapa
-from .eventos import EmissorEventos
-from .ferramentas import FerramentasRestritas
-from .harness.cliente_chat import ClienteChatHttp
+from .construcao import (
+    FalhaPreparo,
+    classificar_falha_dbt as classificar_falha_dbt,
+    construir_modelos,
+    modelos_a_mao as modelos_a_mao,
+    preparar_construcao,
+)
 from .harness.config import ConfigHarness
 from .harness.contexto import projetar_plano
-from .harness.executor_chat import ExecutorChat
-from .harness.medicao import Medidor
-from .harness.orquestracao import construir_e_verificar
-from .harness.roteirizado import ConstrutorRoteirizado, CorretorRoteirizado
+from .lote import preparar_lote
+from .correcao import executar_etapa
+from .eventos import EmissorEventos
+from .ferramentas import FONTES, FerramentasRestritas
 from .sandbox import LocalDockerSandbox, RAIZ_REPO
 
 PROJETO = RAIZ_REPO / "services/execution/pipeline/projeto"
@@ -44,9 +45,6 @@ FONTE_CSV = {
     "tms": ("tms_veiculos.csv", "tms_viagens.csv", "tms_entregas.csv"),
 }
 ID_LOCAL = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}")
-# Exceções do dbt que indicam modelo a corrigir: 1 = erro em modelo ou teste, 2 = erro de
-# compilação/parse (ex.: ref para um modelo que o agente ainda não escreveu).
-CODIGOS_DBT_IMPLEMENTACAO = (1, 2)
 
 
 class FalhaExecucao(ValueError):
@@ -93,60 +91,49 @@ def _validar_parametros(plano: dict, run_id: str) -> None:
     if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}", plano["destination"] or ""):
         raise FalhaExecucao("defina um identificador de destino local válido antes da execução")
     if not plano["editable_models"]:
-        raise FalhaExecucao("o plano não autoriza nenhum modelo; o harness não tem onde construir")
+        raise FalhaExecucao("nenhum modelo autorizado no plano")
     for padrao in plano["editable_models"]:
         try:
             caminhos.padrao_modelo(padrao)
-        except caminhos.CaminhoRecusado as e:
-            raise FalhaExecucao(str(e)) from None
+        except caminhos.CaminhoRecusado as exc:
+            raise FalhaExecucao(str(exc)) from None
     # A mesma verificação é repetida pelo ponto de entrada protegido dentro da sandbox.
     from services.execution.pipeline.projeto.ingerir import validar_regras
     validar_regras({chave: regra["value"] for chave, regra in plano["rules"].items()})
 
 
-def modelos_a_mao() -> dict[str, str]:
-    """Pipeline feito à mão (plano B). Lido no host; só o executor roteirizado o usa."""
-    return {f"models/{arquivo.name}": arquivo.read_text(encoding="utf-8")
-            for arquivo in sorted((PROJETO / "models").glob("*.sql"))}
-
-
-def classificar_falha_dbt(resultado: dict) -> str:
-    """Falha de compilação ou de teste de modelo é do agente corrigir; o resto escala direto."""
-    if resultado.get("estourou_tempo") or resultado.get("codigo") not in CODIGOS_DBT_IMPLEMENTACAO:
-        return "tecnico"
-    return "implementacao"
-
-
-def _executor(cfg, ferramentas, plano_publico, perfis, limite, eventos, medidor, cliente):
-    """Devolve (construtor, corretor) do executor escolhido. Todos constroem a partir do plano."""
-    if cfg.executor in ("chat", "falso"):
-        agente = ExecutorChat(cfg, cliente, ferramentas, plano_publico, perfis, limite, eventos, medidor)
-        return agente, agente
-    corretor = CorretorRoteirizado(ferramentas, MODELO_CTE,
-                                   lambda: (PROJETO / MODELO_CTE).read_text(encoding="utf-8"))
-    return ConstrutorRoteirizado(ferramentas, modelos_a_mao()), corretor
-
-
-def _tentar(ferramentas, sandbox, verificar_ativa):
-    """Build com os testes protegidos e exportação no contrato de saída (exportar.py)."""
+def _build_legado(ferramentas, eventos, limite, verificar_ativa):
     def tentar():
         verificar_ativa()
         resultado = ferramentas.rodar_dbt("build")
-        if not resultado["ok"]:
-            diagnostico = (resultado.get("stdout", "") + "\n" + resultado.get("stderr", ""))[-16000:]
-            return {"ok": False, "codigo": classificar_falha_dbt(resultado),
-                    "erro": diagnostico[-1500:] or "dbt build falhou"}
-        exportacao = sandbox.rodar_comando(["python", "/work/projeto/exportar.py"], timeout_s=120)
-        if exportacao.ok:
-            # A prata em Parquet entra na entrega (onde está o dado limpo).
-            exportacao = sandbox.rodar_comando(["python", "/work/projeto/exportar_prata.py"], timeout_s=120)
-        if exportacao.ok:
+        if resultado["ok"]:
             return {"ok": True}
-        # Tabela ou coluna de ouro fora do contrato de saída também é do modelo.
-        codigo = "implementacao" if exportacao.codigo == 1 and not exportacao.estourou_tempo else "tecnico"
-        return {"ok": False, "codigo": codigo,
-                "erro": "exportação (contrato de saída em exportar.py) falhou: " + exportacao.stderr[-1400:]}
-    return tentar
+        diagnostico = (resultado.get("stdout", "") + "\n" + resultado.get("stderr", ""))[-16000:]
+        # Somente uma falha no teste protegido de unicidade permite a correção de CT-e.
+        falha_duplicata = re.search(r"(?:Failure in test|FAIL\s+\d+)\s+chave_fiscal_unica\b",
+                                    diagnostico, re.IGNORECASE)
+        codigo = "implementacao" if falha_duplicata and not resultado.get("estourou_tempo") else "tecnico"
+        return {"ok": False, "codigo": codigo, "erro": diagnostico[-1500:] or "dbt build falhou"}
+
+    def corrigir(_falha, tentativa):
+        verificar_ativa()
+        ferramentas.attempt = tentativa + 1
+        correto = (PROJETO / MODELO_CTE).read_text(encoding="utf-8")
+        atual = ferramentas.ler_arquivo(MODELO_CTE)
+        if not atual["ok"] or atual["conteudo"] == correto:
+            return {"ok": False, "erro": "modelo indisponível ou já corresponde à versão revisada",
+                    "custo_centavos": 0}
+        alteracao = ferramentas.escrever_modelo(MODELO_CTE, correto)
+        return {**alteracao, "custo_centavos": 0}
+
+    def registrar(tipo, dados):
+        eventos.emit_event("modelos", tipo, dados.get("erro", tipo), dados["tentativas"], **dados)
+
+    return executar_etapa(tentar, corrigir, registrar, limite=limite)
+
+
+def _escrever_json(caminho, dados):
+    caminho.write_text(json.dumps(dados, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
 def _documentar(sandbox, eventos, verificar_ativa):
@@ -177,38 +164,67 @@ def _empacotar(registro, raiz, run_id, eventos):
                            pasta=str(pacote.relative_to(raiz)))
 
 
+def _modelar(sandbox, plano, revisao, eventos, verificar_ativa, config, cliente_llm):
+    publico = projetar_plano(plano)
+    publico.update({k: plano[k] for k in ("project_id", "dataset")})
+    ferramentas = FerramentasRestritas(sandbox, eventos, plano_aprovado=publico,
+                                       modelos_permitidos=frozenset(plano["editable_models"]))
+    regras = ferramentas.ler_plano()["plano"]["rules"]
+    perfis = {}
+    for fonte in sorted(FONTES):
+        verificar_ativa()
+        perfil = ferramentas.inspecionar_fonte(fonte)
+        if not perfil["ok"]:
+            raise FalhaExecucao(f"perfil de {fonte}: {perfil.get('erro')}")
+        perfis[fonte] = perfil["perfil"]
+    _escrever_json(revisao / "fontes.json", perfis)
+    verificar_ativa()
+    bronze = sandbox.rodar_comando(["python", "/work/projeto/ingerir.py"], timeout_s=240,
+                                   stdin=json.dumps(regras).encode())
+    if not bronze.ok:
+        raise FalhaExecucao("projeção da landing em bronze falhou: " + bronze.stderr[-1000:])
+
+    def exportar():
+        """Contrato de saída (exportar.py) e, se ele passar, a prata em Parquet para a entrega."""
+        verificar_ativa()
+        saida = sandbox.rodar_comando(["python", "/work/projeto/exportar.py"], timeout_s=120)
+        if saida.ok:
+            saida = sandbox.rodar_comando(["python", "/work/projeto/exportar_prata.py"], timeout_s=120)
+        return saida
+
+    if config is None:
+        resultado = _build_legado(ferramentas, eventos, plano["limits"]["max_repair_attempts_per_step"],
+                                  verificar_ativa)
+        if resultado["ok"]:
+            exportacao = exportar()
+            if not exportacao.ok:
+                raise FalhaExecucao("exportação falhou: " + exportacao.stderr[-1000:])
+    else:
+        resultado = construir_modelos(config, plano, ferramentas, eventos, revisao, verificar_ativa,
+                                      cliente_llm=cliente_llm, exportar=exportar)
+    if not resultado["ok"]:
+        raise FalhaExecucao(f"{resultado['codigo']}: {resultado['erro']}")
+
+
 def executar(registro, plano, run_id, *, raiz: Path, fontes: Path, cfg: ConfigHarness | None = None,
              cliente_llm=None) -> dict:
-    """Reserva a execução, chama o harness para construir, congela o resultado e monta o pacote de entrega.
+    """Processa a landing autorizada, chama o harness para construir, congela o resultado e monta a entrega.
 
     `cliente_llm` só existe para testes (executor `falso`, com respostas roteiradas).
     """
-    # Lido antes de reservar a execução ou criar a sandbox: erro de chave ou de executor falha cedo.
     cfg = cfg or ConfigHarness.de_ambiente()
-    if cfg.executor == "agente_sdk":
-        # Guardado do #27 (só correção, Claude Agent SDK). A construção usa a API da Feita.
-        raise FalhaExecucao("a construção usa a API da Feita: use KORDA_EXECUTOR=chat ou roteirizado")
-    if cfg.executor == "falso" and cliente_llm is None:
-        raise FalhaExecucao("KORDA_EXECUTOR=falso é só para testes: exige um cliente LLM falso")
     _validar_parametros(plano, run_id)
-    construcao = plano.get("construction")
-    if cfg.usa_llm and construcao is None:
-        raise FalhaExecucao("o plano aprovado não tem a construção: rode `planejar` e aprove o plano com ela")
-    if cfg.executor == "roteirizado":
-        documento, texto_documento = None, ("# Documento-base\n\n**Não gerado.** O executor roteirizado (plano B) "
-                                            "copia o pipeline feito à mão e não usa documento-base.\n")
-    elif construcao is not None:
-        documento = construcao["document"]
-        aviso = "<!-- SINTÉTICO: construção gerada sem LLM real. -->\n\n" if construcao["synthetic"] else ""
-        texto_documento = aviso + documento
+    legado = (plano["schema_version"] == "0.1.0" and plano["editable_models"] == [MODELO_CTE])
+    if legado:
+        if cfg.executor != "roteirizado":
+            raise FalhaExecucao("esta versão do plano autoriza apenas a correção roteirizada do modelo CT-e")
+        config = None
     else:
-        documento, texto_documento = None, "# Documento-base\n\n**Não gerado.** O plano não tem construção.\n"
-    if cfg.executor == "chat" and cliente_llm is None:
-        cliente_llm = ClienteChatHttp(cfg.llm_url, cfg.chave_api, cfg.modelo)
+        try:
+            config = preparar_construcao(plano, cfg, cliente_llm=cliente_llm)
+        except FalhaPreparo as exc:
+            raise FalhaExecucao(str(exc)) from None
     raiz = Path(raiz).resolve()
-    regras = {chave: regra["value"] for chave, regra in plano["rules"].items()}
-    plano_publico = {**projetar_plano(plano), "project_id": plano["project_id"], "dataset": plano["dataset"]}
-    limite = plano["limits"]["max_repair_attempts_per_step"]
     registro.iniciar(plano["project_id"], plano["plan_version"], run_id)
 
     def verificar_ativa():
@@ -216,60 +232,35 @@ def executar(registro, plano, run_id, *, raiz: Path, fontes: Path, cfg: ConfigHa
             raise FalhaExecucao("a autorização desta execução foi revogada")
 
     revisao = raiz / "revisao" / run_id
+    resultados = revisao / "resultados"
     eventos = EmissorEventos(revisao / "eventos.jsonl", run_id)
-    medidor = Medidor(run_id, cfg.executor, cfg.modelo if cfg.usa_llm else None)
+    revisao_criada = False
     try:
-        revisao.mkdir(parents=True, exist_ok=False)
+        revisao.mkdir(mode=0o700, parents=True, exist_ok=False)
+        revisao_criada = True
         eventos.emit_event("plano", "run_started", "Iniciada a versão aprovada do plano",
                            project_id=plano["project_id"], plan_version=plano["plan_version"],
                            executor=cfg.executor)
-        (revisao / "documento_base.md").write_text(texto_documento, encoding="utf-8")
         with tempfile.TemporaryDirectory(dir=revisao, prefix="fontes-") as temp:
-            snapshot = Path(temp)
+            temporario = Path(temp)
+            snapshot = temporario / "brutos"
+            snapshot.mkdir()
             _snapshot(Path(fontes), snapshot)
             verificar_ativa()
-            sandbox = LocalDockerSandbox(run_id, PROJETO, snapshot, raiz_runs=raiz / "sandbox",
+            _landing, publicas, janela = preparar_lote(plano, snapshot, temporario, revisao, eventos, verificar_ativa)
+            if janela and janela[0] != janela[1]:
+                raise FalhaExecucao("a janela parcial requer uma avaliação específica para o período")
+            verificar_ativa()
+            sandbox = LocalDockerSandbox(run_id, PROJETO, publicas, raiz_runs=raiz / "sandbox",
                                          modelos_permitidos=tuple(plano["editable_models"]),
-                                         exigir_manifesto=False)
+                                         modelos_vazios=config is not None)
             try:
                 sandbox.criar()
-                ferramentas = FerramentasRestritas(sandbox, eventos, plano_aprovado=plano_publico,
-                                                    modelos_permitidos=frozenset(plano["editable_models"]))
-                perfis = {}
-                for fonte in ("erp_pedidos", "tms_entregas", "cte"):
-                    perfil = ferramentas.inspecionar_fonte(fonte)
-                    if not perfil["ok"]:
-                        raise FalhaExecucao(f"perfil de {fonte}: {perfil.get('erro')}")
-                    perfis[fonte] = perfil["perfil"]
-                (revisao / "fontes.json").write_text(json.dumps(perfis, ensure_ascii=False, indent=2) + "\n",
-                                                     encoding="utf-8")
-                verificar_ativa()
-                ingestao = sandbox.rodar_comando(["python", "/work/projeto/ingerir.py"], timeout_s=240,
-                                                 stdin=json.dumps(regras).encode())
-                if not ingestao.ok:
-                    raise FalhaExecucao("ingestão das fontes falhou: " + ingestao.stderr[-1000:])
-                construtor, corretor = _executor(cfg, ferramentas, plano_publico, perfis, limite, eventos,
-                                                 medidor, cliente_llm)
-
-                def corrigir(falha, tentativa):
-                    verificar_ativa()
-                    ferramentas.attempt = tentativa + 1
-                    return corretor(falha, tentativa)
-
-                def registrar(tipo, dados):
-                    eventos.emit_event("modelos", tipo, str(dados.get("erro", tipo)), dados.get("tentativas", 1),
-                                       **{k: v for k, v in dados.items() if k != "construcao"})
-
-                verificar_ativa()
-                resultado = construir_e_verificar(construtor, corrigir, _tentar(ferramentas, sandbox, verificar_ativa),
-                                                  executar_etapa, registrar, limite=limite,
-                                                  documento_base=documento)
-                if not resultado["ok"]:
-                    raise FalhaExecucao(f"{resultado['codigo']}: {resultado['erro']}")
+                _modelar(sandbox, plano, revisao, eventos, verificar_ativa, config, cliente_llm)
                 _documentar(sandbox, eventos, verificar_ativa)
                 # Fechar o produtor antes de abrir arquivos para inspeção no host.
                 sandbox.destruir(apagar_diretorio=False)
-                manifesto = capturar(sandbox.dir_run / "saida/resultados", revisao / "resultados")
+                manifesto = capturar(sandbox.dir_run / "saida/resultados", resultados)
                 # A infra construída pelo agente também entra no manifesto da aprovação 2.
                 manifesto["infra"] = capturar_infra(sandbox.dir_run / "projeto/models",
                                                     sandbox.dir_run / "saida/target", revisao / "infra",
@@ -278,17 +269,13 @@ def executar(registro, plano, run_id, *, raiz: Path, fontes: Path, cfg: ConfigHa
                 sandbox.destruir()
         # Pronto para a aprovação 2: build com os testes protegidos e o contrato de saída passaram.
         # Não há comparação com gabarito no fluxo (decisão de 27/11/2026): a pessoa decide.
+        verificar_ativa()
         registro.finalizar(run_id, aprovado=True, manifesto=manifesto)
-        medidor.gravar(revisao / "medicao.json")  # o pacote mostra tempo e custo desta medição
         _empacotar(registro, raiz, run_id, eventos)
     except BaseException as exc:
-        # Uma falha na preparação, no build, na comparação ou uma interrupção nunca autoriza entrega.
         if registro.consultar(run_id)["state"] == "executando":
             registro.finalizar(run_id, aprovado=False)
-            if revisao.is_dir():
+            if revisao_criada:
                 eventos.emit_event("execucao", "run_failed", str(exc) or type(exc).__name__)
         raise
-    finally:
-        if revisao.is_dir():
-            medidor.gravar(revisao / "medicao.json")
     return registro.consultar(run_id)
