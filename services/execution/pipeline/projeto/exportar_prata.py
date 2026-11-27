@@ -29,8 +29,10 @@ def exportar_prata(conn, destino):
     destino.mkdir(parents=True)
     linhas = {}
     for tabela in tabelas:
-        # O nome já casou com NOME: só letras minúsculas, dígitos e _.
-        conn.execute(f"copy (select * from \"{tabela}\") to '{destino / tabela}.parquet' (format parquet)")
+        # O nome já casou com NOME: só letras minúsculas, dígitos e _. A ordem fixa torna o Parquet
+        # reproduzível (mesmos dados, mesmos bytes), o que permite conferir uma reexecução pelo hash.
+        conn.execute(f"copy (select * from \"{tabela}\" order by all) to '{destino / tabela}.parquet' "
+                     "(format parquet)")
         linhas[tabela] = conn.execute(f"select count(*) from \"{tabela}\"").fetchone()[0]
     (destino / "linhas.json").write_text(json.dumps(linhas, sort_keys=True) + "\n", encoding="utf-8")
     return linhas
