@@ -1,3 +1,4 @@
+{{ config(store_failures=true) }}
 -- O DuckDB fornece o tipo estático de cada coluna, inclusive nas relações vazias.
 -- O ensaio SQLite confere o tipo de armazenamento dos valores efetivamente presentes.
 {% set sqlite = target.type == 'sqlite' %}

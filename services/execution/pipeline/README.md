@@ -38,6 +38,8 @@ Na exportação N0 de `01_demo`, o pedido 900001 está na linha 3550 de `erp/erp
 
 O manifesto de uma carga N1 descreve o estado acumulado observado. A comparação com o gabarito do mês completo exige cobertura integral comprovada pelo avaliador. A aprovação de um recorte parcial usando o gabarito mensal produziria uma conclusão inválida.
 
+O contrato físico de exportação está em `vars.contrato_exportacao` de `projeto/dbt_project.yml`. O exportador usa essa definição para selecionar as colunas. O teste protegido `contrato_exportacao.sql` verifica, durante o build, os nomes e os tipos das três tabelas ouro e de `prata_rateios`, inclusive quando estão vazias. A ausência de uma coluna impede compilar a consulta; um tipo incompatível deixa tabela, campo, tipo esperado e tipo encontrado em `main_dbt_test__audit.contrato_exportacao` no DuckDB privado da execução.
+
 ## Testes
 
 Na raiz do repositório, use Python com as dependências de `requirements-synthetic.txt`, DuckDB na versão de `infra/sandbox/requirements.txt`, Jinja2 e SQLite 3.44 ou superior.

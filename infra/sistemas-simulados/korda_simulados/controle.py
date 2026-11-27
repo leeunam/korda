@@ -80,7 +80,6 @@ class AmbienteSimulado:
     falhas: dict | None = None
     limite_rps: int = 20
     permitir_reservada: bool = False  # 03_reservada só para medição
-
     ate_dia: str | None = None  # data final inclusiva autorizada para este replay
 
     def __post_init__(self) -> None:
@@ -125,10 +124,9 @@ class AmbienteSimulado:
         try:
             self._preparar()
             dias = self._dias_autorizados()
-            if self.ate_dia is not None and self.dias_iniciais is None:
-                n = len(dias)
-            else:
-                n = len(dias) - self.dias_para_replay if self.dias_iniciais is None else self.dias_iniciais
+            n = self.dias_iniciais
+            if n is None:
+                n = len(dias) if self.ate_dia is not None else len(dias) - self.dias_para_replay
             if not 1 <= n <= len(dias):
                 raise ErroSimulado(f"dias_iniciais fora de 1..{len(dias)}: {n}")
             self._gerar_credenciais()
@@ -338,7 +336,8 @@ def main(argv: list[str] | None = None) -> int:
                                    permitir_reservada=a.medir_reservada).subir()
             meta = amb.dir / "ambiente.json"
             meta.touch(mode=0o600)
-            meta.write_text(json.dumps({"empresa": amb.empresa, "ate_dia": amb.ate_dia, "senha_admin": amb._senha_admin}), encoding="utf-8")
+            dados = {"empresa": amb.empresa, "ate_dia": amb.ate_dia, "senha_admin": amb._senha_admin}
+            meta.write_text(json.dumps(dados), encoding="utf-8")
             print(json.dumps({"id": amb.sim_id, "rede": amb.rede, "dia_atual": amb.dia_atual,
                               "dias_restantes": amb.dias_restantes,
                               "credenciais": str(amb.dir / "credenciais.json")}, ensure_ascii=False))

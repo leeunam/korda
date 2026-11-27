@@ -112,6 +112,35 @@ class TestLanding(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "linhagem"):
                     landing.conferir_linhagem("por_pedido.csv", declarado, ref, trilha)
 
+    def test_leitor_parquet_real_dos_dois_niveis(self):
+        try:
+            import pyarrow as pa
+            import pyarrow.parquet as pq
+        except ImportError:
+            self.skipTest("PyArrow ausente neste ambiente")
+        for nivel in (0, 1):
+            with self.subTest(nivel=nivel):
+                dados, meta, estado = self.fixture(nivel)
+                pasta = self.base / f"landing{nivel}"
+                pasta.mkdir()
+                (pasta / "manifesto.json").write_text(json.dumps(meta))
+                if nivel:
+                    (pasta / "_estado").mkdir()
+                    (pasta / "_estado/estado.json").write_text(json.dumps(estado))
+                for tabela, valores in dados.items():
+                    arq = pasta / (tabela + ".parquet")
+                    arq.parent.mkdir(exist_ok=True)
+                    tab = pa.Table.from_pylist(valores) if valores else pa.table({"_arquivo": pa.array([], pa.string())})
+                    pq.write_table(tab, arq)
+                janela = (self.dia, self.dia) if nivel else None
+                trilha = landing.conferir_landing(pasta, self.base, self.inventario, nivel, janela)
+                self.assertEqual(len(trilha["xml"]), 3)
+                arq = pasta / "cte/cte_evento.parquet"
+                evento = dados["cte/cte_evento"][0]
+                pq.write_table(pa.Table.from_pylist([{**evento, "_xml_sha256": "a" * 64}]), arq)
+                with self.assertRaisesRegex(ValueError, "digest"):
+                    landing.conferir_landing(pasta, self.base, self.inventario, nivel, janela)
+
     def test_documento_e_evento_divergentes_com_mesma_contagem(self):
         for tabela in ("cte/cte", "cte/cte_evento", "cte/cte_nfe"):
             with self.subTest(tabela=tabela):

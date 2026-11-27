@@ -81,7 +81,8 @@ def renderizar(arquivo, adaptador="sqlite"):
     meio_par = env.from_string((PROJETO / "macros/meio_par.sql").read_text()).module.meio_par
     return env.from_string(arquivo.read_text()).render(
         ref=lambda nome: nome, source=lambda fonte, nome: nome, meio_par=meio_par,
-        target={"type": adaptador}, var={"contrato_exportacao": contrato_exportacao()}.__getitem__)
+        target={"type": adaptador}, var={"contrato_exportacao": contrato_exportacao()}.__getitem__,
+        config=lambda **kwargs: "")
 
 
 def construir_modelos(conn):
@@ -96,6 +97,57 @@ class TestRegras(unittest.TestCase):
                        {**REGRAS_SUPORTADAS, "rateio_cte": "valor"}):
             with self.subTest(regras=regras), self.assertRaises(ValueError):
                 validar_regras(regras)
+
+
+@unittest.skipUnless(Environment is not None, "a renderização dos testes dbt requer Jinja2")
+class TestContratoExportacao(unittest.TestCase):
+    def setUp(self):
+        self.contrato = contrato_exportacao()
+        self.teste = renderizar(PROJETO / "tests/contrato_exportacao.sql")
+        self.conn = sqlite3.connect(":memory:")
+        self.addCleanup(self.conn.close)
+        valores = {"inteiro": 1, "numero": 1.5, "texto": "x", "flag": 1, "data_iso": "2026-09-01"}
+        for tabela, campos in self.contrato.items():
+            self.conn.execute(f"create table {tabela} ({', '.join(campos)})")
+            params = ', '.join('?' for _ in campos)
+            self.conn.execute(f"insert into {tabela} values ({params})", [valores[t] for t in campos.values()])
+
+    def test_aceita_relacoes_compativeis(self):
+        self.assertEqual(self.conn.execute(self.teste).fetchall(), [])
+
+    def test_coluna_ausente_em_cada_relacao_falha_no_build(self):
+        for tabela, campos in self.contrato.items():
+            with self.subTest(tabela=tabela):
+                ultimo = list(campos)[-1]
+                self.conn.execute(f"alter table {tabela} rename column {ultimo} to omitida")
+                with self.assertRaisesRegex(sqlite3.OperationalError, ultimo):
+                    self.conn.execute(self.teste)
+                self.conn.execute(f"alter table {tabela} rename column omitida to {ultimo}")
+
+    def test_tipo_incompativel_identifica_coluna_e_relacao(self):
+        self.conn.execute("update ouro_por_pedido set qt_itens = 'quatro'")
+        self.conn.execute("update prata_rateios set valor_centavos = 1.25")
+        falhas = self.conn.execute(self.teste).fetchall()
+        self.assertCountEqual(falhas, [("ouro_por_pedido", "qt_itens", "inteiro", "TEXT"),
+                                      ("prata_rateios", "valor_centavos", "inteiro", "REAL")])
+
+    @unittest.skipUnless(landing_n0, "verificação estática nativa requer DuckDB")
+    def test_duckdb_distingue_coluna_vazia_de_tipo_incorreto(self):
+        import duckdb
+
+        tipos = {"inteiro": "HUGEINT", "numero": "DECIMAL(18,4)", "texto": "VARCHAR",
+                 "flag": "BOOLEAN", "data_iso": "DATE"}
+        sql = renderizar(PROJETO / "tests/contrato_exportacao.sql", "duckdb")
+        with duckdb.connect(config={"threads": 1}) as con:
+            for tabela, campos in self.contrato.items():
+                ddl = ", ".join(f"{nome} {tipos[tipo]}" for nome, tipo in campos.items())
+                con.execute(f"create table {tabela} ({ddl})")
+            self.assertEqual(con.execute(sql).fetchall(), [])
+            con.execute("alter table ouro_kpis alter otif_pct type varchar")
+            self.assertEqual(con.execute(sql).fetchall(), [("ouro_kpis", "otif_pct", "numero", "VARCHAR")])
+            con.execute("alter table ouro_kpis drop column otif_pct")
+            with self.assertRaises(duckdb.BinderException):
+                con.execute(sql)
 
 
 class TestProjecaoLanding(unittest.TestCase):
