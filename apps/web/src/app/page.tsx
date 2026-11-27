@@ -2,6 +2,8 @@ import type { Metadata, Viewport } from "next";
 import Link from "next/link";
 import { Silkscreen, Source_Serif_4 } from "next/font/google";
 import { HandScene } from "@/components/landing/HandScene";
+import { HEADER_GLASS } from "@/components/landing/glass";
+import { MobileMenu } from "@/components/landing/MobileMenu";
 import { PixelText } from "@/components/landing/PixelText";
 import { Reveal } from "@/components/landing/Reveal";
 
@@ -28,12 +30,13 @@ export const metadata: Metadata = {
 
 const REPO = "https://github.com/leeunam/korda";
 
-// Só links que levam a algum lugar: as seções abaixo do hero e o repositório. A demo é linkada em "How it works".
+// Só links que levam a algum lugar: as seções abaixo do hero, o repositório e a documentação. A demo é linkada em "How it works".
 const NAV = [
   { label: "Product", href: "#about" },
   { label: "How it works", href: "#how" },
   { label: "Team", href: "#team" },
   { label: "GitHub", href: REPO },
+  { label: "Docs", href: `${REPO}/tree/main/docs` },
 ];
 
 // Coluna de texto das seções abaixo do hero (mesma tipografia em todas).
@@ -76,26 +79,27 @@ function Header() {
   return (
     // Cabeçalho flutuante: barra arredondada, presa ao topo ao rolar, com fundo translúcido e desfoque.
     <header className="sticky top-3 z-50 px-3 pt-3 sm:px-4">
-      <div className="mx-auto flex h-14 max-w-270 items-center justify-between gap-6 rounded-2xl border border-white/9 bg-black/55 px-5 shadow-[0_8px_32px_rgb(0_0_0/0.45)] backdrop-blur-xl sm:px-8">
+      <div className="relative isolate mx-auto flex h-14 max-w-270 items-center justify-between gap-6 px-5 sm:px-8">
+        {/* O vidro fica numa camada à parte: um backdrop-filter no próprio div impediria o painel do menu
+            (descendente dele) de desfocar a página por trás. */}
+        <span aria-hidden className={`absolute inset-0 -z-10 ${HEADER_GLASS}`} />
         <Link href="/" aria-label="Korda home" className="shrink-0">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/korda-wordmark-white.svg" alt="Korda" className="h-4.5 w-auto select-none" />
         </Link>
 
-        {/* Tudo à direita; em telas pequenas, só Docs. */}
+        {/* Tudo à direita; em telas pequenas, os links vão para o menu hambúrguer. */}
         <nav
           aria-label="Main"
-          className="flex items-center gap-8 font-(family-name:--font-pixel) text-[12px] text-white/60 uppercase"
+          className="hidden items-center gap-8 font-(family-name:--font-pixel) text-[12px] text-white/60 uppercase md:flex"
         >
           {NAV.map((item) => (
-            <a key={item.label} href={item.href} className={`hidden md:inline ${link}`}>
+            <a key={item.label} href={item.href} className={link}>
               {item.label}
             </a>
           ))}
-          <a href={`${REPO}/tree/main/docs`} className={link}>
-            Docs
-          </a>
         </nav>
+        <MobileMenu items={NAV} />
       </div>
     </header>
   );
@@ -108,8 +112,8 @@ export default function Landing() {
       <style>{"html,body{background:#000}"}</style>
       <Header />
 
-      {/* O hero ocupa a tela inteira (menos o cabeçalho); o texto sobre a Korda fica na seção seguinte. */}
-      <section className="relative flex min-h-[calc(100dvh-4.25rem)] flex-col justify-center overflow-hidden pb-12">
+      {/* A partir de md o hero ocupa a tela inteira (menos o cabeçalho); no celular o texto vem logo abaixo. */}
+      <section className="relative flex flex-col justify-center overflow-hidden pb-4 md:min-h-[calc(100dvh-4.25rem)] md:pb-12">
         <h1
           className="relative z-10 mx-auto max-w-5xl px-4 pt-16 text-center text-[clamp(2rem,3.6vw,3.5rem)] leading-[1.06] tracking-[-0.02em] sm:pt-20"
           style={{ fontFamily: "var(--font-serif)" }}
@@ -126,11 +130,11 @@ export default function Landing() {
         {/* Altura na proporção do recorte da cena (1632 × 455 ≈ 27,88vw). */}
         <HandScene className="mt-2 block h-[clamp(220px,27.88vw,520px)] w-full" />
 
-        {/* Indicador de rolagem: leva à seção seguinte. */}
+        {/* Indicador de rolagem (só a partir de md; no celular a seção seguinte já aparece): leva à seção seguinte. */}
         <a
           href="#about"
           aria-label="Scroll to learn more"
-          className="rise-in absolute inset-x-0 bottom-4 z-10 mx-auto block w-fit p-2 text-white/45 transition-colors hover:text-white"
+          className="rise-in absolute inset-x-0 bottom-4 z-10 mx-auto hidden w-fit md:block p-2 text-white/45 transition-colors hover:text-white"
           style={{ animationDelay: "1200ms" }}
         >
           {/* Seta em pixel art: só a ponta (grade 5 × 3, 3 px por célula). */}
@@ -147,7 +151,7 @@ export default function Landing() {
         </a>
       </section>
 
-      <Reveal id="about" className={`${SECTION} pt-24`}>
+      <Reveal id="about" className={`${SECTION} pt-10 md:pt-24`}>
         <h2 className={LABEL}>A data consultancy powered by AI</h2>
         <p className="mb-6">
           Korda is a data consultancy run by AI agents. It starts from a simple idea: the people who understand the
