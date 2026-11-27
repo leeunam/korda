@@ -10,27 +10,30 @@ from __future__ import annotations
 
 import json
 
+from ..contrato_saida import contrato_saida
+
 CAMPOS_PLANO = ("plan_version", "editable_models", "limits", "rules", "metrics", "tasks")
 CAMPOS_METRICA_OMITIDOS = ("state", "blocking_gaps")
 LIMITE_PERFIS = 12_000
 LIMITE_DOCUMENTO = 60_000
 
 _REGRAS = """Regras:
-- Você só pode criar ou alterar modelos SQL permitidos por editable_models do plano, usando escrever_modelo.
+- Você só pode criar ou alterar modelos SQL permitidos por editable_models do plano, usando escrever_modelo. \
+Não há modelos auxiliares: etapas intermediárias ficam como CTEs dentro desses arquivos.
 - Você não pode alterar testes, fontes, definições, macros, configuração do dbt nem as regras do plano. \
 Os testes em tests/ e definicoes/ estão certos por definição: eles fixam nomes de modelos e colunas esperados.
-- No pipeline 01_demo, a bronze já foi materializada pelo adaptador protegido ingerir.py. Leia \
-definicoes/fontes.yml para os nomes das tabelas. A lista de colunas e tipos da entrega está em \
-dbt_project.yml, na variável contrato_exportacao, e exportar.py especifica a linhagem por pedido e viagem. \
-Leia tests/conservacao.sql, tests/chave_fiscal_unica.sql, tests/documentos_conflitantes.sql e tests/integridade_fontes.sql \
-para conferir as relações exigidas. tests/rastreabilidade_cte.sql confere as NF-e associadas ao CT-e. \
-tests/contrato_exportacao.sql valida nomes e tipos da saída. Se houver divergência de tipo, consulte \
-main_dbt_test__audit.contrato_exportacao para identificar tabela, campo, esperado e encontrado. \
-macros/meio_par.sql fornece o arredondamento compartilhado.
-- O contrato de saída está em exportar.py (leia com ler_arquivo): as tabelas ouro_kpis, ouro_por_pedido, \
-ouro_por_viagem e prata_rateios, com as colunas que ele seleciona. A exportação faz parte da verificação.
-- Investigue antes de escrever: ler_plano, ler_arquivo, inspecionar_fonte e consultar_sql.
-- Depois de escrever, rode rodar_dbt com subcomando build e leia o resultado.
+- A bronze já foi materializada pelo adaptador protegido ingerir.py, como fontes dbt \
+(source('sinteticas', 'bronze_...')). O contrato de saída (modelos, colunas e fontes) vem na mensagem; \
+exportar.py exporta ouro_kpis, ouro_por_pedido, ouro_por_viagem e prata_rateios, e o teste \
+contrato_exportacao cobra as colunas e os tipos. Para ver as colunas da bronze, \
+faça uma única consulta: select table_name, column_name, data_type from information_schema.columns \
+where table_name like 'bronze%' order by table_name, ordinal_position. Leia um teste em tests/ só quando \
+precisar da regra exata que ele cobra. Se houver divergência de tipo, consulte \
+main_dbt_test__audit.contrato_exportacao. macros/meio_par.sql fornece o arredondamento compartilhado.
+- Saídas antigas de ferramentas e o SQL de escritas antigas aparecem resumidos no histórico; \
+chame a ferramenta de novo (ou ler_arquivo no modelo) se precisar do conteúdo.
+- Depois de escrever, rode rodar_dbt build com selecao '<modelo>+' para conferir o que mudou; \
+no fim, um rodar_dbt build sem seleção valida o pipeline inteiro. Leia o resultado.
 - Se algo exigir mudar uma regra, um teste ou algo fora de editable_models, não contorne: \
 explique o motivo em uma frase e pare. Uma pessoa decide o próximo passo.
 - Responda em português, de forma curta."""
@@ -98,6 +101,20 @@ def _perfis(perfis: dict) -> str:
     return _cortar(_json(perfis), LIMITE_PERFIS, "perfis cortados; use inspecionar_fonte para detalhes")
 
 
+def texto_contrato_construcao() -> str:
+    """Contrato de saída lido dos testes protegidos e do dbt_project.yml, para não gastar turnos lendo-os."""
+    c = contrato_saida()
+    linhas = ["Contrato de saída (lido dos testes protegidos e de vars.contrato_exportacao; não renomeie):"]
+    linhas += [f"- {modelo}: {', '.join(colunas) or '(colunas livres)'}" for modelo, colunas in c["modelos"].items()]
+    linhas.append(f"Fontes bronze (source 'sinteticas'): {', '.join(c['fontes'])}")
+    return "\n".join(linhas)
+
+
+def _plano_sem_tarefas(plano_publico: dict) -> dict:
+    """As tarefas já vão em ordem no bloco próprio; não repetir na projeção."""
+    return {k: v for k, v in plano_publico.items() if k != "tasks"}
+
+
 def montar_prompt_construcao(plano_publico: dict, perfis: dict, documento_base: str | None) -> str:
     documento = (_cortar(documento_base, LIMITE_DOCUMENTO, "documento-base cortado") if documento_base
                  else "(sem documento-base; use só o plano)")
@@ -105,9 +122,10 @@ def montar_prompt_construcao(plano_publico: dict, perfis: dict, documento_base: 
                      for t in plano_publico["tasks"]])
     return (
         "Construa o pipeline do plano aprovado.\n\n"
+        f"{texto_contrato_construcao()}\n\n"
         f"Tarefas, em ordem:\n{tarefas}\n\n"
         f"Documento-base da especificação:\n{documento}\n\n"
-        f"Plano aprovado (projeção):\n{_json(plano_publico)}\n\n"
+        f"Plano aprovado (projeção, sem as tarefas acima):\n{_json(_plano_sem_tarefas(plano_publico))}\n\n"
         f"Perfis das fontes:\n{_perfis(perfis)}\n"
     )
 
@@ -118,6 +136,7 @@ def montar_prompt(falha: dict, tentativa: int, limite: int, plano_publico: dict,
         f"Correção: tentativa {tentativa} de {limite}.\n\n"
         f"Especificação aprovada: {documento_base or '(consultar plano)'}\n\n"
         f"Falha do build (código {falha.get('codigo', 'desconhecido')}):\n{falha.get('erro', '')}\n\n"
+        f"{texto_contrato_construcao()}\n\n"
         f"Plano aprovado (projeção):\n{_json(plano_publico)}\n\n"
         f"Perfis das fontes:\n{_perfis(perfis)}\n"
     )

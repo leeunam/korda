@@ -7,7 +7,7 @@ from pathlib import Path
 
 from korda_execution.eventos import EmissorEventos
 from korda_execution.harness.cliente_chat import ClienteChatFalso, ErroLLM, RespostaChat
-from korda_execution.harness.sessao_chat import ferramentas_openai, executar_sessao
+from korda_execution.harness.sessao_chat import compactar_historico, executar_sessao, ferramentas_openai
 
 from .fakes import FerramentasFalsas
 
@@ -114,6 +114,39 @@ class TestSessaoChat(unittest.TestCase):
         self.assertEqual(saida.subtype, "error_during_execution")
         self.assertEqual(escritas, [MODELO])
         self.assertGreater(saida.total_cost_usd, 0)
+
+
+    def test_historico_antigo_e_resumido_e_os_pares_continuam(self):
+        sql = "select " + "x, " * 500
+        cliente = ClienteChatFalso([
+            RespostaChat.de_tool_calls([("escrever_modelo", {"caminho": "models/prata_novo.sql", "conteudo": sql})]),
+            *[RespostaChat.de_tool_calls([("ler_arquivo", {"caminho": MODELO})]) for _ in range(5)],
+            RespostaChat.texto("pronto"),
+        ])
+        saida, escritas = executar_sessao(cliente, "sistema", "construa", self.f, ["models/*"], emissor=self.emissor,
+                                          tentativa=1, max_turnos=10, teto_usd=5.0, precos=PRECOS, manter_saidas=2)
+        self.assertEqual((saida.subtype, escritas), ("success", ["models/prata_novo.sql"]))
+        self.assertEqual(self.f.modelos["models/prata_novo.sql"], sql)  # a sandbox recebeu o SQL inteiro
+        ultimo = cliente.pedidos[-1]
+        ids = [c["id"] for m in ultimo if m["role"] == "assistant" for c in m.get("tool_calls") or []]
+        self.assertEqual([m["tool_call_id"] for m in ultimo if m["role"] == "tool"], ids)
+        saidas = [m["content"] for m in ultimo if m["role"] == "tool"]
+        self.assertTrue(all(s.startswith("[saída antiga resumida") for s in saidas[:-2]))
+        self.assertTrue(all(json.loads(s)["ok"] for s in saidas[-2:]))
+        self.assertNotIn(sql, json.dumps(ultimo))
+        self.assertIn("use ler_arquivo", json.dumps(ultimo, ensure_ascii=False))
+
+    def test_resumo_do_dbt_guarda_o_placar_e_e_estavel(self):
+        saida = json.dumps({"ok": False, "saida": "Erro X\nDone. PASS=3 WARN=0 ERROR=1 SKIP=0 TOTAL=4"})
+        mensagens = [{"role": "assistant", "content": None, "tool_calls": [
+            {"id": "a", "type": "function", "function": {"name": "rodar_dbt", "arguments": '{"subcomando": "build"}'}}]},
+            {"role": "tool", "tool_call_id": "a", "content": saida}]
+        compactar_historico(mensagens, manter=0)
+        resumo = mensagens[1]["content"]
+        self.assertIn("rodar_dbt build, erro", resumo)
+        self.assertIn("PASS=3 WARN=0 ERROR=1", resumo)
+        compactar_historico(mensagens, manter=0)
+        self.assertEqual(mensagens[1]["content"], resumo)
 
 
 if __name__ == "__main__":

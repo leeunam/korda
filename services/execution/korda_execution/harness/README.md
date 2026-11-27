@@ -83,7 +83,7 @@ O agente só enxerga seis ferramentas, descritas em [`ferramentas_agente.py`](fe
 | `inspecionar_fonte` | Perfil de uma fonte do catálogo autorizado. |
 | `ler_arquivo` | Leitura de um arquivo do projeto dbt. |
 | `escrever_modelo` | Escrita de SQL só em `editable_models`. |
-| `rodar_dbt` | dbt com subcomandos em lista branca. A saída devolvida ao agente fica nos últimos 8.000 caracteres. |
+| `rodar_dbt` | dbt com subcomandos em lista branca. A saída devolvida ao agente perde o progresso dos nós que passaram (cabeçalho, `START`, `OK`, `PASS`); erros, falhas, avisos e o placar `PASS=… ERROR=…` ficam, até 8.000 caracteres. A classificação da falha pelo worker usa a saída completa. |
 | `consultar_sql` | SQL somente leitura no DuckDB da execução. |
 
 Entradas fora do formato (campo faltando, campo extra, valor que não é texto) são recusadas sem chamar a ferramenta.
@@ -93,10 +93,15 @@ Entradas fora do formato (campo faltando, campo extra, valor que não é texto) 
 [`contexto.py`](contexto.py) monta o contexto de cada tentativa:
 
 - um prompt de sistema fixo, com as regras: só `editable_models`, nunca testes, fontes ou regras; se a correção exigir mudar regra, parar e explicar;
+- o contrato de saída (modelos, colunas e fontes bronze), lido por código dos testes protegidos e de `vars.contrato_exportacao`, para o agente não gastar turnos lendo-os;
 - o número da tentativa e o limite do plano;
 - o erro do build, já cortado pelo worker;
-- a versão, os modelos autorizados, os limites, os valores das regras, as fórmulas e os testes das métricas, além das tarefas em ordem de dependência;
+- a versão, os modelos autorizados, os limites, os valores das regras, as fórmulas e os testes das métricas, além das tarefas em ordem de dependência (uma vez só: o bloco de tarefas sai da projeção);
 - os perfis das fontes, cortados em 12.000 caracteres.
+
+As regras dizem que não há modelos auxiliares (etapas intermediárias são CTEs nos cinco arquivos autorizados), pedem `rodar_dbt build --select <modelo>+` durante a construção e um build completo no fim, e dão a consulta única ao `information_schema` para ver as colunas da bronze. O SQL de referência (`pipeline/projeto/models/*.sql`, plano B) nunca entra no prompt; há teste para isso.
+
+**Histórico compactado.** A cada turno o histórico inteiro é reenviado. Só as últimas 4 saídas de ferramenta seguem íntegras ([`sessao_chat.py`](sessao_chat.py), `MANTER_SAIDAS`); as anteriores viram uma linha (`[saída antiga resumida: rodar_dbt build, erro, … Done. PASS=10 … ERROR=1 …]`), e o SQL das escritas correspondentes sai dos argumentos (o agente relê o modelo com `ler_arquivo`). Um resumo nunca muda depois de feito.
 
 A chamada prévia de planejamento pode usar as evidências do contexto sintético. A projeção entregue às ferramentas omite as transcrições e o destino. As respostas esperadas em `evaluation/golden/` ficam fora das chamadas ao modelo.
 
@@ -126,6 +131,24 @@ A construção de chat aparece como tentativa `0`. O worker grava em `revisao/<r
 | Turnos | 40 na construção, 12 por correção | Para com `error_max_turns`. |
 
 O custo é **estimado**: tokens informados pelo gateway × `KORDA_PRECO_*`. A Feita cobra em créditos; a referência real é o saldo. Antes de cada chamada paga, o host confere a autorização, reserva uma estimativa conservadora dos tokens de entrada e limita os tokens de saída pelo saldo disponível. Uma resposta sem uso medido deixa o custo incompleto e interrompe novas chamadas pagas.
+
+## Custo estimado da construção (simulador)
+
+[`tests/harness/simulador_custo.py`](../../tests/harness/simulador_custo.py) roda a sessão com um cliente roteirizado e mede o que seria enviado em cada turno. É **estimativa**: caracteres ÷ 4 do JSON de mensagens + catálogo, sem tokenizer, com os preços padrão (4/20 US$ por MTok). Os arquivos lidos são os do projeto protegido; o SQL escrito é enchimento com tamanho típico. Roteiro típico: ler o plano, `exportar.py`, 2 testes, 3 perfis, 2 consultas, 5 modelos, 3 builds e 1 correção. Longo: lê tudo, 3 correções (31 turnos).
+
+```bash
+cd services/execution && python3 -m tests.harness.simulador_custo
+```
+
+| Cenário | Turnos | Entrada acumulada (antes → depois) | US$ (antes → depois) |
+| --- | ---: | ---: | ---: |
+| Típico | 18 | 217 mil → 151 mil | 0,99 → 0,73 |
+| Típico, com descoberta no prompt e builds seletivos (supõe que o agente pula 2 leituras) | 16 | 178 mil → 131 mil | 0,83 → 0,64 |
+| Longo (3 correções) | 31 | 518 mil → 286 mil | 2,26 → 1,33 |
+
+"Antes" é a `main` em 4560e5e. A compactação do histórico responde pela maior parte (típico sem ela: 0,96; longo: 2,19). O dbt enxuto e o prompt sem tarefas repetidas somam cerca de 3%. O prompt inicial tem ~5,6 mil tokens, a maior parte o documento-base. Com os limites atuais, o teto da construção (60% de 7,50 × 0,9 = US$ 4,05) fica bem acima do cenário longo, então os 40 turnos param a sessão antes do dinheiro; os limites não mudaram. Cada correção começa uma sessão nova e não entra nesta tabela.
+
+**Cache de prefixo:** não verificado. A página da Feita indicada (feita.ai/api-keys) não expõe documentação legível sem login, e não houve chamada real para testar. `tokens_cache_leitura` segue 0. Se o gateway fizer cache de prefixo, a compactação reduz o acerto apenas na fronteira que avança a cada turno.
 
 ## Adaptador de eventos para o front (provisório)
 

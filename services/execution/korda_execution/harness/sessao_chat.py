@@ -5,17 +5,27 @@ política (a camada "hook") → despachar → FerramentasRestritas → sandbox.
 Para quando o modelo responde sem pedir ferramentas, ao atingir o limite de
 turnos ou o teto de gasto, ou se a API falhar (o que já foi escrito e gasto
 fica registrado). O custo é ESTIMADO pelos tokens e pelo preço configurado.
+
+O histórico inteiro é reenviado a cada turno, então o custo de entrada cresce
+como uma soma triangular. Para conter isso, só as últimas `MANTER_SAIDAS`
+saídas de ferramenta seguem íntegras; as anteriores viram uma linha, e o SQL
+de escritas antigas sai dos argumentos (o agente pode reler o modelo). Ver o
+simulador em `tests/harness/simulador_custo.py`.
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
+import re
 
 from .cliente_chat import ClienteChat, ErroLLM
 from .ferramentas_agente import ESPECIFICACOES, despachar
 from .politica import PREFIXO, hook_pre_tool_use
 from .tipos import FerramentasAgente, SaidaSessao
+
+MANTER_SAIDAS = 4
+_RESUMO_DBT = re.compile(r"Done\. PASS=.*|Completed with .*")
 
 
 def ferramentas_openai() -> list[dict]:
@@ -27,9 +37,55 @@ def _custo(tokens_entrada: int, tokens_saida: int, precos: tuple[float, float]) 
     return (tokens_entrada * precos[0] + tokens_saida * precos[1]) / 1_000_000
 
 
+def _resumir_saida(nome: str, argumentos: dict, conteudo: str) -> str:
+    try:
+        corpo = json.loads(conteudo)
+    except ValueError:
+        corpo = {}
+    alvo = argumentos.get("caminho") or argumentos.get("fonte") or argumentos.get("subcomando") or ""
+    if argumentos.get("selecao"):
+        alvo += f" --select {argumentos['selecao']}"
+    estado = "ok" if corpo.get("ok") else "erro"
+    extra = ""
+    if nome == "rodar_dbt":
+        achados = _RESUMO_DBT.findall(corpo.get("saida") or "")
+        extra = f"; {achados[-1]}" if achados else ""
+    elif not corpo.get("ok") and corpo.get("erro"):
+        extra = f"; {str(corpo['erro'])[:160]}"
+    return (f"[saída antiga resumida: {nome} {alvo}".rstrip() + f", {estado}, {len(conteudo)} caracteres{extra}. "
+            "Chame a ferramenta de novo se precisar do conteúdo.]")
+
+
+def compactar_historico(mensagens: list[dict], manter: int = MANTER_SAIDAS) -> None:
+    """Resume, no lugar, as saídas de ferramenta além das `manter` mais recentes e o SQL das escritas
+    correspondentes. Mensagens já resumidas ficam iguais nos turnos seguintes (prefixo estável)."""
+    # Cada saída pertence à mensagem do assistente imediatamente anterior (ids podem se repetir entre turnos).
+    pares: list[tuple[dict, dict]] = []
+    atuais: dict[str, dict] = {}
+    for m in mensagens:
+        if m.get("role") == "assistant":
+            atuais = {c.get("id", ""): c for c in (m.get("tool_calls") or [])}
+        elif m.get("role") == "tool":
+            pares.append((m, atuais.get(m.get("tool_call_id", ""), {})))
+    for m, chamada in pares[:max(0, len(pares) - manter)]:
+        if m["content"].startswith("[saída antiga resumida"):
+            continue
+        funcao = chamada.get("function", {})
+        try:
+            argumentos = json.loads(funcao.get("arguments") or "{}")
+        except ValueError:
+            argumentos = {}
+        argumentos = argumentos if isinstance(argumentos, dict) else {}
+        m["content"] = _resumir_saida(funcao.get("name", "?"), argumentos, m["content"])
+        if funcao.get("name") == "escrever_modelo" and isinstance(argumentos.get("conteudo"), str):
+            n = len(argumentos["conteudo"])
+            argumentos["conteudo"] = f"[{n} caracteres de SQL omitidos; use ler_arquivo para ver a versão atual]"
+            funcao["arguments"] = json.dumps(argumentos, ensure_ascii=False)
+
+
 def executar_sessao(cliente: ClienteChat, sistema: str, prompt: str, ferramentas: FerramentasAgente,
                     editable_models, *, emissor, tentativa: int, max_turnos: int, teto_usd: float,
-                    precos: tuple[float, float], verificar_ativa=None) -> tuple[SaidaSessao, list[str]]:
+                    precos: tuple[float, float], verificar_ativa=None, manter_saidas: int | None = MANTER_SAIDAS) -> tuple[SaidaSessao, list[str]]:
     hook = hook_pre_tool_use(editable_models, emissor, obter_tentativa=lambda: tentativa)
     catalogo = ferramentas_openai()
     mensagens: list[dict] = [{"role": "system", "content": sistema}, {"role": "user", "content": prompt}]
@@ -54,6 +110,8 @@ def executar_sessao(cliente: ClienteChat, sistema: str, prompt: str, ferramentas
         return resultado["content"][0]["text"]
 
     while turnos < max_turnos:
+        if manter_saidas is not None:
+            compactar_historico(mensagens, manter_saidas)
         try:
             resposta = cliente.completar(mensagens, catalogo)
         except ErroLLM:
