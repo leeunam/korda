@@ -34,8 +34,7 @@ export async function verificarPainel(browser, baseUrl) {
     const botao = name => page.getByRole("button", { name, exact: true });
     await page.getByLabel("Projeto", { exact: true }).fill(estado.project_id);
     await botao("Abrir projeto").click();
-    await page.getByRole("alert").waitFor();
-    assert.match(await page.getByRole("alert").innerText(), /indisponível/);
+    await page.getByRole("alert").filter({ hasText: "Serviço local indisponível" }).waitFor();
     await botao("Abrir projeto").click();
     await botao("Consultar última revisão").click();
     await page.getByText("Revisão consultada · 0").waitFor();

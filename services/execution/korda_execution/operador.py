@@ -104,9 +104,6 @@ class FonteEntrevista:
 
 
 DDL = """
-CREATE TABLE IF NOT EXISTS operador_fontes (
-    projeto TEXT PRIMARY KEY, revisao INTEGER NOT NULL, hash TEXT NOT NULL, resumo TEXT NOT NULL, plano_id INTEGER REFERENCES planos(id)
-);
 CREATE TABLE IF NOT EXISTS operador_execucoes (
     run_id TEXT PRIMARY KEY, plano_id INTEGER NOT NULL REFERENCES planos(id), anterior TEXT NOT NULL,
     situacao TEXT NOT NULL, UNIQUE(plano_id, anterior)

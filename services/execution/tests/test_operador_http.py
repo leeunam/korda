@@ -9,6 +9,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from services.planning.korda_planning import gerar_plano
 from services.planning.tests.test_ponte_contexto import entrevista_completa
 from korda_execution.aprovacoes import ErroAprovacao
 from korda_execution.artefatos import manifesto_revisao
@@ -130,6 +131,11 @@ class TestOperadorHTTP(unittest.TestCase):
         self.assertEqual(estado["source"]["regras"]["rateio_cte"]["value"], "volume")
         self.assertIn("Implementação", estado["source"]["pendencias"][0]["pergunta"])
         self.assertEqual(self.op.registro.consultar(run)["state"], "invalidada")
+        with self.assertRaises(ErroAprovacao):
+            self.op.registro.decidir_plano(self.projeto, v["plan_version"], "Operadora CLI", True)
+        with self.assertRaises(ErroAprovacao):
+            alternativo = gerar_plano(self.doc, dataset="01_demo", destino="outro", custo_estimado_centavos=0)
+            self.op.registro.registrar(alternativo)
         with self.assertRaises(ErroOperador):
             self.op.acao("executar", v)
         anterior = self.op.fonte_atual(nova["revision"] - 1)
