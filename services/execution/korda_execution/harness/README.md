@@ -1,37 +1,20 @@
 # Harness do executor (K08, K09, K10)
 
-**Status (25/11/2026): em construção.** O código e os testes com cliente falso existem. **Ainda não está ligado ao worker** (depende do PR #21). A única chamada real até agora foi o teste de fumaça do gateway (abaixo); a construção nunca rodou com LLM real. Plano: [`2026-11-25-harness-executor.md`](../../../../docs/superpowers/plans/2026-11-25-harness-executor.md).
+O worker integra o harness para construir os cinco modelos autorizados pelo plano v0.2. Os ensaios com cliente falso exercitam as chamadas de ferramentas e as correções. A construção completa com um LLM pago ainda aguarda um ensaio específico. [Integração do worker](../construcao.py) · [Plano de implementação](../../../../docs/superpowers/plans/2026-11-25-harness-executor.md)
 
 ## Papel
 
-Decisão do responsável pela execução (25/11/2026): **o harness constrói o pipeline; o worker só orquestra.** O worker gera o documento-base (uma chamada de API), prepara a sandbox, chama o harness e depois avalia e entrega. O pipeline dbt feito à mão no #21 deixa de ser o produto e vira o executor `roteirizado` (plano B da demo), fora do alcance do agente.
+A ingestão prepara a landing e o adaptador protegido a apresenta no DuckDB. A sandbox começa com arquivos SQL vazios nos caminhos explicitamente autorizados. O harness escreve os modelos prata e ouro e executa os testes dbt. Pode corrigir falhas de implementação até o limite registrado no plano. O worker submete os resultados ao avaliador externo e conduz a segunda aprovação humana.
 
-```
-contexto das entrevistas (P1) ─┐
-plano aprovado (aprovação 1) ──┴─▶ worker: gerar_documento_base()  ── 1 chamada de API, sem ferramentas
-                                        │
-                                        ▼
-                         worker: sandbox (sem rede, testes e fontes só leitura, models/ gravável)
-                                        │
-                                        ▼
-               harness: construir_e_verificar()
-                 1. ExecutorChat.construir(documento_base)  → escreve bronze/prata/ouro
-                 2. dbt build (testes protegidos)
-                 3. falhou? ExecutorChat(falha, tentativa)  → até 3 correções; depois, pede ajuda
-                                        │
-                                        ▼
-                         worker: avaliador independente → aprovação 2 → entrega
-```
-
-O modelo nunca executa nada: ele só pede ferramentas. Cada pedido passa pela política ([`politica.py`](politica.py)) e só então vira um comando na sandbox. A chave fica no processo do host.
+No modo `chat`, o host envia o contexto sintético validado e a projeção do plano em uma chamada de API sem ferramentas para gerar o documento-base. A construção e as correções seguintes recebem esse documento, o plano e os perfis de fontes. As respostas esperadas ficam no avaliador. Nos modos com construção local, o documento-base é derivado diretamente do plano.
 
 ## Executores
 
 | `KORDA_EXECUTOR` | Arquivo | Usa LLM? | O que faz |
 | --- | --- | --- | --- |
 | `chat` | [`executor_chat.py`](executor_chat.py), [`sessao_chat.py`](sessao_chat.py), [`cliente_chat.py`](cliente_chat.py) | **Sim** | Constrói e corrige com loop próprio de ferramentas sobre uma API chat/completions (gateway da Feita). Custo estimado pelos tokens. |
-| `agente_sdk` | [`agente_sdk.py`](agente_sdk.py) | **Sim** | Só correção, com o Claude Agent SDK. Exige chave da Anthropic. Guardado para quando houver uma. |
-| `roteirizado` | [`roteirizado.py`](roteirizado.py) | Não | Plano B: `ConstrutorRoteirizado` copia o pipeline feito à mão; `CorretorRoteirizado` restaura o modelo revisado. **Não demonstra construção por IA.** |
+| `agente_sdk` | [`agente_sdk.py`](agente_sdk.py) | **Sim** | A construção usa a referência local. As correções passam pelo Claude Agent SDK e exigem uma chave da Anthropic. |
+| `roteirizado` | [`roteirizado.py`](roteirizado.py) | Não | Plano B da demo. Constrói a partir da referência revisada no host e restaura somente os modelos autorizados que divergirem dela. |
 | `falso` | [`falso.py`](falso.py), `ClienteChatFalso` | Não | Testes. Roteiro fixo de chamadas pelo mesmo caminho do agente; tokens e custo sintéticos. |
 
 O documento-base é gerado por [`documento_base.py`](../documento_base.py), responsabilidade do worker: contexto + plano entram, saem as seções Modelos, Regras aplicadas, Métricas, Testes de aceite e Premissas e lacunas. O prompt proíbe inventar regras; o que falta vira lacuna.
@@ -48,7 +31,7 @@ Exemplo em [`.env.example`](../../../../.env.example). Validadas por `ConfigHarn
 | `KORDA_LLM_URL` | `https://api.feita.ai/gateway/v1` | Base da API chat/completions. Só `https`. |
 | `ANTHROPIC_API_KEY` | vazio | Só para `agente_sdk`. |
 | `KORDA_MODELO` | `anthropic/claude-opus-5.5` (`chat`) ou `claude-opus-5-5` (`agente_sdk`) | Modelo. |
-| `KORDA_ORCAMENTO_EXECUCAO_USD` | `8.00` | Teto de gasto por execução: construção mais correções. |
+| `KORDA_ORCAMENTO_EXECUCAO_USD` | `8.00` | Teto estimado para documento-base, construção e correções. |
 | `KORDA_MAX_TURNOS_CONSTRUCAO` | `40` | Limite de turnos da construção. |
 | `KORDA_MAX_TURNOS_TENTATIVA` | `12` | Limite de turnos de cada correção. |
 | `KORDA_PRECO_ENTRADA_USD_MTOK`, `KORDA_PRECO_SAIDA_USD_MTOK` | `4.00`, `20.00` | Preço por milhão de tokens usado para **estimar** o custo no `chat` (o gateway cobra em créditos). |
@@ -73,7 +56,7 @@ Limites por execução:
 
 | Limite | Valor | Comportamento |
 | --- | --- | --- |
-| Orçamento total | `KORDA_ORCAMENTO_EXECUCAO_USD` (3,00) | Esgotado, a tentativa devolve `ok: False` sem abrir sessão, e a etapa escala para uma pessoa. |
+| Orçamento total | `KORDA_ORCAMENTO_EXECUCAO_USD` (8,00) | Esgotado, a tentativa devolve `ok: False` sem abrir sessão, e a etapa escala para uma pessoa. |
 | Teto por tentativa | `min(restante, total/3) × 0,9` | Folga de 10%, porque a estimativa do SDK pode passar do teto. |
 | Turnos por tentativa | `KORDA_MAX_TURNOS_TENTATIVA` (12) | O SDK encerra com `error_max_turns`. |
 | Tentativas | `limits.max_repair_attempts_per_step` do plano (3) | Controladas pelo ciclo do worker, não pelo harness. |
@@ -84,7 +67,7 @@ Resultado de cada tentativa: `ok: True` só se o agente escreveu um modelo autor
 
 Em ordem de autoridade:
 
-1. **Kernel (a barreira real).** A sandbox monta o projeto dbt em modo somente leitura e deixa graváveis só os arquivos de `editable_models`, sem rede (`--network none`). No #21, isso fica em `sandbox.py`. Nesta branch a montagem por arquivo ainda não existe na `main`.
+1. **Kernel (a barreira real).** A sandbox monta o projeto dbt em modo somente leitura e deixa graváveis só os arquivos de `editable_models`, sem rede (`--network none`). No início do build, cada modelo autorizado é um arquivo vazio, com montagem individual de escrita. O código SQL de referência fica no host. [Montagens da sandbox](../sandbox.py)
 2. **Ferramentas restritas.** `caminhos.caminho_modelo` aceita só `models/**/*.sql`, e `FerramentasRestritas` recusa modelos fora do plano.
 3. **Hook `PreToolUse`** ([`politica.py`](politica.py)). Recusa qualquer ferramenta fora de `mcp__korda__*` e qualquer escrita fora de `editable_models`, com motivo para o agente e evento `tool_refused` (`dados.origem = "hook"`). A mensagem do evento não repete a entrada da ferramenta.
 
@@ -112,10 +95,10 @@ Entradas fora do formato (campo faltando, campo extra, valor que não é texto) 
 - um prompt de sistema fixo, com as regras: só `editable_models`, nunca testes, fontes ou regras; se a correção exigir mudar regra, parar e explicar;
 - o número da tentativa e o limite do plano;
 - o erro do build, já cortado pelo worker;
-- a projeção do plano, só com `plan_version`, `editable_models`, `limits`, `rules` (valores) e `metrics[*].acceptance`;
+- a versão, os modelos autorizados, os limites, os valores das regras, as fórmulas e os testes das métricas, além das tarefas em ordem de dependência;
 - os perfis das fontes, cortados em 12.000 caracteres.
 
-Evidências, fontes, destino e fórmulas não entram. As respostas esperadas (`evaluation/golden/`) nunca fazem parte do contexto. Se o planejador (K06) mudar, o harness depende só desses cinco campos.
+A chamada que produz o documento-base pode usar as evidências do contexto sintético. A projeção entregue às ferramentas omite as transcrições e o destino. As respostas esperadas em `evaluation/golden/` ficam fora das chamadas ao modelo.
 
 ## Medição
 
@@ -131,18 +114,18 @@ Evidências, fontes, destino e fórmulas não entram. As respostas esperadas (`e
 | `custo_completo` | `false` se alguma tentativa não informou o custo. |
 | `por_tentativa` | Detalhe de cada tentativa, inclusive arquivos escritos e motivo de parada. |
 
-A construção aparece como tentativa `0`. A ligação com o worker (gravar em `revisao/<run>/medicao.json`) depende do #21.
+A construção do executor de chat aparece como tentativa `0`. O worker grava `revisao/<run>/medicao.json` com a versão aprovada, o executor, os custos e os tokens do documento-base, o hash desse documento, a duração, o número de builds protegidos e as correções.
 
 ## Orçamento do executor `chat`
 
 | Limite | Valor | Comportamento |
 | --- | --- | --- |
 | Orçamento total | `KORDA_ORCAMENTO_EXECUCAO_USD` (8,00) | Esgotado, a fase devolve `ok: False` sem chamar a API, e uma pessoa decide. |
-| Construção | até 60% do total, com folga de 10% | Para com `error_max_budget_usd` e escala. |
+| Construção | até 60% do saldo após gerar o documento-base, com folga de 10% | Para com `error_max_budget_usd` e escala. |
 | Cada correção | restante ÷ tentativas que faltam, com folga de 10% | Idem. |
 | Turnos | 40 na construção, 12 por correção | Para com `error_max_turns`. |
 
-O custo é **estimado**: tokens informados pelo gateway × `KORDA_PRECO_*`. A Feita cobra em créditos; a referência real é o saldo. Sem `usage` na resposta, o custo fica desconhecido e consome o teto da fase no controle de orçamento.
+O custo é **estimado**: tokens informados pelo gateway × `KORDA_PRECO_*`. A Feita cobra em créditos; a referência real é o saldo. Antes de cada chamada paga, o host confere a autorização, reserva uma estimativa conservadora dos tokens de entrada e limita os tokens de saída pelo saldo disponível. Uma resposta sem uso medido deixa o custo incompleto e interrompe novas chamadas pagas.
 
 ## Adaptador de eventos para o front (provisório)
 

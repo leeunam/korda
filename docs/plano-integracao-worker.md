@@ -15,9 +15,9 @@ As 17 issues K01–K17 estavam abertas e sem responsável atribuído no GitHub. 
 
 Marcus conduz a descoberta e Gabriel iniciou o gerador, o avaliador e a sandbox. O acordo documentado coloca planejamento e execução na frente de Gabriel. A continuação local do worker foi solicitada por Leunam. Esses papéis não alteram os assignees do GitHub. A equipe precisa identificar quem revisará o worker, quem responderá pela integração das quatro frentes e quem confirmará as regras da transportadora fictícia. [Alinhamentos da equipe](premissas-e-alinhamentos-descoberta.md)
 
-## Entrega em revisão no PR #21
+## Worker integrado pelo PR #21
 
-A branch `feat/worker-planejamento` reúne a versão de Gabriel no PR #19 e o contexto da revisão incorporada pelo PR #20. O recorte executável é o lote `01_demo`, com as nove regras do exemplo de rateio confirmado. As outras empresas continuam disponíveis para desenvolvimento do gerador e avaliação, e exigem layouts e regras compatíveis para serem executadas pelo worker.
+O PR #21 foi integrado em 26/11 e reuniu a sandbox de Gabriel no PR #19 e o contexto incorporado pelo PR #20. O recorte executável é o lote `01_demo`, com as nove regras do exemplo de rateio confirmado. As outras empresas continuam disponíveis para desenvolvimento do gerador e avaliação, e exigem layouts e regras compatíveis para serem executadas pelo worker.
 
 | Parte | Evidência nesta branch | Ponto de integração seguinte |
 | --- | --- | --- |
@@ -29,7 +29,19 @@ No ensaio local complementar, os modelos SQL renderizados em SQLite sobre as fon
 
 O GitHub Actions validou o commit `222bfb4` do PR #21. As três verificações passaram, com 142 testes e nenhuma omissão. A suíte de execução rodou 50 testes, incluindo os 15 que exigem Docker. Na imagem com dbt e DuckDB, o teste de ponta a ponta retirou a deduplicação na cópia de teste do modelo, observou a falha de unicidade, verificou a correção autorizada e confirmou que o resultado validado aguardava a segunda aprovação. Também conferiu a remoção da sandbox. [Execução do CI](https://github.com/leeunam/korda/actions/runs/45526207394) · [Log da sandbox](https://github.com/leeunam/korda/actions/runs/45526207394/job/138910108266) · [Teste de integração](../services/execution/tests/test_worker_docker.py)
 
-O PR entrega o processamento do lote exportado da empresa 01. As propostas de plano de ingestão e de sistemas simulados estão em branches próprias e dependem de alinhamento para integrar fontes remotas. [Plano de ingestão](https://github.com/leeunam/korda/tree/feat/plano-ingestao) · [Sistemas simulados](https://github.com/leeunam/korda/tree/feat/sistemas-simulados)
+O PR #21 entregou o processamento do lote exportado da empresa 01. Os PRs #22 a #27 acrescentaram os sistemas simulados, a proposta de ingestão, os dois caminhos de entrada, a interface e o harness. A execução de CI acima corresponde exclusivamente à implementação daquela revisão. [PR #21](https://github.com/leeunam/korda/pull/21)
+
+## Integração de N0, N1 e construção dos modelos
+
+**Situação em 26/11/2026.** Os PRs #19 e #21–27 já foram integrados à `main`. As 17 issues iniciais continuam abertas no GitHub. O backend da descoberta, a aprovação comercial das regras, a autenticação e o aceite das quatro frentes continuam dependentes de integração e decisão humana. A interface de José já contém o grafo com dados sintéticos. A conexão do grafo aos eventos reais e a apresentação da versão e dos resultados ao aprovador pertencem à K12. [Issues](https://github.com/leeunam/korda/issues) · [Interface, PR #26](https://github.com/leeunam/korda/pull/26)
+
+| Base integrada | Continuação na branch `feat/worker-ingestao-integrada` | Evidência de aceite |
+| --- | --- | --- |
+| Sistemas simulados #22, plano de ingestão #23 e landing N0/N1 #24–25 | K06/K07 vinculam nível, proposta, janela, empresa, revisão do contexto e modelos editáveis à versão aprovada do plano. K08/K09 recebem a mesma estrutura de landing para os dois níveis. | Trocar nível ou janela altera a versão. No lote completo, os três indicadores e o detalhe de pedidos e viagens devem coincidir. A origem em N0 é arquivo e linha. N1 identifica fonte lógica e carga. [Plano v0.2](../packages/contracts/plan/v0.2.0/README.md) · [N0](https://github.com/leeunam/korda/pull/24) · [N1](https://github.com/leeunam/korda/pull/25) |
+| Worker #21 e harness #27 | K08/K10 partem dos modelos vazios autorizados. O harness escreve os modelos e usa o build protegido e a avaliação externa para decidir o resultado. Os eventos alimentam auditoria e revisão. | No E2E de chat sintético a primeira execução falha por CT-e duplicado e só o modelo correspondente é reescrito. A segunda execução passa e aguarda nova decisão humana. Eventos e medição identificam o modo e o custo. [Harness #27](https://github.com/leeunam/korda/pull/27) · [E2E de construção](../services/execution/tests/test_worker_docker.py) |
+| Avaliador independente de K11 e promoção local de K13 | Cada execução v0.2 conserva o relatório de ingestão, o documento-base, a medição, a avaliação por entidade, o pacote de reprodução e a decisão de promoção. O caminho v0.1 preserva três artefatos e a autorização original de um único modelo. | N0 e N1 chegam ao mesmo resultado pelo lote integral. Com janela parcial, o sistema precisa de referência compatível antes de construir ou promover. Uma falha preserva o diagnóstico. [Testes N0/N1](../services/execution/tests/test_worker_ingestao_docker.py) · [Operação](../services/execution/README.md) |
+
+Os testes do worker usam a empresa 01 e habilitam explicitamente executores locais sem gasto de provedor. O caminho de produção de modelos por API depende de credencial, habilitação e orçamento. Um teste com cliente de chat sintético demonstra o protocolo, as escritas autorizadas e a correção diante de uma falha real de dbt. A qualidade de um modelo comercial precisa de medição própria em K14. O corte `2026-09-02` demonstra o bloqueio de uma comparação com o gabarito do mês inteiro. A fase reservada da empresa 03 permanece sob o protocolo de medição. [Regras do cenário](../data/synthetic/spec/cenarios.md) · [Medição K14](https://github.com/leeunam/korda/issues/14)
 
 ## Ordem de execução
 

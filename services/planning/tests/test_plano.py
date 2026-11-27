@@ -42,11 +42,11 @@ class TestPlano(unittest.TestCase):
         self.assertEqual(plano["rules"]["rateio_cte"]["confirmed_by"]["role"], "financeiro")
         metricas = plano["metrics"]
         self.assertIn("rateio_cte", metricas["custo_frete_por_entrega"]["rule_keys"])
-        self.assertIn("cte/*.xml", metricas["custo_frete_por_entrega"]["input_files"])
+        self.assertIn("cte/cte_evento.parquet", metricas["custo_frete_por_entrega"]["input_files"])
         self.assertEqual(set(metricas["otif_pct"]["rule_keys"]),
                          {"no_prazo", "completo", "sem_data_realizada", "prazo_conta_sabado", "excluir_tipos_viagem"})
         self.assertEqual(metricas["ocupacao_pct"]["rule_keys"], ["ocupacao_unidade"])
-        self.assertIn("tms/tms_veiculos.csv", metricas["ocupacao_pct"]["input_files"])
+        self.assertIn("tms/tms_veiculos.parquet", metricas["ocupacao_pct"]["input_files"])
         validar_plano(plano)
         feitos = set()
         for tarefa in plano["tasks"]:
@@ -95,7 +95,10 @@ class TestPlano(unittest.TestCase):
     def test_dataset_vinculado_sem_inferir_empresa_desconhecida(self):
         plano = gerar_plano(self.confirmado)
         self.assertEqual(plano["dataset"], "01_demo")
-        self.assertEqual(plano["editable_models"], ["models/prata_ctes.sql"])
+        self.assertEqual(set(plano["editable_models"]), {
+            "models/prata_ctes.sql", "models/prata_rateios.sql", "models/ouro_por_pedido.sql",
+            "models/ouro_por_viagem.sql", "models/ouro_kpis.sql",
+        })
         self.confirmado["project_id"] = "outro"
         pendente = gerar_plano(self.confirmado)
         self.assertIsNone(pendente["dataset"])

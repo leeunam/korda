@@ -6,31 +6,32 @@ import os
 from pathlib import Path
 import tempfile
 
+import yaml
+
 from ingerir import BANCO
 
-PEDIDO = ("pedido_id", "viagem_id", "tipo_viagem", "elegivel_custo", "custo_frete_rateado", "ctes",
-          "data_prevista", "data_realizada", "elegivel_otif", "no_prazo", "completo", "otif",
-          "entrega_id", "arquivo_pedido", "linha_pedido", "arquivo_entrega", "linha_entrega",
-          "chave_nfe", "qt_itens", "qt_entregue", "peso_decimos_kg")
-VIAGEM = ("viagem_id", "veiculo_id", "tipo_viagem", "n_entregas", "n_entregas_elegiveis_custo",
-          "carga", "capacidade", "unidade", "ocupacao", "acima_capacidade", "custo_frete_total", "custo_por_entrega",
-          "arquivo_viagem", "linha_viagem", "arquivo_veiculo", "linha_veiculo")
+def contrato_exportacao():
+    projeto = Path(__file__).with_name("dbt_project.yml")
+    return yaml.safe_load(projeto.read_text(encoding="utf-8"))["vars"]["contrato_exportacao"]
 
 
-def ler_linhagem(conn):
-    campos = ("chave_cte", "arquivo", "sha256", "frete_centavos", "parcela_centavos")
-    consulta = conn.execute("select pedido_id, chave_cte, arquivo, sha256, valor_centavos, centavos "
-                            "from prata_rateios order by pedido_id, chave_cte")
+def ler_linhagem(conn, colunas):
+    campos = tuple(colunas)
+    consulta = conn.execute(f"select {', '.join(campos)} from prata_rateios order by pedido_id, chave_cte")
     por_pedido = {}
     while lote := consulta.fetchmany(1000):
-        for pedido, chave, arquivo, digest, frete, parcela in lote:
-            dados = (chave, arquivo, digest, int(frete), int(parcela))
-            por_pedido.setdefault(pedido, []).append(dict(zip(campos, dados, strict=True)))
+        for linha in lote:
+            rateio = dict(zip(campos, linha, strict=True))
+            pedido = rateio.pop("pedido_id")
+            rateio["frete_centavos"] = int(rateio.pop("valor_centavos"))
+            rateio["parcela_centavos"] = int(rateio.pop("centavos"))
+            por_pedido.setdefault(pedido, []).append(rateio)
     return por_pedido
 
 
 def exportar(conn, destino):
-    cols = ("custo_frete_por_entrega", "otif_pct", "ocupacao_pct")
+    contrato = contrato_exportacao()
+    cols = tuple(contrato["ouro_kpis"])
     linhas = conn.execute(f"select {', '.join(cols)} from ouro_kpis").fetchall()
     if len(linhas) != 1:
         raise ValueError("o agregado deve produzir exatamente uma linha")
@@ -40,8 +41,9 @@ def exportar(conn, destino):
         kpis = {chave: float(valor) if valor is not None else None
                 for chave, valor in zip(cols, linhas[0], strict=True)}
         (staging / "kpis.json").write_text(json.dumps({"kpis": kpis}, allow_nan=False) + "\n", encoding="utf-8")
-        linhagem = ler_linhagem(conn)
-        for nome, campos in (("por_pedido", PEDIDO), ("por_viagem", VIAGEM)):
+        linhagem = ler_linhagem(conn, contrato["prata_rateios"])
+        for nome in ("por_pedido", "por_viagem"):
+            campos = tuple(contrato["ouro_" + nome])
             cursor = conn.execute(f"select {', '.join(campos)} from ouro_{nome} order by {campos[0]}")
             with (staging / f"{nome}.csv").open("w", encoding="utf-8", newline="") as fp:
                 writer = csv.writer(fp, lineterminator="\n")

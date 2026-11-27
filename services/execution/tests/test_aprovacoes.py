@@ -59,6 +59,35 @@ class TestAprovacoes(unittest.TestCase):
         with self.assertRaises(ErroAprovacao), instancia.promover("run-um", "artefato-demo"):
             self.fail("promoção repetida")
 
+    def test_aprovacao_vincula_nivel_janela_e_proposta_de_ingestao(self):
+        caminho = P3.parents[1] / "packages/contracts/ingestion_plan/v0.1.0/examples/01_demo.json"
+        proposta = json.loads(caminho.read_text(encoding="utf-8"))
+        self.aprovar_plano()
+        janela = {"kind": "simulated_as_of", "as_of": "2026-09-29"}
+        opcoes = dict(nivel_ingestao="n1", proposta_ingestao=proposta,
+                      destino="artefato-demo", custo_estimado_centavos=0)
+        identidade = self.identidade
+        for i in range(3):
+            if i == 1:
+                opcoes["janela_ingestao"] = janela
+            if i == 2:
+                proposta["sources"][0]["frequency"] = "sob_demanda"
+            novo = gerar_plano(self.contexto, **opcoes)
+            self.reg.registrar(novo)
+            with self.assertRaises(ErroAprovacao):
+                self.reg.iniciar(*identidade, "versao-anterior")
+            identidade = (novo["project_id"], novo["plan_version"])
+            with self.assertRaises(ErroAprovacao):
+                self.reg.iniciar(*identidade, "sem-nova-aprovacao")
+            self.reg.decidir_plano(*identidade, "Pessoa revisora", True)
+        self.reg.iniciar(*identidade, "corte-aprovado")
+        proposta["state"] = "rascunho"
+        pendente = gerar_plano(self.contexto, **opcoes)
+        self.reg.registrar(pendente)
+        with self.assertRaisesRegex(ErroAprovacao, "rascunho"):
+            self.reg.decidir_plano(pendente["project_id"], pendente["plan_version"], "Pessoa revisora", True)
+        self.assertEqual(self.reg.consultar("corte-aprovado")["state"], "invalidada")
+
     def test_alternancia_de_versao_exige_nova_aprovacao_ainda_com_mesmo_hash(self):
         self.preparar_resultado()
         self.reg.decidir_entrega("run-um", "B", True)

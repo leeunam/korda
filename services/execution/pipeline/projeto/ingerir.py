@@ -1,16 +1,14 @@
-"""Ingestão das fontes sintéticas 01_demo, executada dentro da sandbox."""
+"""Projeta a landing Parquet oficial nos cinco modelos bronze da transportadora 01_demo."""
 
-import csv
-import hashlib
+from collections import defaultdict
+import re
 import json
 import sys
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
-from pathlib import Path
-from xml.etree import ElementTree as ET
+from pathlib import Path, PurePosixPath
 
 BANCO = "/work/saida/korda.duckdb"
-NS = {"": "http://www.portalfiscal.inf.br/cte"}
 REGRAS_SUPORTADAS = {
     "deduplicar_cte": True,
     "excluir_cancelados": True,
@@ -38,7 +36,7 @@ def inteiro_escalado(texto, escala):
         if not valor.is_finite() or valor < 0 or valor != valor.to_integral_value():
             raise ValueError("valor negativo, não finito ou precisão incompatível")
         return int(valor)
-    except (ValueError, InvalidOperation) as exc:
+    except (AttributeError, ValueError, InvalidOperation) as exc:
         raise ValueError(f"valor numérico inválido: {texto!r}") from exc
 
 
@@ -46,27 +44,83 @@ def data_iso(texto, formatos):
     for formato in formatos:
         try:
             return datetime.strptime(texto, formato).date().isoformat()
-        except ValueError:
+        except (TypeError, ValueError):
             continue
     raise ValueError(f"data inválida no layout 01_demo: {texto!r}")
 
 
-def ler_csv(raiz, caminho, campos):
-    arquivo = raiz / caminho
-    if arquivo.is_symlink() or arquivo.parent.is_symlink():
-        raise ValueError(f"fonte indireta recusada: {caminho}")
-    with arquivo.open(encoding="utf-8-sig", newline="") as fp:
-        leitor = csv.DictReader(fp, delimiter=";")
-        nomes = leitor.fieldnames or []
-        if len(set(nomes)) != len(nomes) or not set(campos).issubset(nomes):
-            raise ValueError(f"{caminho}: cabeçalho incompatível com 01_demo")
-        for linha in leitor:
-            try:
-                if None in linha or None in linha.values():
-                    raise ValueError("largura da linha diferente do cabeçalho")
-                yield caminho, leitor.line_num, [linha[c] for c in campos]
-            except ValueError as exc:
-                raise ValueError(f"{caminho}:{leitor.line_num}: {exc}") from exc
+CAMPOS = {
+    "erp/erp_pedidos": ("cd_ped", "ch_nfe", "dt_prev_ent", "qt_itens", "ps_bruto"),
+    "tms/tms_entregas": ("id_ent", "nr_ped", "id_viag", "dt_baixa", "qt_entregue"),
+    "tms/tms_viagens": ("id_viag", "id_veic", "tp_viag"),
+    "tms/tms_veiculos": ("id_veic", "cap_kg"),
+    "cte/cte": ("chCTe", "infCte_Id", "prot_chCTe", "prot_cStat", "vTPrest"),
+    "cte/cte_nfe": ("chCTe", "chave"),
+    "cte/cte_evento": ("chCTe", "ret_chCTe", "tpEvento", "ret_tpEvento", "ret_cStat"),
+}
+
+
+def arquivo_landing(raiz, nome):
+    caminho = raiz / nome
+    if caminho.resolve() != caminho or not caminho.is_file():
+        raise ValueError(f"arquivo obrigatório da landing ausente ou indireto: {nome}")
+    return caminho
+
+
+def ler_parquet(arquivo, colunas):
+    import duckdb
+
+    with duckdb.connect(config={"threads": 1}) as leitor:
+        # As colunas são constantes deste módulo; o caminho entra como parâmetro.
+        selecao = ", ".join(f'"{c}"' for c in colunas) if colunas else "1"
+        cursor = leitor.execute(f"select {selecao} from read_parquet(?)", [str(arquivo)])
+        while lote := cursor.fetchmany(1024):
+            yield from lote
+
+
+class Landing:
+    def __init__(self, raiz):
+        self.raiz = raiz.absolute()
+        manifesto = json.loads(arquivo_landing(self.raiz, "manifesto.json").read_text(encoding="utf-8"))
+        self.nivel = manifesto.get("nivel", 0)
+        if (manifesto.get("formato") != "korda.landing/v0" or type(self.nivel) is not int
+                or self.nivel not in (0, 1)):
+            raise ValueError("formato ou nível de landing não suportado")
+        if self.nivel == 1 and manifesto.get("plano", {}).get("company_id") != "01_demo":
+            raise ValueError("layout do plano de ingestão incompatível com 01_demo")
+        self.tabelas = manifesto["tabelas"]
+        rej = manifesto["rejeitados"]
+        if (rej["arquivo"] != "_rejeitados.parquet" or rej["linhas"] != 0
+                or next(ler_parquet(arquivo_landing(self.raiz, "_rejeitados.parquet"), ()), None) is not None):
+            raise ValueError("landing contém rejeições de ingestão; revisar dados antes de calcular")
+
+    def ler(self, nome):
+        if nome not in self.tabelas or self.tabelas[nome]["arquivo"] != nome + ".parquet":
+            raise ValueError(f"tabela canônica ausente ou renomeada no manifesto: {nome}")
+        if nome.startswith("cte/"):
+            meta = ("_arquivo", "_xml_sha256", "_carga") if self.nivel else ("_arquivo", "_xml_sha256")
+        else:
+            meta = ("_origem", "_carga") if self.nivel else ("_arquivo", "_linha")
+        caminho = arquivo_landing(self.raiz, nome + ".parquet")
+        total = 0
+        for valores in ler_parquet(caminho, meta + CAMPOS[nome]):
+            total += 1
+            yield valores[:len(meta)], valores[len(meta):]
+        if total != self.tabelas[nome]["linhas"]:
+            raise ValueError(f"{nome}: número de linhas diverge do manifesto")
+
+    def registros(self, nome):
+        origens = {"erp/erp_pedidos": "erp:erp_pedidos", "tms/tms_entregas": "tms:/entregas",
+                   "tms/tms_viagens": "tms:/viagens", "tms/tms_veiculos": "tms:/veiculos"}
+        esperado = origens[nome] if self.nivel else nome + ".csv"
+        minima = 1 if self.nivel else 2
+        for (origem, posicao), dados in self.ler(nome):
+            if origem != esperado or type(posicao) is not int or posicao < minima:
+                raise ValueError(f"{nome}: linhagem de registro inválida")
+            if self.nivel:
+                yield (None, None, origem, posicao), dados
+            else:
+                yield (origem, posicao, None, None), dados
 
 
 def gravar(conn, tabela, definicao, linhas):
@@ -87,94 +141,82 @@ def inserir_lote(conn, tabela, lote):
     conn.executemany(f"insert into {tabela} values ({marcas})", lote)
 
 
-def pedidos(raiz):
-    campos = ["cd_ped", "ch_nfe", "dt_prev_ent", "qt_itens", "ps_bruto"]
-    for origem, linha, (pedido, nfe, prazo, itens, peso) in ler_csv(raiz, "erp/erp_pedidos.csv", campos):
-        yield (origem, linha, pedido, nfe, data_iso(prazo, ["%Y-%m-%d"]),
+def pedidos(landing):
+    for origem, (pedido, nfe, prazo, itens, peso) in landing.registros("erp/erp_pedidos"):
+        yield (*origem, pedido, nfe, data_iso(prazo, ["%Y-%m-%d"]),
                inteiro_escalado(itens, 1), inteiro_escalado(peso, 10))
 
 
-def entregas(raiz):
-    campos = ["id_ent", "nr_ped", "id_viag", "dt_baixa", "qt_entregue"]
-    for origem, linha, (entrega, pedido, viagem, raw, itens) in ler_csv(raiz, "tms/tms_entregas.csv", campos):
+def entregas(landing):
+    for origem, (entrega, pedido, viagem, raw, itens) in landing.registros("tms/tms_entregas"):
         realizada = data_iso(raw, ["%Y-%m-%d %H:%M", "%d/%m/%Y %H:%M", "%d/%m/%y"]) if raw else None
-        yield origem, linha, entrega, pedido, viagem, raw, realizada, inteiro_escalado(itens, 1)
+        yield *origem, entrega, pedido, viagem, raw, realizada, inteiro_escalado(itens, 1)
 
 
-def veiculos(raiz):
-    for origem, linha, (veiculo, cap) in ler_csv(raiz, "tms/tms_veiculos.csv", ["id_veic", "cap_kg"]):
+def veiculos(landing):
+    for origem, (veiculo, cap) in landing.registros("tms/tms_veiculos"):
         capacidade = inteiro_escalado(cap, 1)
         if capacidade <= 0:
-            raise ValueError(f"{origem}:{linha}: capacidade deve ser positiva")
-        yield origem, linha, veiculo, capacidade
+            raise ValueError("capacidade deve ser positiva")
+        yield *origem, veiculo, capacidade
 
 
-def campo(root, caminho):
-    valor = root.findtext(caminho, namespaces=NS)
-    if not valor or not valor.strip():
-        raise ValueError(f"campo XML obrigatório ausente: {caminho}")
-    return valor.strip()
+def documentos(landing):
+    # Vincular os filhos a sua cópia física evita cruzar duas NF-e com ambos os reenvios do mesmo CT-e.
+    notas = defaultdict(set)
+    for origem, (chave, nfe) in landing.ler("cte/cte_nfe"):
+        identificador = (*origem, chave)
+        if not nfe or nfe in notas[identificador]:
+            raise ValueError(f"{origem[0]}: NF-e ausente ou repetida no mesmo documento")
+        notas[identificador].add(nfe)
+    for origem, (chave, inf_id, protocolo, status, valor) in landing.ler("cte/cte"):
+        if not chave or not status or inf_id != "CTe" + chave or protocolo != chave:
+            raise ValueError(f"{origem[0]}: protocolo inconsistente com documento")
+        nfes = notas.pop((*origem, chave), None)
+        if not nfes:
+            raise ValueError(f"{origem[0]}: CT-e sem NF-e correspondente")
+        arquivo, digest, carga = origem_xml(origem)
+        for nfe in sorted(nfes):
+            yield arquivo, digest, carga, "cte", chave, status, None, nfe, inteiro_escalado(valor, 100)
+    if notas:
+        raise ValueError("landing contém NF-e sem documento fiscal correspondente")
+    for origem, (chave, retorno, tipo, ret_tipo, status) in landing.ler("cte/cte_evento"):
+        if not chave or not tipo or not status or chave != retorno or tipo != ret_tipo:
+            raise ValueError(f"{origem[0]}: retorno de evento não corresponde à chave ou tipo")
+        arquivo, digest, carga = origem_xml(origem)
+        yield arquivo, digest, carga, "evento", chave, status, tipo, None, None
 
 
-def ler_xml(arquivo, origem):
-    bruto = arquivo.read_bytes()
-    digest = hashlib.sha256(bruto).hexdigest()
-    root = ET.fromstring(bruto)
-    if root.tag == f"{{{NS['']}}}cteProc":
-        chave = campo(root, "protCTe/infProt/chCTe")
-        info = root.find("CTe/infCte", NS)
-        if info is None or info.get("Id") != "CTe" + chave:
-            raise ValueError("protocolo não corresponde à chave do documento")
-        valor = inteiro_escalado(campo(info, "vPrest/vTPrest"), 100)
-        status = campo(root, "protCTe/infProt/cStat")
-        nfes = [campo(nfe, "chave") for nfe in info.findall("infCTeNorm/infDoc/infNFe", NS)]
-        if not nfes or len(nfes) != len(set(nfes)):
-            raise ValueError("NF-e ausente ou repetida no mesmo documento")
-        for nfe in nfes:
-            yield origem, digest, "cte", chave, status, None, nfe, valor
-    elif root.tag == f"{{{NS['']}}}procEventoCTe":
-        chave = campo(root, "eventoCTe/infEvento/chCTe")
-        tipo = campo(root, "eventoCTe/infEvento/tpEvento")
-        if (campo(root, "retEventoCTe/infEvento/chCTe") != chave or
-                campo(root, "retEventoCTe/infEvento/tpEvento") != tipo):
-            raise ValueError("retorno de evento não corresponde à chave e tipo enviados")
-        yield origem, digest, "evento", chave, campo(root, "retEventoCTe/infEvento/cStat"), tipo, None, None
-    else:
-        raise ValueError("tipo de documento XML desconhecido")
-
-
-def documentos(raiz):
-    pasta = raiz / "cte"
-    if not pasta.is_dir() or pasta.is_symlink():
-        raise ValueError("diretório cte/ ausente ou indireto")
-    for arquivo in sorted(pasta.glob("*.xml")):
-        if arquivo.is_symlink() or not arquivo.is_file():
-            raise ValueError("arquivo XML indireto ou irregular")
-        origem = f"cte/{arquivo.name}"
-        try:
-            yield from ler_xml(arquivo, origem)
-        except (ET.ParseError, ValueError) as exc:
-            raise ValueError(f"{origem}: {exc}") from exc
+def origem_xml(origem):
+    arquivo, digest, *cargas = origem
+    if (not isinstance(arquivo, str) or not arquivo or PurePosixPath(arquivo).is_absolute()
+            or ".." in PurePosixPath(arquivo).parts or not isinstance(digest, str)
+            or not re.fullmatch(r"[a-f0-9]{64}", digest)):
+        raise ValueError("linhagem XML incompleta na landing")
+    if cargas and (type(cargas[0]) is not int or cargas[0] < 1):
+        raise ValueError("carga de XML inválida na landing")
+    return arquivo, digest, cargas[0] if cargas else None
 
 
 def ingerir(conn, raiz, regras):
     validar_regras(regras)
+    landing = Landing(raiz)
+    origem = "arquivo varchar, linha bigint, origem varchar, carga bigint, "
     conn.execute("begin")
     try:
-        gravar(conn, "bronze_pedidos", "arquivo varchar, linha bigint, pedido_id varchar primary key, "
+        gravar(conn, "bronze_pedidos", origem + "pedido_id varchar primary key, "
                "chave_nfe varchar not null unique, data_prevista varchar, qt_itens bigint, peso_decimos_kg bigint",
-               pedidos(raiz))
-        gravar(conn, "bronze_entregas", "arquivo varchar, linha bigint, entrega_id varchar primary key, "
+               pedidos(landing))
+        gravar(conn, "bronze_entregas", origem + "entrega_id varchar primary key, "
                "pedido_id varchar not null unique, viagem_id varchar, baixa_original varchar, "
-               "data_realizada varchar, qt_entregue bigint", entregas(raiz))
-        campos = ["id_viag", "id_veic", "tp_viag"]
-        viagens = ((origem, linha, *valores) for origem, linha, valores in ler_csv(raiz, "tms/tms_viagens.csv", campos))
-        gravar(conn, "bronze_viagens", "arquivo varchar, linha bigint, viagem_id varchar primary key, "
+               "data_realizada varchar, qt_entregue bigint", entregas(landing))
+        viagens = ((*meta, *valores) for meta, valores in landing.registros("tms/tms_viagens"))
+        gravar(conn, "bronze_viagens", origem + "viagem_id varchar primary key, "
                "veiculo_id varchar, tipo_viagem varchar", viagens)
-        gravar(conn, "bronze_veiculos", "arquivo varchar, linha bigint, veiculo_id varchar primary key, "
-               "capacidade_kg bigint", veiculos(raiz))
-        gravar(conn, "bronze_documentos", "arquivo varchar, sha256 varchar, especie varchar, chave_cte varchar, "
-               "cstat varchar, tipo_evento varchar, chave_nfe varchar, valor_centavos bigint", documentos(raiz))
+        gravar(conn, "bronze_veiculos", origem + "veiculo_id varchar primary key, "
+               "capacidade_kg bigint", veiculos(landing))
+        gravar(conn, "bronze_documentos", "arquivo varchar, sha256 varchar, carga bigint, especie varchar, chave_cte varchar, "
+               "cstat varchar, tipo_evento varchar, chave_nfe varchar, valor_centavos bigint", documentos(landing))
         conn.commit()
     except Exception:
         conn.rollback()

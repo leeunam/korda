@@ -146,9 +146,9 @@ class LocalDockerSandbox:
     # inclusive vazia quando nenhum modelo da versão pode receber correções.
     modelos_permitidos: tuple[str, ...] | None = None
     # `fontes` deve ser uma landing zone (ver ingestao.py), com manifesto.json na raiz.
-    # O worker do plano aprovado ainda recebe fontes brutas e desliga esta exigência;
-    # unificar as duas ingestões é pendência registrada no README da execução.
+    # A versão de construção recebe a landing. Fixtures avulsas podem optar por fontes mínimas.
     exigir_manifesto: bool = True
+    modelos_vazios: bool = False
     container_id: str | None = field(default=None, init=False)
     _diretorio_proprio: bool = field(default=False, init=False, repr=False)
 
@@ -158,6 +158,8 @@ class LocalDockerSandbox:
         self.projeto = Path(self.projeto).resolve()
         self.fontes = Path(self.fontes).resolve()
         self.raiz_runs = Path(self.raiz_runs).resolve()
+        if self.modelos_vazios and not self.modelos_permitidos:
+            raise ErroSandbox("construção exige uma lista explícita dos modelos autorizados")
         if self.modelos_permitidos is not None:
             self.modelos_permitidos = tuple(self.modelos_permitidos)
             if len(set(self.modelos_permitidos)) != len(self.modelos_permitidos):
@@ -215,8 +217,20 @@ class LocalDockerSandbox:
     def _iniciar(self) -> None:
         projeto_run = self.dir_run / "projeto"
         saida_run = self.dir_run / "saida"
-        shutil.copytree(self.projeto, projeto_run, symlinks=False)
-        (projeto_run / "models").mkdir(exist_ok=True)
+        if self.modelos_vazios:
+            # O projeto de referência só existe no host. Nenhum SQL de solução,
+            # cache de compilação ou modelos extras segue para o construtor.
+            protegidos = {"dbt_project.yml", "profiles.yml", "macros", "definicoes", "tests", "exportar.py", "ingerir.py"}
+            shutil.copytree(self.projeto, projeto_run, ignore=lambda path, nomes: (
+                set(nomes) - protegidos if Path(path) == self.projeto else {n for n in nomes if n == "__pycache__"}
+            ))
+            for nome in self.modelos_permitidos:
+                modelo = projeto_run / nome
+                modelo.parent.mkdir(parents=True, exist_ok=True)
+                modelo.touch(exist_ok=False)
+        else:
+            shutil.copytree(self.projeto, projeto_run, symlinks=False)
+            (projeto_run / "models").mkdir(exist_ok=True)
         saida_run.mkdir(parents=True)
 
         argv = [

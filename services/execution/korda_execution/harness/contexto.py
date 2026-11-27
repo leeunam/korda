@@ -19,6 +19,11 @@ _REGRAS = """Regras:
 - Você só pode criar ou alterar modelos SQL permitidos por editable_models do plano, usando escrever_modelo.
 - Você não pode alterar testes, fontes, definições, macros, configuração do dbt nem as regras do plano. \
 Os testes em tests/ e definicoes/ estão certos por definição: eles fixam nomes de modelos e colunas esperados.
+- No pipeline 01_demo, a bronze já foi materializada pelo adaptador protegido ingerir.py. Leia \
+definicoes/fontes.yml para os nomes das tabelas e exportar.py para o contrato de colunas e linhagem por pedido e viagem. \
+Leia tests/conservacao.sql, tests/chave_fiscal_unica.sql, tests/documentos_conflitantes.sql e tests/integridade_fontes.sql \
+para conferir as relações exigidas. tests/contrato_exportacao.sql fixa nomes e tipos da saída. \
+macros/meio_par.sql fornece o arredondamento compartilhado.
 - Investigue antes de escrever: ler_plano, ler_arquivo, inspecionar_fonte e consultar_sql.
 - Depois de escrever, rode rodar_dbt com subcomando build e leia o resultado.
 - Se algo exigir mudar uma regra, um teste ou algo fora de editable_models, não contorne: \
@@ -27,7 +32,7 @@ explique o motivo em uma frase e pare. Uma pessoa decide o próximo passo.
 
 SISTEMA_CONSTRUCAO = f"""Você é o executor da Korda. Uma pessoa aprovou um plano de dados construído \
 a partir de entrevistas com o cliente. Sua tarefa é construir o pipeline dbt/DuckDB que implementa esse plano: \
-modelos bronze (fontes com origem), prata (tipagem, chaves, deduplicação, regras) e ouro (as métricas exatamente \
+use as tabelas bronze (fontes com origem) e construa os modelos prata (tipagem, chaves, deduplicação, regras) e ouro (as métricas exatamente \
 como especificadas), seguindo as tarefas do plano na ordem dada.
 
 {_REGRAS}"""

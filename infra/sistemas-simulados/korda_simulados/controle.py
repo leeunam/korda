@@ -28,6 +28,7 @@ import sys
 import time
 import uuid
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
 
 _AQUI = Path(__file__).resolve()
@@ -80,6 +81,8 @@ class AmbienteSimulado:
     limite_rps: int = 20
     permitir_reservada: bool = False  # 03_reservada só para medição
 
+    ate_dia: str | None = None  # data final inclusiva autorizada para este replay
+
     def __post_init__(self) -> None:
         if self.empresa == EMPRESA_RESERVADA and not self.permitir_reservada:
             raise ErroSimulado("03_reservada é só para medição: use permitir_reservada=True")
@@ -121,14 +124,17 @@ class AmbienteSimulado:
             d.mkdir(parents=True)
         try:
             self._preparar()
+            dias = self._dias_autorizados()
+            if self.ate_dia is not None and self.dias_iniciais is None:
+                n = len(dias)
+            else:
+                n = len(dias) - self.dias_para_replay if self.dias_iniciais is None else self.dias_iniciais
+            if not 1 <= n <= len(dias):
+                raise ErroSimulado(f"dias_iniciais fora de 1..{len(dias)}: {n}")
             self._gerar_credenciais()
             _docker("network", "create", "--internal", "--label", f"korda.sim={self.sim_id}", self.rede)
             self._subir_erp()
             self._subir_tms()
-            dias = self.catalogo["dias"]
-            n = len(dias) - self.dias_para_replay if self.dias_iniciais is None else self.dias_iniciais
-            if not 1 <= n <= len(dias):
-                raise ErroSimulado(f"dias_iniciais fora de 1..{len(dias)}: {n}")
             for dia in dias[:n]:
                 self._liberar(dia)
         except BaseException:
@@ -248,9 +254,21 @@ class AmbienteSimulado:
         self._gravar_estado(dia)  # por último: o TMS libera o dia depois do ERP e do CT-e
         self.dia_atual = dia
 
+    def _dias_autorizados(self) -> list[str]:
+        dias = self.catalogo["dias"]
+        if self.ate_dia is None:
+            return dias
+        try:
+            valido = date.fromisoformat(self.ate_dia).isoformat() == self.ate_dia
+        except (TypeError, ValueError):
+            valido = False
+        if not valido or not dias or not dias[0] <= self.ate_dia <= dias[-1]:
+            raise ErroSimulado("corte de replay fora do intervalo do catálogo")
+        return [dia for dia in dias if dia <= self.ate_dia]
+
     def avancar(self) -> str:
         """Libera o próximo dia do replay nos três sistemas e devolve a data."""
-        dias = self.catalogo["dias"]
+        dias = self._dias_autorizados()
         i = dias.index(self.dia_atual) + 1
         if i >= len(dias):
             raise ErroSimulado("não há mais dias no replay")
@@ -259,7 +277,7 @@ class AmbienteSimulado:
 
     @property
     def dias_restantes(self) -> list[str]:
-        dias = self.catalogo["dias"]
+        dias = self._dias_autorizados()
         return dias[dias.index(self.dia_atual) + 1:]
 
     def executar_na_rede(self, argv: list[str], imagem: str = IMAGEM_SIM, montagens: list[str] = (),
@@ -292,7 +310,7 @@ def _carregar(sim_id: str, raiz_runs: Path) -> AmbienteSimulado:
     """Reconstrói um ambiente já subido a partir do diretório (para a CLI)."""
     meta = json.loads((Path(raiz_runs) / f"sim-{sim_id}" / "ambiente.json").read_text(encoding="utf-8"))
     amb = AmbienteSimulado(meta["empresa"], sim_id=sim_id, raiz_runs=raiz_runs,
-                           permitir_reservada=meta["empresa"] == EMPRESA_RESERVADA)
+                           ate_dia=meta.get("ate_dia"), permitir_reservada=meta["empresa"] == EMPRESA_RESERVADA)
     amb.catalogo = json.loads((amb.dir_preparo / "catalogo.json").read_text(encoding="utf-8"))
     amb.credenciais = json.loads((amb.dir / "credenciais.json").read_text(encoding="utf-8"))
     amb.dia_atual = json.loads((amb.dir_estado / "estado.json").read_text(encoding="utf-8"))["dia_atual"]
@@ -306,6 +324,7 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("subir")
     s.add_argument("--empresa", required=True)
     s.add_argument("--dias-iniciais", type=int)
+    s.add_argument("--ate-dia", help="limite inclusivo do replay, AAAA-MM-DD")
     s.add_argument("--sem-mudanca", action="store_true")
     s.add_argument("--medir-reservada", action="store_true", help="permite a 03_reservada (só medição)")
     for nome in ("avancar", "destruir", "status"):
@@ -314,12 +333,12 @@ def main(argv: list[str] | None = None) -> int:
     a = p.parse_args(argv)
     try:
         if a.cmd == "subir":
-            amb = AmbienteSimulado(a.empresa, raiz_runs=a.runs, dias_iniciais=a.dias_iniciais,
+            amb = AmbienteSimulado(a.empresa, raiz_runs=a.runs, dias_iniciais=a.dias_iniciais, ate_dia=a.ate_dia,
                                    mudanca=None if a.sem_mudanca else "ultimo",
                                    permitir_reservada=a.medir_reservada).subir()
             meta = amb.dir / "ambiente.json"
             meta.touch(mode=0o600)
-            meta.write_text(json.dumps({"empresa": amb.empresa, "senha_admin": amb._senha_admin}), encoding="utf-8")
+            meta.write_text(json.dumps({"empresa": amb.empresa, "ate_dia": amb.ate_dia, "senha_admin": amb._senha_admin}), encoding="utf-8")
             print(json.dumps({"id": amb.sim_id, "rede": amb.rede, "dia_atual": amb.dia_atual,
                               "dias_restantes": amb.dias_restantes,
                               "credenciais": str(amb.dir / "credenciais.json")}, ensure_ascii=False))

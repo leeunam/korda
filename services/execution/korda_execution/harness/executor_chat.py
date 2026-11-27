@@ -27,7 +27,8 @@ class ExecutorChat:
     nome = "chat"
 
     def __init__(self, cfg: ConfigHarness, cliente: ClienteChat, ferramentas: FerramentasAgente, plano_publico: dict,
-                 perfis: dict, limite: int, emissor, medidor):
+                 perfis: dict, limite: int, emissor, medidor, *, custo_anterior_centavos: int = 0,
+                 orcamento_total_usd: float | None = None):
         self.cfg = cfg
         self.cliente = cliente
         self.ferramentas = ferramentas
@@ -37,7 +38,8 @@ class ExecutorChat:
         self.emissor = emissor
         self.medidor = medidor
         self.gasto_usd = 0.0
-        self.custo_total_centavos = 0
+        self.custo_total_centavos = custo_anterior_centavos
+        self.orcamento_total_usd = cfg.orcamento_execucao_usd if orcamento_total_usd is None else orcamento_total_usd
         self.ultima_saida: SaidaSessao | None = None
 
     @property
@@ -91,7 +93,7 @@ class ExecutorChat:
                 fase="construcao" if tentativa == TENTATIVA_CONSTRUCAO else "correcao", subtype=saida.subtype,
                 turnos=saida.num_turns, arquivos=list(escritas), custo_usd=saida.total_cost_usd,
                 custo_centavos=custo_centavos, custo_total_centavos=self.custo_total_centavos,
-                orcamento_centavos=usd_para_centavos(self.cfg.orcamento_execucao_usd, self.cfg.taxa_usd_brl),
+                orcamento_centavos=usd_para_centavos(self.orcamento_total_usd, self.cfg.taxa_usd_brl),
                 custo_estimado=True, tokens_entrada=saida.usage.get("input_tokens", 0),
                 tokens_saida=saida.usage.get("output_tokens", 0))
         if ok:

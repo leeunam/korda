@@ -1,6 +1,7 @@
 """Captura e promoção local dos arquivos de resultado após o fim da sandbox."""
 
 import errno
+import fcntl
 import hashlib
 import os
 import re
@@ -11,6 +12,8 @@ from pathlib import Path
 
 
 LIMITES = {"kpis.json": 1024**2, "por_pedido.csv": 32 * 1024**2, "por_viagem.csv": 32 * 1024**2}
+PACOTE = "pacote.zip"
+LIMITE_PACOTE = 72 * 1024**2
 DIR = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
 
 
@@ -37,9 +40,10 @@ def _diretorio(caminho, *, criar=False):
         os.close(fd)
 
 
-def _ler_arquivos(origem, destino=None):
+def _ler_arquivos(origem, destino=None, *, com_pacote=False):
     arquivos = {}
-    for nome, limite in LIMITES.items():
+    limites = {**LIMITES, PACOTE: LIMITE_PACOTE} if com_pacote else LIMITES
+    for nome, limite in limites.items():
         digest = hashlib.sha256()
         tamanho = 0
         with ExitStack() as abertos:
@@ -72,11 +76,12 @@ def _validar(manifesto):
     if not isinstance(manifesto, dict) or set(manifesto) != {"arquivos"}:
         raise ValueError("formato de manifesto inválido")
     itens = manifesto["arquivos"]
-    if not isinstance(itens, dict) or set(itens) != set(LIMITES):
-        raise ValueError("manifesto deve conter exatamente os três resultados")
+    if not isinstance(itens, dict) or set(itens) not in (set(LIMITES), set(LIMITES) | {PACOTE}):
+        raise ValueError("manifesto deve conter os três resultados e, opcionalmente, o pacote de reprodução")
     for nome, meta in itens.items():
+        limite = LIMITE_PACOTE if nome == PACOTE else LIMITES[nome]
         if (not isinstance(meta, dict) or set(meta) != {"sha256", "bytes"}
-                or type(meta["bytes"]) is not int or not 0 < meta["bytes"] <= LIMITES[nome]
+                or type(meta["bytes"]) is not int or not 0 < meta["bytes"] <= limite
                 or not isinstance(meta["sha256"], str) or not re.fullmatch("[a-f0-9]{64}", meta["sha256"])):
             raise ValueError(f"tamanho ou hash inválido: {nome}")
 
@@ -87,15 +92,15 @@ def _publicar(origem, destino, *, esperado=None):
         raise ValueError("nome de diretório de artefatos inválido")
     temporario = ".parcial-" + uuid.uuid4().hex
     with _diretorio(origem) as src, _diretorio(destino.parent, criar=True) as pai:
-        # As saídas extras internas da sandbox nunca são copiadas. Em revisão, só os
-        # três artefatos congelados são aceitos para a segunda aprovação.
-        if esperado is not None and set(os.listdir(src)) != set(LIMITES):
+        nomes = set(esperado["arquivos"]) if esperado is not None else set(LIMITES)
+        com_pacote = PACOTE in nomes
+        if esperado is not None and set(os.listdir(src)) != nomes:
             raise ValueError("a lista de resultados para promoção mudou")
         os.mkdir(temporario, mode=0o700, dir_fd=pai)
         lote = os.open(temporario, DIR, dir_fd=pai)
         publicado = False
         try:
-            manifesto = _ler_arquivos(src, lote)
+            manifesto = _ler_arquivos(src, lote, com_pacote=com_pacote)
             if esperado is not None and manifesto != esperado:
                 raise ValueError("integridade dos resultados difere do manifesto aprovado")
             os.fsync(lote)
@@ -113,7 +118,7 @@ def _publicar(origem, destino, *, esperado=None):
                         raise
                 existente = os.open(destino.name, DIR, dir_fd=pai)
             try:
-                if set(os.listdir(existente)) != set(LIMITES) or _ler_arquivos(existente) != manifesto:
+                if set(os.listdir(existente)) != nomes or _ler_arquivos(existente, com_pacote=com_pacote) != manifesto:
                     raise ValueError("o destino já existe com conteúdo divergente")
             finally:
                 os.close(existente)
@@ -132,6 +137,15 @@ def _publicar(origem, destino, *, esperado=None):
 def capturar(origem: Path, staging: Path) -> dict:
     """Congela os três resultados em uma única mudança de nome no mesmo filesystem."""
     return _publicar(origem, staging)
+
+
+def manifesto_revisao(resultados: Path) -> dict:
+    """Sela o pacote v0.2 criado pelo host e os resultados que passaram pelo avaliador."""
+    with _diretorio(resultados) as fd:
+        fcntl.flock(fd, fcntl.LOCK_SH)
+        if set(os.listdir(fd)) != set(LIMITES) | {PACOTE}:
+            raise ValueError("inventário incompleto ou inesperado na revisão da v0.2")
+        return _ler_arquivos(fd, com_pacote=True)
 
 
 def entregar(registro, raiz: Path, run_id: str, destino: str) -> Path:

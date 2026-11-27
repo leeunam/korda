@@ -1,0 +1,6 @@
+# Operador local, validação independente dos Parquets e ensaios do pipeline.
+-r requirements-contracts.txt
+-r requirements-synthetic.txt
+pyarrow==24.0.0
+duckdb==1.5.6
+Jinja2==3.1.6

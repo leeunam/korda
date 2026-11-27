@@ -1,4 +1,4 @@
-"""Perfis técnicos limitados às exportações sintéticas montadas em /work/fontes."""
+"""Perfis técnicos limitados às tabelas sintéticas montadas em /work/fontes."""
 
 import csv
 import json
@@ -117,13 +117,42 @@ def _cte(raiz):
     }
 
 
+def _perfil_parquet(raiz, fonte):
+    import duckdb
+
+    nome = "cte/cte" if fonte == "cte" else CSV[fonte].removesuffix(".csv")
+    manifesto = json.loads(_arquivo(raiz, "manifesto.json").read_text(encoding="utf-8"))
+    if manifesto.get("formato") != "korda.landing/v0":
+        raise ValueError("formato da landing desconhecido")
+    tabela = manifesto.get("tabelas", {}).get(nome, {})
+    caminho = nome + ".parquet"
+    if tabela.get("arquivo") != caminho:
+        raise ValueError("tabela ausente ou divergente no manifesto")
+    arquivo = _arquivo(raiz, caminho)
+    with duckdb.connect(config={"threads": 1, "memory_limit": "128MB"}) as conn:
+        cursor = conn.execute("select * from read_parquet(?) limit ?", [str(arquivo), MAX_REGISTROS + 1])
+        colunas = [col[0] for col in cursor.description]
+        tipos = {col[0]: str(col[1]) for col in cursor.description}
+        amostra = cursor.fetchall()
+    declaradas = [c["nome"] for c in tabela["colunas"]]
+    if declaradas != colunas:
+        raise ValueError("colunas do manifesto divergem do Parquet")
+    linhas = amostra[:MAX_REGISTROS]
+    return {"formato": "parquet", "colunas": colunas, "tipos": tipos, "linhas_declaradas": tabela["linhas"],
+            "registros_analisados": len(linhas), "amostra_parcial": len(amostra) > len(linhas),
+            "nulos_na_amostra": {c: sum(l[i] is None or l[i] == "" for l in linhas)
+                                 for i, c in enumerate(colunas)}}
+
+
 def inspecionar(raiz, fonte):
-    if fonte == "cte":
-        dados = _cte(raiz)
-    elif fonte in CSV:
-        dados = _csv(_arquivo(raiz, CSV[fonte]))
-    else:
+    if fonte not in CSV and fonte != "cte":
         raise ValueError("fonte fora do catálogo autorizado")
+    if (raiz / "manifesto.json").exists():
+        dados = _perfil_parquet(raiz, fonte)
+    elif fonte == "cte":
+        dados = _cte(raiz)
+    else:
+        dados = _csv(_arquivo(raiz, CSV[fonte]))
     return {"fonte": fonte, **dados}
 
 

@@ -55,6 +55,7 @@ python3 packages/contracts/ingestion_plan/v0.1.0/validate.py packages/contracts/
 
 ## Pendências
 
-- Encaixar esta seção no contrato do plano completo (K01/K06) e no ciclo de aprovação 1 (K07).
+O [plano v0.2.0](../../plan/v0.2.0/README.md) incorpora a seção integral de N1. A primeira aprovação cobre o hash da proposta e a janela.
+
 - A evidência `ev-fontes` só confirma quais sistemas existem. Método, frequência e latência ainda são lacunas abertas nos exemplos.
 - O contrato de contexto fixa `freight_link` com os nomes de coluna da 01. Para a 02 e a 03, o vínculo entre fontes precisa ser descrito por empresa; isso fica para alinhar com o Marcus.

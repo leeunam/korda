@@ -10,6 +10,7 @@ import sqlite3
 import sys
 import tempfile
 import unittest
+from unittest.mock import Mock, patch
 from pathlib import Path
 from xml.etree import ElementTree
 
@@ -17,14 +18,23 @@ PROJETO = Path(__file__).resolve().parents[1] / "projeto"
 REPO = PROJETO.parents[3]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(PROJETO))
+sys.path.insert(0, str(REPO / "infra/sandbox"))
+sys.path.insert(0, str(REPO / "services/execution/referencia"))
 
-from exportar import exportar
-from ingerir import REGRAS_SUPORTADAS, ingerir, validar_regras
+from exportar import contrato_exportacao, exportar
+from ingerir import Landing, REGRAS_SUPORTADAS, documentos, ingerir, validar_regras
 
 try:
     from jinja2 import Environment, StrictUndefined
 except ImportError:
     Environment = None
+
+try:
+    from korda_ingestao.landing import ingerir as landing_n0
+except ModuleNotFoundError as exc:
+    if exc.name != "duckdb":
+        raise
+    landing_n0 = None
 
 
 def escrever(raiz, nome, conteudo):
@@ -66,11 +76,12 @@ def fontes(raiz):
     escrever(raiz, "cte/a-evento-sem-vinculo.xml", evento("A", "136"))
 
 
-def renderizar(arquivo):
+def renderizar(arquivo, adaptador="sqlite"):
     env = Environment(undefined=StrictUndefined)
     meio_par = env.from_string((PROJETO / "macros/meio_par.sql").read_text()).module.meio_par
     return env.from_string(arquivo.read_text()).render(
-        ref=lambda nome: nome, source=lambda fonte, nome: nome, meio_par=meio_par)
+        ref=lambda nome: nome, source=lambda fonte, nome: nome, meio_par=meio_par,
+        target={"type": adaptador}, var={"contrato_exportacao": contrato_exportacao()}.__getitem__)
 
 
 def construir_modelos(conn):
@@ -79,37 +90,126 @@ def construir_modelos(conn):
         conn.execute(f"create table {nome} as " + sql)
 
 
-class TestPipeline(unittest.TestCase):
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.tmp.cleanup)
-        self.pasta = Path(self.tmp.name)
-        fontes(self.pasta)
-        self.conn = sqlite3.connect(":memory:")
-        self.addCleanup(self.conn.close)
-
+class TestRegras(unittest.TestCase):
     def test_usa_apenas_regras_implementadas(self):
         for regras in ({}, {**REGRAS_SUPORTADAS, "deduplicar_cte": 1},
                        {**REGRAS_SUPORTADAS, "rateio_cte": "valor"}):
             with self.subTest(regras=regras), self.assertRaises(ValueError):
                 validar_regras(regras)
 
+
+class TestProjecaoLanding(unittest.TestCase):
+    def test_une_nfes_a_copia_fisica_e_preserva_carga(self):
+        chave = "A"
+        original = ("2026-09-01/a.xml", "a" * 64, 1)
+        reenvio = ("2026-09-02/a.xml", "a" * 64, 2)
+        registro = (chave, "CTeA", chave, "100", "13.50")
+        tabelas = {"cte/cte": [(original, registro), (reenvio, registro)],
+                   "cte/cte_nfe": [(original, (chave, "1")), (reenvio, (chave, "1"))], "cte/cte_evento": []}
+        landing = Mock(spec=Landing)
+        landing.ler.side_effect = tabelas.__getitem__
+        rows = list(documentos(landing))
+        self.assertEqual([(r[0], r[2], r[-2:]) for r in rows],
+                         [(original[0], 1, ("1", 1350)), (reenvio[0], 2, ("1", 1350))])
+        # A chave fiscal sozinha não vincula o documento a um filho de outro arquivo/carga.
+        tabelas["cte/cte_nfe"].pop()
+        with self.assertRaisesRegex(ValueError, "sem NF-e correspondente"):
+            list(documentos(landing))
+
+    def test_carga_api_tem_origem_e_preserva_ausencia_de_linha_fisica(self):
+        landing = Mock(spec=Landing, nivel=1)
+        landing.ler.return_value = [(("tms:/entregas", 7), ("e1",))]
+        self.assertEqual(list(Landing.registros(landing, "tms/tms_entregas")),
+                         [((None, None, "tms:/entregas", 7), ("e1",))])
+        landing.ler.return_value = [(("tms:/entregas", 0), ("e1",))]
+        with self.assertRaisesRegex(ValueError, "linhagem"):
+            list(Landing.registros(landing, "tms/tms_entregas"))
+
+
+@unittest.skipUnless(landing_n0, "a landing Parquet requer o DuckDB fixado da sandbox")
+class TestPipeline(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.pasta = Path(self.tmp.name)
+        self.bruto = self.pasta / "bruto"
+        fontes(self.bruto)
+        self.conn = sqlite3.connect(":memory:")
+        self.addCleanup(self.conn.close)
+
+    def materializar(self):
+        destino = self.pasta / "landing"
+        landing_n0(self.bruto, destino)
+        return destino
+
     def test_erro_em_xml_reverte_ingestao_inteira(self):
-        escrever(self.pasta, "cte/quebrado.xml", "<cte")
-        with self.assertRaisesRegex(ValueError, "quebrado.xml"):
-            ingerir(self.conn, self.pasta, REGRAS_SUPORTADAS)
+        escrever(self.bruto, "cte/quebrado.xml", "<cte")
+        with self.assertRaisesRegex(ValueError, "rejeições"):
+            ingerir(self.conn, self.materializar(), REGRAS_SUPORTADAS)
         self.assertEqual(self.conn.execute("select count(*) from sqlite_master").fetchone(), (0,))
 
     def test_reentrega_exige_novo_plano(self):
-        with (self.pasta / "tms/tms_entregas.csv").open("a") as fp:
+        with (self.bruto / "tms/tms_entregas.csv").open("a") as fp:
             fp.write("e4;1;v1;2026-11-21 12:00;1\n")
         with self.assertRaises(sqlite3.IntegrityError):
-            ingerir(self.conn, self.pasta, REGRAS_SUPORTADAS)
+            ingerir(self.conn, self.materializar(), REGRAS_SUPORTADAS)
+
+    @unittest.skipUnless(Environment is not None and sqlite3.sqlite_version_info >= (3, 44),
+                         "ensaio complementar requer Jinja2 e SQLite 3.44+")
+    def test_landing_n1_reune_cargas_sem_inventar_arquivo_ou_linha_de_api(self):
+        from ingestao_n1 import __main__ as n1
+
+        # ERP e TMS já entregam registros estruturados nos respectivos protocolos.
+        # A fixture substitui os transportes e executa o escritor de landing N1 de referência.
+        plano = json.loads((REPO / "packages/contracts/ingestion_plan/v0.1.0/examples/01_demo.json").read_text())
+        data = "2026-11-20"
+        arqs = self.pasta / "entrega" / data
+        arqs.mkdir(parents=True)
+        for xml in (self.bruto / "cte").glob("a*.xml"):
+            (arqs / xml.name).write_bytes(xml.read_bytes())
+        erp = {"erp_pedidos": (["cd_ped", "ch_nfe", "dt_prev_ent", "qt_itens", "ps_bruto"],
+                               [["1", "N1", data, "2", "10.0"], ["2", "N2", data, "2", "30.0"],
+                                ["3", "N3", data, "2", "10.0"]])}
+        veiculos = [{"id_veic": "c1", "cap_kg": "20"}]
+        viagens = [{"id_viag": v, "id_veic": "c1", "tp_viag": "DIST"} for v in ("v1", "v2", "v3")]
+        entregas = [{"id_ent": "e" + p, "nr_ped": p, "id_viag": v, "dt_baixa": baixa, "qt_entregue": n}
+                    for p, v, baixa, n in (("1", "v1", "20/11/26", "2"), ("2", "v1", "20/11/2026 10:00", "1"),
+                                           ("3", "v2", None, "2"))]
+        landing = self.pasta / "landing-n1"
+        inicial = {"erp_pedidos": (erp["erp_pedidos"][0], erp["erp_pedidos"][1][:2])}
+        tms = {"tms_veiculos": (veiculos, data), "tms_viagens": (viagens[:1], data),
+               "tms_entregas": (entregas[:2], data)}
+        with patch.object(n1, "ler_erp", return_value=inicial), patch.object(n1, "ler_tms", return_value=tms):
+            self.assertEqual(n1.executar(plano, landing, arqs.parent)["carga"], 1)
+        seguinte = "2026-11-21"
+        proxima = arqs.parent / seguinte
+        proxima.mkdir()
+        for xml in (self.bruto / "cte").glob("b*.xml"):
+            (proxima / xml.name).write_bytes(xml.read_bytes())
+        tms = {"tms_veiculos": ([], data), "tms_viagens": (viagens[1:], seguinte),
+               "tms_entregas": (entregas[2:], seguinte)}
+        with patch.object(n1, "ler_erp", return_value=erp), patch.object(n1, "ler_tms", return_value=tms):
+            self.assertEqual(n1.executar(plano, landing, arqs.parent)["carga"], 2)
+        ingerir(self.conn, landing, REGRAS_SUPORTADAS)
+        construir_modelos(self.conn)
+        destino = self.pasta / "saidas"
+        exportar(self.conn, destino)
+        with (destino / "por_pedido.csv").open() as fp:
+            pedido = next(csv.DictReader(fp))
+        self.assertEqual((pedido["origem_pedido"], pedido["carga_pedido"]), ("erp:erp_pedidos", "2"))
+        self.assertEqual((pedido["origem_entrega"], pedido["carga_entrega"]), ("tms:/entregas", "1"))
+        self.assertEqual((pedido["arquivo_pedido"], pedido["linha_entrega"]), ("", ""))
+        cte = json.loads(pedido["linhagem_cte"])[0]
+        self.assertEqual(cte["carga"], 1)
+        self.assertTrue(cte["arquivo"].startswith(data + "/"))
+        self.assertEqual(cte["sha256"], hashlib.sha256((arqs.parent / cte["arquivo"]).read_bytes()).hexdigest())
+        self.assertEqual(json.loads((destino / "kpis.json").read_text())["kpis"], {
+            "custo_frete_por_entrega": 0.03, "otif_pct": 33.3333, "ocupacao_pct": 83.3333})
 
     @unittest.skipUnless(Environment is not None and sqlite3.sqlite_version_info >= (3, 44),
                          "ensaio SQL complementar requer Jinja2 e SQLite 3.44+")
     def test_caso_calculado_a_mao(self):
-        ingerir(self.conn, self.pasta, REGRAS_SUPORTADAS)
+        ingerir(self.conn, self.materializar(), REGRAS_SUPORTADAS)
         construir_modelos(self.conn)
         for arquivo in (PROJETO / "tests").glob("*.sql"):
             with self.subTest(arquivo=arquivo.name):
@@ -122,7 +222,7 @@ class TestPipeline(unittest.TestCase):
         origem = json.loads(pedidos[0]["linhagem_cte"])[0]
         self.assertEqual(origem["parcela_centavos"], 2)
         self.assertEqual(origem["frete_centavos"], 6)
-        self.assertEqual(origem["sha256"], hashlib.sha256((self.pasta / origem["arquivo"]).read_bytes()).hexdigest())
+        self.assertEqual(origem["sha256"], hashlib.sha256((self.bruto / origem["arquivo"]).read_bytes()).hexdigest())
         self.assertEqual(pedidos[1]["arquivo_pedido"], "erp/erp_pedidos.csv")
         self.assertEqual(pedidos[1]["linha_pedido"], "3")
         self.assertEqual(json.loads(pedidos[2]["linhagem_cte"]), [])
@@ -146,14 +246,15 @@ class TestPipeline(unittest.TestCase):
     @unittest.skipUnless(Environment is not None and sqlite3.sqlite_version_info >= (3, 44),
                          "ensaio SQL complementar requer Jinja2 e SQLite 3.44+")
     def test_documentos_mesma_chave_com_valores_divergentes_falham(self):
-        escrever(self.pasta, "cte/a-copia.xml", cte("A", ["N1", "N2"], "900.00"))
-        ingerir(self.conn, self.pasta, REGRAS_SUPORTADAS)
+        escrever(self.bruto, "cte/a-copia.xml", cte("A", ["N1", "N2"], "900.00"))
+        ingerir(self.conn, self.materializar(), REGRAS_SUPORTADAS)
         sql = renderizar(PROJETO / "tests/documentos_conflitantes.sql")
         self.assertEqual(self.conn.execute(sql).fetchall(), [("A",)])
 
 
 @unittest.skipUnless(Environment is not None and sqlite3.sqlite_version_info >= (3, 44),
                      "ensaio SQL complementar requer Jinja2 e SQLite 3.44+")
+@unittest.skipUnless(landing_n0, "a landing Parquet requer o DuckDB fixado da sandbox")
 class TestLoteCompleto(unittest.TestCase):
     def test_01_demo_regenerado_confere_com_avaliador_e_fontes(self):
         from data.synthetic.generator.generate import generate
@@ -167,7 +268,11 @@ class TestLoteCompleto(unittest.TestCase):
             fontes = raiz / "fontes/01_demo"
             saida = raiz / "resultados"
             with closing(sqlite3.connect(":memory:")) as conn:
-                ingerir(conn, fontes, regras)
+                # O gerador inclui uma pasta privada. A montagem do worker expõe só ERP, TMS e CT-e.
+                (fontes / "_gerador").rename(raiz / "metadados-do-gerador")
+                landing = raiz / "landing"
+                landing_n0(fontes, landing)
+                ingerir(conn, landing, regras)
                 construir_modelos(conn)
                 for arquivo in sorted((PROJETO / "tests").glob("*.sql")):
                     with self.subTest(teste=arquivo.name):

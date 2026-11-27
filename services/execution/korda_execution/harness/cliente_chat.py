@@ -10,6 +10,7 @@ import json
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
+from collections.abc import Callable
 from typing import Protocol
 
 
@@ -47,7 +48,9 @@ class RespostaChat:
         chamadas = [{"id": c.get("id", ""), "nome": c.get("function", {}).get("name", ""),
                      "argumentos": c.get("function", {}).get("arguments") or "{}"}
                     for c in (mensagem.get("tool_calls") or [])]
-        usage = usage if isinstance(usage, dict) else None
+        if not isinstance(usage, dict) or not all(type(usage.get(c)) is int and usage[c] >= 0
+                                                  for c in ("prompt_tokens", "completion_tokens")):
+            usage = None
         return cls(conteudo=mensagem.get("content") or "", tool_calls=chamadas,
                    tokens_entrada=int((usage or {}).get("prompt_tokens") or 0),
                    tokens_saida=int((usage or {}).get("completion_tokens") or 0),
@@ -69,10 +72,12 @@ class ClienteChatHttp:
     def __repr__(self) -> str:
         return f"ClienteChatHttp(url={self.url!r}, modelo={self.modelo!r})"
 
-    def completar(self, mensagens: list[dict], ferramentas: list[dict]) -> RespostaChat:
+    def completar(self, mensagens: list[dict], ferramentas: list[dict], *, max_tokens: int | None = None) -> RespostaChat:
         dados = {"model": self.modelo, "messages": mensagens}
         if ferramentas:
             dados["tools"] = ferramentas
+        if max_tokens is not None:
+            dados["max_tokens"] = max_tokens
         corpo = json.dumps(dados).encode("utf-8")
         pedido = urllib.request.Request(self.url, data=corpo, method="POST", headers={
             "Authorization": f"Bearer {self._chave}", "Content-Type": "application/json", "User-Agent": USER_AGENT})
@@ -90,6 +95,37 @@ class ClienteChatHttp:
             return RespostaChat._de_mensagem(escolha["message"], escolha.get("finish_reason", ""), dados.get("usage"))
         except (ValueError, KeyError, IndexError, TypeError, AttributeError):
             raise ErroLLM("resposta da API do LLM fora do formato chat/completions") from None
+
+
+class ClienteComOrcamento:
+    """Reserva entrada e limita a saída antes de cada chamada paga do worker."""
+
+    def __init__(self, cliente: ClienteChatHttp, orcamento_usd: float, precos: tuple[float, float],
+                 verificar_ativa: Callable[[], None]):
+        self.cliente = cliente
+        self.restante_usd = orcamento_usd
+        self.entrada, self.saida = precos
+        self.verificar_ativa = verificar_ativa
+        self.custo_completo = True
+        self.tokens_entrada = 0
+        self.tokens_saida = 0
+
+    def completar(self, mensagens, ferramentas):
+        self.verificar_ativa()
+        # Margem conservadora para o enquadramento do chat e um token por byte.
+        tamanho = len(json.dumps([mensagens, ferramentas], ensure_ascii=False).encode()) + 256 + 16 * len(mensagens)
+        verba_saida = self.restante_usd * 1_000_000 - tamanho * self.entrada
+        max_tokens = min(8192, int(verba_saida / self.saida))
+        if max_tokens <= 0 or not self.custo_completo:
+            raise ErroLLM("orçamento insuficiente para a próxima chamada")
+        self.custo_completo = False
+        resposta = self.cliente.completar(mensagens, ferramentas, max_tokens=max_tokens)
+        if resposta.uso_informado:
+            self.tokens_entrada += resposta.tokens_entrada
+            self.tokens_saida += resposta.tokens_saida
+            self.restante_usd -= (resposta.tokens_entrada * self.entrada + resposta.tokens_saida * self.saida) / 1_000_000
+            self.custo_completo = True
+        return resposta
 
 
 class ClienteChatFalso:

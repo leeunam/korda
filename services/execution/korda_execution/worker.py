@@ -13,10 +13,14 @@ from pathlib import Path
 from evaluation.worker.avaliador import avaliar
 from services.planning.korda_planning import validar_plano
 
-from .artefatos import capturar
+from .artefatos import capturar, manifesto_revisao
+from .construcao import preparar_construcao, construir_modelos
+from .harness.contexto import projetar_plano
+from .lote import preparar_lote
+from .pacote import montar_pacote
 from .correcao import executar_etapa
 from .eventos import EmissorEventos
-from .ferramentas import FerramentasRestritas
+from .ferramentas import FONTES, FerramentasRestritas
 from .sandbox import LocalDockerSandbox, RAIZ_REPO
 
 PROJETO = RAIZ_REPO / "services/execution/pipeline/projeto"
@@ -71,14 +75,14 @@ def _validar_parametros(plano: dict, run_id: str) -> None:
         raise FalhaExecucao("run_id exige um identificador local de até 64 caracteres")
     if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}", plano["destination"] or ""):
         raise FalhaExecucao("defina um identificador de destino local válido antes da execução")
-    if plano["editable_models"] != [MODELO_CTE]:
+    if "ingestion" not in plano and plano["editable_models"] != [MODELO_CTE]:
         raise FalhaExecucao("a lista de modelos autorizados diverge do projeto de execução")
     # A mesma verificação é repetida pelo ponto de entrada protegido dentro da sandbox.
     from services.execution.pipeline.projeto.ingerir import validar_regras
     validar_regras({chave: regra["value"] for chave, regra in plano["rules"].items()})
 
 
-def _build(ferramentas, eventos, limite, verificar_ativa):
+def _build_legado(ferramentas, eventos, limite, verificar_ativa):
     def tentar():
         verificar_ativa()
         resultado = ferramentas.rodar_dbt("build")
@@ -108,8 +112,54 @@ def _build(ferramentas, eventos, limite, verificar_ativa):
     return executar_etapa(tentar, corrigir, registrar, limite=limite)
 
 
+def _escrever_json(caminho, dados):
+    caminho.write_text(json.dumps(dados, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _avaliar(resultados, plano, snapshot, regras, landing, janela, revisao, eventos):
+    laudo = avaliar(resultados, plano["dataset"], fontes=snapshot, regras=regras,
+                   landing=landing, janela_replay=janela)
+    _escrever_json(revisao / "avaliacao.json", laudo)
+    eventos.emit_event("avaliacao", "evaluation_finished", laudo["classe"],
+                       aprovado=laudo["aprovado"], divergencias=laudo["divergencias"])
+    if not laudo["aprovado"]:
+        raise FalhaExecucao(f"avaliação externa recusou os resultados ({laudo['classe']})")
+
+
+def _modelar(sandbox, plano, revisao, eventos, verificar_ativa, config):
+    publico = projetar_plano(plano)
+    publico.update({k: plano[k] for k in ("project_id", "dataset")})
+    ferramentas = FerramentasRestritas(sandbox, eventos, plano_aprovado=publico,
+                                       modelos_permitidos=frozenset(plano["editable_models"]))
+    regras = ferramentas.ler_plano()["plano"]["rules"]
+    perfis = {}
+    for fonte in sorted(FONTES):
+        verificar_ativa()
+        perfil = ferramentas.inspecionar_fonte(fonte)
+        if not perfil["ok"]:
+            raise FalhaExecucao(f"perfil de {fonte}: {perfil.get('erro')}")
+        perfis[fonte] = perfil["perfil"]
+    _escrever_json(revisao / "fontes.json", perfis)
+    verificar_ativa()
+    bronze = sandbox.rodar_comando(["python", "/work/projeto/ingerir.py"], timeout_s=240,
+                                   stdin=json.dumps(regras).encode())
+    if not bronze.ok:
+        raise FalhaExecucao("projeção da landing em bronze falhou: " + bronze.stderr[-1000:])
+    if config is None:
+        resultado = _build_legado(ferramentas, eventos, plano["limits"]["max_repair_attempts_per_step"],
+                                  verificar_ativa)
+    else:
+        resultado = construir_modelos(config, plano, ferramentas, eventos, revisao, verificar_ativa)
+    if not resultado["ok"]:
+        raise FalhaExecucao(resultado["erro"])
+    verificar_ativa()
+    exportacao = sandbox.rodar_comando(["python", "/work/projeto/exportar.py"], timeout_s=120)
+    if not exportacao.ok:
+        raise FalhaExecucao("exportação falhou: " + exportacao.stderr[-1000:])
+
+
 def executar(registro, plano, run_id, *, raiz: Path, fontes: Path) -> dict:
-    """Reserva a execução, constrói, congela o resultado e o entrega ao avaliador externo."""
+    """Processa a landing N0/N1 autorizada e congela a entrega para a segunda aprovação."""
     _validar_parametros(plano, run_id)
     raiz = Path(raiz).resolve()
     regras = {chave: regra["value"] for chave, regra in plano["rules"].items()}
@@ -120,62 +170,44 @@ def executar(registro, plano, run_id, *, raiz: Path, fontes: Path) -> dict:
             raise FalhaExecucao("a autorização desta execução foi revogada")
 
     revisao = raiz / "revisao" / run_id
+    resultados = revisao / "resultados"
     eventos = EmissorEventos(revisao / "eventos.jsonl", run_id)
     try:
-        revisao.mkdir(parents=True, exist_ok=False)
+        revisao.mkdir(mode=0o700, parents=True, exist_ok=False)
         eventos.emit_event("plano", "run_started", "Iniciada a versão aprovada do plano",
                            project_id=plano["project_id"], plan_version=plano["plan_version"])
+        config = preparar_construcao(plano) if "ingestion" in plano else None
+        if config is None and os.environ.get("KORDA_EXECUTOR", "").strip() not in ("", "roteirizado"):
+            raise FalhaExecucao("o plano v0.1 autoriza apenas a correção roteirizada do modelo CT-e")
         with tempfile.TemporaryDirectory(dir=revisao, prefix="fontes-") as temp:
-            snapshot = Path(temp)
+            temporario = Path(temp)
+            snapshot = temporario / "brutos"
+            snapshot.mkdir()
             _snapshot(Path(fontes), snapshot)
             verificar_ativa()
-            sandbox = LocalDockerSandbox(run_id, PROJETO, snapshot, raiz_runs=raiz / "sandbox",
+            landing, publicas, janela = preparar_lote(plano, snapshot, temporario, revisao, eventos, verificar_ativa)
+            if janela and janela[0] != janela[1]:
+                _avaliar(resultados, plano, snapshot, regras, landing, janela, revisao, eventos)
+                raise FalhaExecucao("a janela parcial requer uma avaliação específica para o período")
+            verificar_ativa()
+            sandbox = LocalDockerSandbox(run_id, PROJETO, publicas, raiz_runs=raiz / "sandbox",
                                          modelos_permitidos=tuple(plano["editable_models"]),
-                                         exigir_manifesto=False)
+                                         modelos_vazios=config is not None)
             try:
                 sandbox.criar()
-                publico = {k: plano[k] for k in ("project_id", "plan_version", "dataset", "metrics",
-                                                  "limits", "editable_models")}
-                publico["rules"] = regras
-                ferramentas = FerramentasRestritas(sandbox, eventos, plano_aprovado=publico,
-                                                    modelos_permitidos=frozenset(plano["editable_models"]))
-                plano_executor = ferramentas.ler_plano()["plano"]
-                perfis = {}
-                for fonte in ("erp_pedidos", "tms_entregas", "cte"):
-                    perfil = ferramentas.inspecionar_fonte(fonte)
-                    if not perfil["ok"]:
-                        raise FalhaExecucao(f"perfil de {fonte}: {perfil.get('erro')}")
-                    perfis[fonte] = perfil["perfil"]
-                (revisao / "fontes.json").write_text(json.dumps(perfis, ensure_ascii=False, indent=2) + "\n",
-                                                     encoding="utf-8")
-                verificar_ativa()
-                ingestao = sandbox.rodar_comando(["python", "/work/projeto/ingerir.py"], timeout_s=240,
-                                                 stdin=json.dumps(plano_executor["rules"]).encode())
-                if not ingestao.ok:
-                    raise FalhaExecucao("ingestão das fontes falhou: " + ingestao.stderr[-1000:])
-                limite = plano["limits"]["max_repair_attempts_per_step"]
-                resultado = _build(ferramentas, eventos, limite, verificar_ativa)
-                if not resultado["ok"]:
-                    raise FalhaExecucao(resultado["erro"])
-                verificar_ativa()
-                exportacao = sandbox.rodar_comando(["python", "/work/projeto/exportar.py"], timeout_s=120)
-                if not exportacao.ok:
-                    raise FalhaExecucao("exportação falhou: " + exportacao.stderr[-1000:])
-                # Fechar o produtor antes de abrir arquivos para inspeção no host.
+                _modelar(sandbox, plano, revisao, eventos, verificar_ativa, config)
                 sandbox.destruir(apagar_diretorio=False)
-                manifesto = capturar(sandbox.dir_run / "saida/resultados", revisao / "resultados")
+                manifesto = capturar(sandbox.dir_run / "saida/resultados", resultados)
+                verificar_ativa()
+                _avaliar(resultados, plano, snapshot, regras, landing, janela, revisao, eventos)
+                if config is not None:
+                    montar_pacote(sandbox.dir_run / "projeto", resultados, revisao, plano)
+                    manifesto = manifesto_revisao(resultados)
             finally:
                 sandbox.destruir()
-            laudo = avaliar(revisao / "resultados", plano["dataset"], fontes=snapshot, regras=regras)
-        (revisao / "avaliacao.json").write_text(json.dumps(laudo, ensure_ascii=False, indent=2) + "\n",
-                                               encoding="utf-8")
-        eventos.emit_event("avaliacao", "evaluation_finished", laudo["classe"],
-                           aprovado=laudo["aprovado"], divergencias=laudo["divergencias"])
-        if not laudo["aprovado"]:
-            raise FalhaExecucao(f"avaliação externa recusou os resultados ({laudo['classe']})")
+        verificar_ativa()
         registro.finalizar(run_id, aprovado=True, manifesto=manifesto)
     except BaseException as exc:
-        # Uma falha na preparação, no build, na comparação ou uma interrupção nunca autoriza entrega.
         if registro.consultar(run_id)["state"] == "executando":
             registro.finalizar(run_id, aprovado=False)
             if revisao.is_dir():

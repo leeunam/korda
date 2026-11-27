@@ -1,131 +1,113 @@
 # Worker de execução da Korda
 
-O worker processa o **lote sintético 01_demo**. Lê a versão de plano aprovada pelo operador, constrói frete por entrega, OTIF e ocupação com DuckDB/dbt e entrega os resultados a um avaliador independente. Uma segunda decisão humana autoriza a cópia para uma pasta local. O [planejamento da integração](../../docs/plano-integracao-worker.md) situa essa entrega nas 17 issues do projeto.
+O worker recebe um plano aprovado para a transportadora sintética `01_demo`, prepara as fontes autorizadas e constrói frete por entrega, OTIF e ocupação. O avaliador compara os três indicadores e os resultados por pedido e viagem. A publicação em uma pasta local depende de uma segunda decisão humana. [Planejador](../planning/README.md) · [Pipeline logístico](pipeline/README.md) · [Avaliador](../../evaluation/worker/README.md)
 
-## Preparar o lote e o plano
+## Escolher a ingestão
 
-Na raiz do repositório, use Python 3.11 ou superior, uma instalação local do Docker e um usuário sem root com permissão de usar o daemon. O host executa o operador e o gerador. A imagem contém as versões de dbt e DuckDB usadas pelo pipeline.
+| Plano | O que a execução lê | Linhagem disponível |
+| --- | --- | --- |
+| N0 · arquivos exportados | Cinco CSVs do ERP/TMS e os XMLs de CT-e entram no contêiner de ingestão. O formato de saída é Parquet com manifesto. | Arquivo e linha para registros de CSV. Arquivo, chave e SHA-256 para cada parcela de CT-e usada no custo. |
+| N1 · sistemas simulados | O simulador da 01 alimenta o ERP em PostgreSQL, o TMS por API e uma pasta de entrega de CT-e. A ingestão de referência segue a proposta aprovada e materializa as tabelas na mesma estrutura de landing. | Origem lógica, chave da entidade e carga para ERP/TMS. Arquivo de entrega, SHA-256, chave, carga e centavos para CT-e. |
+
+O operador mantém compatibilidade com o plano v0.1 aprovado para a 01. Ele conserva a versão e a única permissão de correção em `models/prata_ctes.sql`; depois de validado, o revisor pode promover os três arquivos originais. O ZIP e a construção dos cinco modelos são entregas da v0.2. [Plano legado reproduzível](../../packages/contracts/plan/v0.1.0/examples/01_demo.json)
+
+O plano `plan/v0.2.0` inclui nível, janela, proposta de ingestão e lista de modelos editáveis na versão que o operador aprova. O lote integral permite comparar N0 e N1 com o gabarito da 01. Em uma janela parcial N1, o worker registra o relatório da ingestão e a falta de referência adequada, interrompe a execução e mantém a entrega bloqueada. A proposta N1 exige o contexto confirmado da mesma empresa, projeto e revisão. [Contrato do plano](../../packages/contracts/plan/v0.2.0/README.md) · [Proposta e exemplos de ingestão](../../packages/contracts/ingestion_plan/v0.1.0/README.md)
+
+## Preparar o ambiente e o plano
+
+Na raiz do repositório, use Python 3.11 ou superior e um usuário sem root com acesso a Docker. Para o primeiro ensaio, escolha a construção roteirizada, que usa os modelos de referência e tem custo de provedor zero. O consumo de CPU, memória, disco e tempo depende do host.
 
 ```bash
 python3 -m venv .venv
 . .venv/bin/activate
-python -m pip install -r requirements-contracts.txt -r requirements-synthetic.txt
+python -m pip install -r requirements-worker.txt
 docker build -t korda-sandbox:dev infra/sandbox
 python data/synthetic/generator/generate.py --empresa 01_demo
+export KORDA_EXECUTOR=roteirizado
 mkdir -p runs/preparo
-python -m services.planning.korda_planning \
-  packages/contracts/context/v0.1.0/examples/02_rateio_confirmado.json \
-  --destino revisao-logistica --custo-estimado-centavos 0 > runs/preparo/plano.json
-python -m services.execution.korda_execution registrar runs/preparo/plano.json
 ```
 
-O valor zero exemplifica a estimativa do operador para um ensaio local sem chamada a provedor. O custo de infraestrutura depende do ambiente. Para demonstrar uma lacuna, use a revisão `01_rateio_pendente.json`. Nela, o custo fica bloqueado até a confirmação do financeiro. Uma alteração de regras, destino ou estimativa muda o identificador da versão. [Contrato do plano](../../packages/contracts/plan/v0.1.0/README.md)
+Para N0, gere o plano com a revisão confirmada e a estimativa do ensaio.
 
-## Operar as duas aprovações
+```bash
+python -m services.planning.korda_planning \
+  packages/contracts/context/v0.1.0/examples/02_rateio_confirmado.json \
+  --nivel-ingestao n0 --destino revisao-logistica --custo-estimado-centavos 0 \
+  > runs/preparo/plano-n0.json
+```
 
-O comando `registrar` exibe projeto e versão. A pessoa responsável confere o plano e usa o identificador integral em `VERSAO`. Os comandos de decisão aceitam `aprovar` ou `rejeitar` e registram pessoa e instante UTC. A identificação é declarada pelo operador com acesso ao host. A integração da autenticação com a interface continua pendente.
+Para N1, prepare também as imagens dos sistemas simulados e forneça o documento de ingestão. A omissão de `--ate-dia` seleciona o lote completo. `--ate-dia 2026-09-02` exemplifica um corte para testar o diagnóstico de janela parcial. As credenciais dos serviços são temporárias e ficam no ambiente do simulador.
+
+```bash
+docker build -t korda-simulados:dev infra/sistemas-simulados
+docker pull postgres:17.6-alpine
+python -m services.planning.korda_planning \
+  packages/contracts/context/v0.1.0/examples/02_rateio_confirmado.json \
+  --nivel-ingestao n1 \
+  --proposta-ingestao packages/contracts/ingestion_plan/v0.1.0/examples/01_demo.json \
+  --destino revisao-logistica --custo-estimado-centavos 0 \
+  > runs/preparo/plano-n1.json
+```
+
+## Revisar, executar e entregar
+
+Escolha um dos arquivos em `PLANO`. O exemplo usa N1. Defina `REVISOR` com a identificação de quem tomou a decisão e `RUN_ID` com um identificador novo. O registro guarda pessoa, decisão e instante UTC em SQLite. A identificação do revisor é declarada pelo operador com acesso ao host.
+
+```bash
+PLANO=runs/preparo/plano-n1.json
+RUN_ID=demo-n1-001
+VERSAO=$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["plan_version"])' "$PLANO")
+python -m services.execution.korda_execution registrar "$PLANO"
+```
+
+Depois da conferência do plano pela pessoa responsável, o operador pode registrar a decisão e iniciar o processamento.
 
 ```bash
 python -m services.execution.korda_execution decidir-plano demo-01 "$VERSAO" aprovar --pessoa "$REVISOR"
-python -m services.execution.korda_execution executar runs/preparo/plano.json --run-id demo-001
-python -m services.execution.korda_execution consultar demo-001
+python -m services.execution.korda_execution executar "$PLANO" --run-id "$RUN_ID"
+python -m services.execution.korda_execution consultar "$RUN_ID"
 ```
 
-O operador revisa o laudo e os resultados em `runs/worker/revisao/demo-001/`. Após conferir o destino e os três arquivos do manifesto, pode registrar a segunda decisão e promover a entrega.
+Em `runs/worker/revisao/<run_id>/`, consulte `ingestao.json` para identificar a origem e a janela, `fontes.json` para o perfil, `documento_base.md` para a especificação usada pelo construtor, `medicao.json` para tentativas e custo, e `eventos.jsonl` para a sequência de ações. `avaliacao.json` contém a decisão técnica do avaliador. Em `resultados/` ficam `kpis.json`, `por_pedido.csv`, `por_viagem.csv` e `pacote.zip`. O ZIP reúne os modelos executados, testes, documentação de reprodução, evidências do build e os resultados com linhagem. O registro verifica o manifesto antes da promoção. [Pacote](korda_execution/pacote.py)
+
+O revisor confere o destino, o conteúdo e o manifesto daquela execução antes de autorizar a promoção. O comando também aceita `rejeitar`. A promoção grava a entrega em `runs/worker/entregas/<destino>/<run_id>/`. A opção global `--raiz`, antes do subcomando, permite escolher outra raiz do operador.
 
 ```bash
-python -m services.execution.korda_execution decidir-entrega demo-001 aprovar --pessoa "$REVISOR"
-python -m services.execution.korda_execution promover demo-001 revisao-logistica
+python -m services.execution.korda_execution decidir-entrega "$RUN_ID" aprovar --pessoa "$REVISOR"
+python -m services.execution.korda_execution promover "$RUN_ID" revisao-logistica
 ```
 
-Os três arquivos aparecem juntos em `runs/worker/entregas/revisao-logistica/demo-001/`. O identificador da execução é de uso único. O operador pode escolher uma raiz privada alternativa com a opção global `--raiz` antes do subcomando. O banco SQLite guarda o histórico inclusive após reinício. Uma versão substituída ou rejeitada invalida as autorizações pendentes.
+## Construção e correção
 
-## Controles e diagnóstico
-
-| Recurso | Comportamento na execução do plano |
+| Executor | Construção, correção e medição |
 | --- | --- |
-| Fontes | O host prepara uma cópia limitada dos cinco CSVs conhecidos e dos XML de CT-e. A sandbox os recebe em leitura. Perfis de ERP, TMS e XML usam amostras limitadas. O host mantém o perfil em `fontes.json`. |
-| Projeto dbt | Configuração, testes, macros e modelos de referência são protegidos. O plano deste cenário autoriza a escrita somente em `models/prata_ctes.sql`. O diretório de trabalho para o DuckDB, logs e resultados tem escrita. |
-| Execução | Contêiner sem rede, com usuário sem root, filesystem raiz de leitura, CPU, memória, processos e duração de comandos limitados. Compartilha o kernel do host. O processo de controle tem acesso ao daemon local. |
-| Ferramentas | Leitura do plano projetado, perfilamento por identificador, escrita de SQL autorizado, comandos dbt em lista permitida, consultas em modo leitura e emissão de eventos. O provedor de LLM e uma sandbox em nuvem ficam fora desta versão da demo. |
-| Correção | Uma falha do teste protegido de unicidade dos CT-e permite restaurar o modelo de deduplicação revisado e repetir o build. O limite é de três correções por etapa. Falhas sem reparo aplicável pedem intervenção. Ações e custo informado ficam em `eventos.jsonl`. |
-| Avaliação | O contêiner para antes da captura. O host verifica tipo, tamanho e hash dos arquivos e compara fontes, regras, três KPIs, pedidos e viagens com a referência protegida. O laudo completo fica em `avaliacao.json`. |
-| Entrega | A aprovação da entrega vincula a execução, o destino e o manifesto. A promoção copia `kpis.json`, `por_pedido.csv` e `por_viagem.csv` para a pasta autorizada. Modelos e documentação técnica estão no repositório. A embalagem completa para o cliente e a interface são itens de integração da K13. |
+| `roteirizado` | Usa o documento do plano e escreve os modelos de referência autorizados. O operador pode reproduzir a demo offline. O relatório identifica o modo e o custo de provedor zero. |
+| `falso` | Exercita o protocolo de chat e suas ferramentas a partir de respostas preparadas. O teste integrado usa esse transporte para construir os modelos, observar a falha de unicidade do CT-e, corrigir o modelo e repetir o build. A medição é sintética. |
+| `chat` | Usa o gateway configurado no host para gerar o documento-base e construir e corrigir os modelos. Exige habilitação explícita e credencial. A medição registra uso informado e custo estimado. |
+| `agente_sdk` | Usa construção roteirizada e o SDK na correção. Exige a dependência opcional no host, credencial e habilitação explícita. |
 
-A sandbox avulsa da fixture do Gabriel permite criar modelos dentro de `models/`. O comando de produto usa a lista exata do plano. A evidência de cálculo, as premissas fiscais da demo e o percurso de um resultado até a fonte estão no [pipeline logístico](pipeline/README.md). O [avaliador](../../evaluation/worker/README.md) documenta as tolerâncias e a comparação por entidade.
+Cada execução começa com arquivos SQL vazios para os modelos autorizados. As fontes e a configuração do dbt chegam em leitura. O worker limita o número de correções por etapa e registra a intervenção quando faltam condições para prosseguir. Uma nova regra ou outro nível de ingestão exige reavaliar o plano e registrar uma aprovação compatível. O transporte falso e a construção roteirizada permitem verificar o fluxo inteiro com dados sintéticos e custo de provedor zero. [Harness e variáveis](korda_execution/harness/README.md) · [Documento-base](korda_execution/documento_base.py) · [Ciclo de correção](korda_execution/correcao.py)
 
-## Verificação
+## Montagens, credenciais e separação do avaliador
 
-```bash
-python scripts/check_repo.py
-python -m unittest discover -s services/planning/tests
-python -m unittest discover -s services/execution/pipeline/tests
-python -m unittest discover -s evaluation/worker/tests
-KORDA_EXIGIR_DOCKER=1 python -m unittest discover -s services/execution/tests -t services/execution -v
-```
-
-O [teste integrado](tests/test_worker_docker.py) usa o gerador da 01, introduz um defeito na cópia do modelo, exige a falha de unicidade, verifica a correção no segundo build e confere que o resultado testado ainda aguarda a segunda aprovação. O job de execução da [CI](../../.github/workflows/ci.yml) exige acesso ao Docker e a imagem construída. Sem a variável de exigência, o unittest identifica os casos Docker pulados. [Planejamento e evidências desta entrega](../../docs/plano-integracao-worker.md)
-
-Os testes de nível 1 também precisam de `docker build -t korda-simulados:dev infra/sistemas-simulados` e `docker pull postgres:17.6-alpine`. Sem Docker, sem as imagens ou sem as fontes geradas, os testes de integração são **pulados** (o resumo do unittest mostra `skipped`). Com `KORDA_EXIGIR_DOCKER=1`, isso vira falha, como no CI. A imagem pode ser trocada por `KORDA_SANDBOX_IMAGE`. A integração da ingestão com a 03_reservada só roda com `KORDA_MEDIR_03=1`, porque essa empresa é só para medição. Os unitários da ingestão rodam dentro da imagem (comando em [`korda_ingestao/README.md`](../../infra/sandbox/korda_ingestao/README.md#testes)).
-
-## Estado (25/11/2026)
-
-**Rascunho para [K08](https://github.com/leeunam/korda/issues/8), [K09](https://github.com/leeunam/korda/issues/9) e [K10](https://github.com/leeunam/korda/issues/10).** Existem a sandbox local em Docker, as ferramentas restritas, a ingestão de níveis 0 e 1, o worker com as duas aprovações, o ciclo de até três correções e o avaliador independente, com testes. **O pipeline dbt dos três indicadores é escrito à mão** (referência e plano B da demo), e a correção é roteirizada. **Decisão de 25/11/2026:** o [harness](korda_execution/harness/README.md) constrói o pipeline a partir do plano aprovado e do [documento-base](korda_execution/documento_base.py); o worker só orquestra. O harness existe com testes de cliente falso e um teste de fumaça real do gateway, mas **ainda não está ligado ao worker** e a construção nunca rodou com LLM real. **Ainda não existem nesta versão:** essa ligação (com `models/` vazio na sandbox e as travas do worker afrouxadas), a sandbox em nuvem e a unificação das duas ingestões. O worker ainda recebe fontes brutas (`exigir_manifesto=False`); a sandbox avulsa exige a landing zone. Os tipos de evento são provisórios até a [K01](https://github.com/leeunam/korda/issues/1).
-
-## Componentes
-
-| Caminho | Conteúdo |
+| Etapa | Acesso concedido |
 | --- | --- |
-| [`../../infra/sandbox/`](../../infra/sandbox/Dockerfile) | Imagem da sandbox: dbt-core, dbt-duckdb, duckdb e lxml fixados, usuário sem root, `consulta.py` (SQL somente leitura), `perfil.py` e o pacote de ingestão. |
-| [`../../infra/sandbox/korda_ingestao/`](../../infra/sandbox/korda_ingestao/README.md) | Ingestão de nível 0 que roda no contêiner: CSV e CT-e em XML → Parquet, `_rejeitados` e `manifesto.json`. |
-| [`korda_execution/ingestao.py`](korda_execution/ingestao.py) | `ingerir()` e CLI: sobe o contêiner de ingestão sem rede, com as fontes brutas somente leitura. |
-| [`korda_execution/ingestao_n1.py`](korda_execution/ingestao_n1.py) | `executar_ingestao()`: roda um código de ingestão de nível 1 só na rede interna do [ambiente simulado](../../infra/sistemas-simulados/README.md), com plano, CT-e e código somente leitura e credenciais por `--env-file` temporário. |
-| [`referencia/`](referencia/README.md) | Ingestão de nível 1 de referência (plano B e base de comparação), fora da imagem e fora do alcance do agente. |
-| [`korda_execution/sandbox.py`](korda_execution/sandbox.py) | Interface `Sandbox` (`criar`, `enviar_arquivos`, `rodar_comando`, `destruir`) e `LocalDockerSandbox`. |
-| [`korda_execution/ferramentas.py`](korda_execution/ferramentas.py) | Ferramentas que o harness vai expor ao agente. |
-| [`korda_execution/caminhos.py`](korda_execution/caminhos.py) | Política de caminhos e lista branca do dbt. |
-| [`korda_execution/harness/`](korda_execution/harness/README.md) | Executores (`chat` constrói e corrige via chat/completions; `agente_sdk`; `roteirizado` como plano B; `falso`), política e hook, contexto, orçamento, medição, `construir_e_verificar` e adaptador provisório de eventos (com custo) para o front. |
-| [`korda_execution/documento_base.py`](korda_execution/documento_base.py) | Chamada de API do worker que gera o documento-base (especificação) a partir do contexto e do plano. |
-| [`korda_execution/eventos.py`](korda_execution/eventos.py) | `emit_event` provisório (JSONL por execução). |
-| [`korda_execution/smoke.py`](korda_execution/smoke.py) | Teste de fumaça: ingere as fontes do gerador e sobe a sandbox sobre a landing. |
-| [`pipeline/`](pipeline/README.md) | Pipeline dbt da 01 escrito à mão (referência e plano B). |
-| [`tests/`](tests/fixtures/README.md) | Testes unitários e de integração; fixture dbt com dados sintéticos. |
+| Ingestão N0 | Contêiner efêmero sem rede, arquivos autorizados em leitura e landing de saída. |
+| Ingestão N1 | Contêiner efêmero na rede interna do simulador. O código de ingestão e o plano são de leitura, a landing recebe as cargas e o processo recebe credenciais temporárias dos serviços. |
+| Construção e testes dbt | Contêiner sem rede. `/work/fontes` contém a landing com manifesto em leitura. O projeto protegido inclui macros, definições e testes. Cada arquivo de `editable_models` e `/work/saida` recebe escrita. |
+| Avaliação e entrega | O host encerra o produtor e compara as saídas congeladas. O avaliador lê as respostas esperadas fora das montagens de construção. O registro serializa as decisões e a promoção para o destino autorizado. |
 
-O worker (processo Python no host) usa só a biblioteca padrão e o CLI do Docker. As dependências ficam na imagem. O executor `chat` e o documento-base também usam só a biblioteca padrão. A exceção é o executor `agente_sdk`, que precisa do `claude-agent-sdk` no host ([`requirements-harness.txt`](../../requirements-harness.txt)); os testes funcionam sem ele.
+O isolamento foi desenhado para uma demonstração sintética. O contêiner compartilha o kernel do host. O controle usa o daemon Docker e quem administra o host controla os arquivos e os serviços. A API do TMS e o PostgreSQL pertencem ao simulador local da equipe. A autenticação dos usuários da interface e a integração com sistemas reais dependem de trabalho próprio. [Sandbox](korda_execution/sandbox.py) · [Simulador](../../infra/sistemas-simulados/README.md) · [Ingestão de referência](referencia/README.md)
 
-Fluxo de nível 0: **fontes brutas** (`data/synthetic/output/<empresa>`) → **ingestão** (contêiner efêmero) → **landing zone** em Parquet → **sandbox** (`/work/fontes`). A ingestão não limpa nada: duplicatas, cancelados e formatos mistos chegam intactos para o agente tratar conforme o plano. Detalhes em [`korda_ingestao/README.md`](../../infra/sandbox/korda_ingestao/README.md).
+## Verificação reproduzível
 
-Fluxo de nível 1: **sistemas simulados** (ERP em Postgres, TMS por API, pasta de CT-e; replay por dias) → **código de ingestão** que segue a [seção de ingestão do plano](../../packages/contracts/ingestion_plan/v0.1.0/README.md) → a **mesma landing**, com cargas incrementais. Hoje o código é a [referência](referencia/README.md). Os testes de aceite do plano estão em [`tests/test_ingestao_n1.py`](tests/test_ingestao_n1.py).
-
-Sandbox avulsa sobre a landing:
+A suíte de execução no GitHub Actions constrói as imagens e prepara os lotes de ajuste. Estes comandos, a partir da raiz, executam os testes de ponta a ponta depois de preparar as imagens e o ambiente acima. A variável de exigência faz a suíte falhar se Docker ou uma imagem estiver indisponível.
 
 ```bash
-python3 data/synthetic/generator/generate.py --empresa 01_demo
-cd services/execution
-python3 -m korda_execution.ingestao --fontes ../../data/synthetic/output/01_demo --destino ../../data/synthetic/landing/01_demo
-python3 -m korda_execution.smoke --landing ../../data/synthetic/landing/01_demo   # ou --fontes <bruto>, que ingere antes
+KORDA_EXIGIR_DOCKER=1 python -m unittest discover -s services/execution/tests \
+  -t services/execution -p 'test_worker*docker.py' -v
 ```
 
-## Montagens da sandbox
-
-| Dentro do contêiner | Origem | Acesso |
-| --- | --- | --- |
-| `/work/fontes` | landing zone (Parquet + `manifesto.json`) na sandbox avulsa; cópia validada das fontes brutas no worker; `_gerador/` coberta por um tmpfs vazio, se existir | somente leitura |
-| `/work/projeto` | cópia do projeto (`dbt_project.yml`, `profiles.yml`, `definicoes/`, `tests/`) | somente leitura |
-| `/work/projeto/models` | `runs/<run_id>/projeto/models`; no worker, só os arquivos de `editable_models` | escrita |
-| `/work/saida` | `runs/<run_id>/saida` (`korda.duckdb`, `target/`, `logs/`) | escrita |
-| `/tmp` | tmpfs de 256 MB, `noexec` | escrita |
-| resto do sistema | imagem | somente leitura (`--read-only`) |
-
-`LocalDockerSandbox` recusa, por padrão, uma pasta de fontes sem `manifesto.json` (`exigir_manifesto=True`), para que a sandbox não receba fontes brutas por engano. O worker do plano aprovado desliga essa exigência porque valida e copia as fontes brutas antes. As fontes do dbt na landing apontam para Parquet, por exemplo `external_location: "read_parquet('/work/fontes/{name}.parquet')"`. O projeto dbt precisa declarar `model-paths: ["models", "definicoes"]`. Fontes e testes de esquema ficam em `definicoes/` (protegida), e os modelos materializam como tabela, porque a consulta somente leitura não acessa arquivos.
-
-## Limites conhecidos
-
-- **Não é isolamento de produção.** O contêiner compartilha o kernel do host. Para dados de clientes seriam necessários microVM (gVisor, Firecracker) ou sandbox gerenciada, além de revisão de segurança.
-- O worker precisa de acesso ao Docker (grupo `docker`, equivalente a root no host). O agente nunca recebe esse acesso nem o socket.
-- Código do agente roda dentro da sandbox: um modelo Python do dbt ou um hook SQL executa com as permissões do contêiner. Ele pode escrever em `models/` e `saida/`, mas não em fontes nem em testes.
-- A ingestão não valida o XSD dos CT-e, e sua heurística de cabeçalho pode errar em casos ambíguos (ver [limites da ingestão](../../infra/sandbox/korda_ingestao/README.md#limites-conhecidos)).
-- `_gerador/` é ocultada por nome, na ingestão e na sandbox. Outra pasta de respostas dentro das fontes precisaria ser adicionada em `ocultar_nas_fontes`. Os gabaritos (`evaluation/`) não são montados.
-- A imagem não tem git nem rede: `dbt deps` não funciona, e `dbt debug` só com `--connection`.
-- As dependências transitivas da imagem não estão fixadas, só as três principais.
-- Os eventos vão para um JSONL local; o backend (P4) não está escolhido.
+- O E2E de N0 observa os modelos vazios antes da construção, injeta o defeito na primeira chamada ao dbt e exige reconstrução bem-sucedida após uma correção. Confere artefatos, registros de custo e espera pela aprovação da entrega. Um segundo teste processa e promove os três arquivos originais com o plano v0.1 registrado e sua permissão única. [Teste do worker](tests/test_worker_docker.py)
+- O E2E N0/N1 compara os três KPIs e cada pedido e viagem do lote completo. Confere a linhagem de ERP/TMS e a correspondência do SHA-256 dos CT-e aos XMLs da origem. Verifica a promoção, depois da segunda decisão, do pacote da mesma execução. Uma segunda execução N1 usa o corte de 02/09 para verificar a recusa antes de construir e a limpeza após a falha. [Teste dos dois níveis](tests/test_worker_ingestao_docker.py)
+- Paginação, reexecução idempotente, falhas transitórias e mudança de esquema da ingestão N1 têm testes próprios. Os exemplos de ajuste são 01 e 02. A empresa reservada 03 tem execução de medição separada. [Testes de ingestão](tests/test_ingestao_n1.py) · [CI](../../.github/workflows/ci.yml)
