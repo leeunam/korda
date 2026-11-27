@@ -1,0 +1,12 @@
+**
+!services/
+!services/context/
+!services/context/pyproject.toml
+!services/context/uv.lock
+!services/context/alembic.ini
+!services/context/migrations/
+!services/context/migrations/**
+!services/context/korda_context/
+!services/context/korda_context/**
+**/__pycache__/**
+**/*.pyc
