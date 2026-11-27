@@ -4,7 +4,7 @@ Each test owns a uniquely named schema; no existing application tables are touch
 """
 
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import os
 from pathlib import Path
 from uuid import uuid4
@@ -239,8 +239,13 @@ def test_confirmation_is_bound_to_latest_sent_unconsumed_question(repo):
         assert session.latest_question(participant["id"]) is None
         session.set_outbox_state(question["id"], "sending")
         session.set_outbox_state(question["id"], "sent", message_id="out.synthetic-01")
-        assert session.latest_question(participant["id"])["question_data"]["claim_ids"] == ["claim-01"]
-    received = repo.ingest(event(), enqueue_marker)
+        sent = session.latest_question(participant["id"])
+        assert sent["question_data"]["claim_ids"] == ["claim-01"]
+    stale = repo.ingest(event("wamid.synthetic-stale", timestamp=sent["sent_at"]), enqueue_marker)
+    with repo.transaction("demo") as session:
+        with pytest.raises(ValueError, match="after the question was sent"):
+            session.consume_question(question["id"], stale["id"])
+    received = repo.ingest(event(timestamp=sent["sent_at"] + timedelta(seconds=1)), enqueue_marker)
     with repo.transaction("demo") as session:
         session.consume_question(question["id"], received["id"])
         assert session.latest_question(participant["id"]) is None
