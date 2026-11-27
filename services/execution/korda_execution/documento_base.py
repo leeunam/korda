@@ -58,6 +58,7 @@ class DocumentoBase:
     # None: a resposta não trouxe uma decisão válida; o worker não constrói sem ela.
     pronto_para_construir: bool | None = None
     perguntas: list[dict] = field(default_factory=list)
+    finish_reason: str = ""  # "length": a resposta cortou no teto de tokens
 
 
 def _pergunta(item) -> dict | None:
@@ -134,4 +135,5 @@ def gerar_documento_base(cliente: ClienteChat, contexto: dict, plano_publico: di
         custo = round((resposta.tokens_entrada * precos[0] + resposta.tokens_saida * precos[1]) / 1_000_000, 6)
     ausentes = [s for s in SECOES if f"## {s}" not in texto]
     pronto, perguntas = ler_decisao(texto)
-    return DocumentoBase(texto, resposta.tokens_entrada, resposta.tokens_saida, custo, ausentes, pronto, perguntas)
+    return DocumentoBase(texto, resposta.tokens_entrada, resposta.tokens_saida, custo, ausentes, pronto, perguntas,
+                         resposta.finish_reason)
