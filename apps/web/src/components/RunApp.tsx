@@ -79,7 +79,7 @@ export function RunApp() {
       <div
         id="run-sidebar"
         style={panel?.axis === "x" ? { width: panel.value } : undefined}
-        className={`flex min-h-0 shrink-0 flex-col gap-2 md:gap-3 ${panel ? "" : "md:w-[340px]"}`}
+        className={`flex min-h-0 shrink-0 flex-col gap-2 md:gap-3 ${panel ? "" : "md:w-[var(--panel-x,340px)]"}`}
       >
         <section aria-label="Run controls" className="shrink-0 rounded-[16px] bg-canvas shadow-card">
           <RunControls

@@ -146,10 +146,10 @@ export function OperatorPanel() {
   }
 
   return <main className="op" lang="pt-BR">
-    <header className="op-head"><div><Link href="/" className="op-logo" aria-label="Korda · grafo de exemplo">
+    <header className="op-head"><div><Link href="/run" className="op-logo" aria-label="Korda · grafo de exemplo">
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src="/korda-wordmark-white.svg" alt="Korda" width="78" height="22" /></Link>
-      <span>Painel do operador</span></div><Link href="/" className="op-link"><ArrowLeftIcon />Grafo de exemplo</Link></header>
+      <span>Painel do operador</span></div><Link href="/run" className="op-link"><ArrowLeftIcon />Grafo de exemplo</Link></header>
     <div className="op-body">
       <h1>Operação do projeto</h1>
       <section className="op-card" aria-label="Selecionar projeto">

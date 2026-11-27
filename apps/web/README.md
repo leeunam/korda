@@ -12,7 +12,7 @@ Requer Node 20+ e pnpm.
 
 ```bash
 pnpm install
-pnpm dev     # http://localhost:3000
+pnpm dev     # http://localhost:3000 (landing em /, grafo em /run)
 pnpm test    # testes (Vitest)
 pnpm build   # build de produção, como no Vercel
 ```
@@ -25,4 +25,4 @@ Em `/operador`, abra o projeto pelo identificador usado na descoberta. **Consult
 
 Quando houver um plano, confira a versão, o destino, as regras e suas evidências. Identifique o responsável e decida sobre o plano. **Iniciar execução** inicia o worker da versão aprovada. Ao fim do build, confira os indicadores; outra decisão explícita autoriza a entrega (não há comparação com gabarito no fluxo). **Promover entrega** publica os arquivos no destino do plano e habilita o download. Use **Atualizar projeto** para recuperar o estado persistido após fechar a janela ou após uma falha na conexão.
 
-Inicie primeiro o serviço local do operador. No processo Next configure `KORDA_OPERADOR_TOKEN` com a mesma credencial do serviço. A variável opcional `KORDA_OPERADOR_URL` aponta para a raiz HTTP de loopback, por padrão `http://127.0.0.1:8790`. Essas variáveis pertencem ao servidor. Acesse o painel por `http://127.0.0.1:3000/operador`. O grafo de simulação e replay continua disponível em `/`.
+Inicie primeiro o serviço local do operador. No processo Next configure `KORDA_OPERADOR_TOKEN` com a mesma credencial do serviço. A variável opcional `KORDA_OPERADOR_URL` aponta para a raiz HTTP de loopback, por padrão `http://127.0.0.1:8790`. Essas variáveis pertencem ao servidor. Acesse o painel por `http://127.0.0.1:3000/operador`. O grafo de simulação e replay fica em `/run`; a raiz `/` é a landing page.

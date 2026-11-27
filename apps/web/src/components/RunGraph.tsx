@@ -22,7 +22,7 @@ import { ToolNode } from "./nodes/ToolNode";
 const nodeTypes: NodeTypes = { tool: ToolNode, agent: AgentNode, gate: GateNode, pill: PillNode } as NodeTypes;
 
 /** Mesmo enquadramento na carga e no botão de ajuste. Número puro seria lido como px. */
-const FIT_VIEW = { padding: "10%" } as const;
+const FIT_VIEW = { padding: "15%" } as const;
 
 /**
  * O `fitView` inicial roda uma vez, antes do layout assentar (painel restaurado do
