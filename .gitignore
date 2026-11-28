@@ -39,6 +39,11 @@ Thumbs.db
 .idea/
 .vscode/
 
+# Skills e configuração local de agentes de IA
+.agents/
+skills-lock.json
+.claude/settings.local.json
+
 # Downloads brutos das fontes de calibração (ver data/synthetic/README.md)
 data/external/
 
