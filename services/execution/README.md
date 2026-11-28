@@ -2,9 +2,9 @@
 
 A demo transforma as fontes da transportadora fictícia `01_demo` em frete por entrega, OTIF e ocupação. O operador aprova a versão do plano que autoriza o trabalho. Depois do build com os testes protegidos e o contrato de saída, o worker guarda a infra construída e monta o pacote de entrega. Uma segunda decisão humana autoriza promover a entrega para o destino local daquele plano; não há comparação com gabarito no fluxo. [Planejador](../planning/README.md) · [Pipeline logístico](pipeline/README.md) · [Avaliador](../../evaluation/worker/README.md)
 
-1. **Planejamento da construção (`planejar`, antes da aprovação 1).** Uma chamada à API da Feita transforma o plano base (gabarito do [planejador](../planning/README.md)) e o contexto da descoberta no plano de construção. A própria LLM decide se há contexto para construir. Se houver, o documento entra no plano como `construction`, com nova `plan_version`, e a aprovação 1 cobre o que a LLM planejou. Se não houver, ela gera perguntas para a descoberta em `perguntas.json`, e nenhum plano novo é gerado.
+1. **Planejamento da construção (`planejar`, antes da aprovação 1).** Uma chamada ao LLM (API da Feita com `chat`, ou o Claude Code CLI pelo login do plano com `claude_cli`) transforma o plano base (gabarito do [planejador](../planning/README.md)) e o contexto da descoberta no plano de construção. A própria LLM decide se há contexto para construir. Se houver, o documento entra no plano como `construction`, com nova `plan_version`, e a aprovação 1 cobre o que a LLM planejou. Se não houver, ela gera perguntas para a descoberta em `perguntas.json`, e nenhum plano novo é gerado.
 2. **Sandbox.** Contêiner sem rede, com `models/` vazio.
-3. **Harness.** O [harness](korda_execution/harness/README.md) constrói frete por entrega, OTIF e ocupação com DuckDB/dbt e corrige até três vezes. O loop roda no worker e conversa com a API da Feita; cada ferramenta que o modelo pede executa dentro da sandbox, e a chave nunca entra nela.
+3. **Harness.** O [harness](korda_execution/harness/README.md) constrói frete por entrega, OTIF e ocupação com DuckDB/dbt e corrige até três vezes. O loop roda no worker e conversa com a API da Feita (`chat`) ou com o Claude Code CLI do host (`claude_cli`); cada ferramenta que o modelo pede executa dentro da sandbox, e a chave nunca entra nela.
 4. **Entrega.** O worker guarda a infra construída (modelos, target do dbt e a prata em Parquet) e monta o pacote de entrega em dados para o front. Uma segunda decisão humana autoriza a cópia para uma pasta local. Não há comparação com gabarito no fluxo (decisão de 27/11/2026): o [avaliador independente](../../evaluation/worker/README.md) é só ferramenta offline de medição. O [planejamento da integração](../../docs/plano-integracao-worker.md) situa essa entrega nas 17 issues do projeto.
 
 Para operar a partir de uma entrevista do WhatsApp, siga [Da entrevista à entrega no painel local](../../docs/entrevista-planejamento-painel.md).
@@ -74,6 +74,7 @@ KORDA_EXECUTOR=chat python -m services.execution.korda_execution planejar "$PLAN
 
 - **Código 0** indica que o documento entrou em `construction`. A nova `plan_version` cobre esse texto. Para seguir pelo gateway, defina `PLANO=runs/preparo/plano-construcao.json` e `export KORDA_EXECUTOR=chat`.
 - **Código 3** indica perguntas. Consulte `perguntas.json` na pasta indicada pelo comando, devolva as lacunas à descoberta e gere outro plano base a partir da revisão respondida. A pasta mantém `documento_base.md`, `resposta.json` e `medicao.json` dessa chamada. O fluxo só chega ao registro quando houver uma versão pronta.
+- Pelo login do plano (sem chave), use `KORDA_EXECUTOR=claude_cli` nos mesmos comandos; o roteiro completo está em [Construção pelo login do plano](#construção-pelo-login-do-plano-claude_cli).
 - O gateway requer `KORDA_PERMITIR_LLM_REAL=1` e `KORDA_LLM_CHAVE` no host. A chamada de planejamento tem medição própria e até 8.000 tokens de saída. O teto em USD é aplicado separadamente ao planejamento e à execução aprovada. A suíte usa transporte local para verificar as duas respostas. [Planejamento da construção](korda_execution/planejamento.py) · [Configuração e medição](korda_execution/harness/README.md)
 
 O `planejar` faz uma chamada (saída limitada a 8.000 tokens e ao orçamento autorizado) e grava em `runs/worker/planejamento/<versão>-<instante>/`: `documento_base.md`, `resposta.json` (resposta bruta), `medicao.json` (tokens e custo estimado) e, conforme a decisão da LLM, `plano.json` ou `perguntas.json`. Sai com código 0 quando o plano está pronto e 3 quando há perguntas. As perguntas trazem pergunta, lacuna, métricas afetadas e motivo, mais `plan_version`, `context_id` e `context_revision`; voltam para a descoberta, e uma nova revisão de contexto gera outro plano base. Como a plataforma consome esse arquivo ainda está em aberto (P1/P4).
@@ -134,9 +135,32 @@ O vínculo regra → modelo → teste não existe no plano: vem de uma tabela de
 | `roteirizado` | Padrão. Escreve os modelos SQL de referência pelos caminhos autorizados. O custo de provedor é zero. |
 | `falso` | Transporte de teste injetado no host. Exercita a construção a partir de `construction`, uma falha de dbt e sua correção. A medição é sintética. |
 | `chat` | O gateway no host recebe o documento já aprovado e ferramentas para construir e corrigir os modelos. O operador acompanha turnos, tokens e custo estimado. |
+| `claude_cli` | O Claude Code CLI do host, pelo login do plano pessoal e sem chave, recebe o mesmo documento aprovado e as mesmas seis ferramentas, com os mesmos tetos. O custo informado é nocional (`cobranca: "assinatura"`); o limite real é a cota do plano, e um limite de uso escala para uma pessoa sem nova tentativa. |
 | `agente_sdk` | Adaptador experimental de correção preservado no harness. O worker da demo recusa esse modo. |
 
 Para os planos de construção, os modelos começam sem SQL de referência na sandbox. O adaptador protegido apresenta a landing como tabelas bronze. O harness escreve prata e ouro, executa `dbt build` com os testes protegidos e verifica a exportação. Falhas de implementação podem voltar para até três correções. Esgotar o limite, identificar uma inconsistência de dados ou perder a infraestrutura requer intervenção. Mudar uma regra, o escopo dos modelos, a construção ou a ingestão exige reconsiderar a versão a aprovar. [Harness e variáveis](korda_execution/harness/README.md) · [Ciclo de correção](korda_execution/correcao.py)
+
+### Construção pelo login do plano (`claude_cli`)
+
+Roda `planejar` e `executar` pelo Claude Code CLI do host, com a cota do plano pessoal, sem chave de API. O SDK fica em [`requirements-harness.txt`](../../requirements-harness.txt) (`pip install -r requirements-harness.txt` no ambiente do worker; instalar não chama o LLM).
+
+1. **Login, uma vez no host:** `claude /login` com a conta do plano. Confira com `claude auth status --text`, que não gasta cota: deve mostrar o login pelo claude.ai.
+2. **Ambiente limpo:** `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN` e `CLAUDE_CODE_USE_BEDROCK/VERTEX/FOUNDRY` não podem existir no ambiente, nem vazias (`unset` antes). `KORDA_LLM_CHAVE` pode continuar definida para o `chat`: o CLI nunca a recebe.
+3. **Planejar, registrar, aprovar e executar**, com o "pode rodar" do dono do login para cada chamada real:
+
+```bash
+export KORDA_EXECUTOR=claude_cli KORDA_PERMITIR_LLM_REAL=1   # KORDA_MODELO=sonnet é o padrão
+python -m services.execution.korda_execution planejar "$PLANO" \
+  --contexto packages/contracts/context/v0.1.0/examples/02_rateio_confirmado.json \
+  --saida runs/preparo/plano-construcao.json
+PLANO=runs/preparo/plano-construcao.json
+VERSAO=$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["plan_version"])' "$PLANO")
+python -m services.execution.korda_execution registrar "$PLANO"
+python -m services.execution.korda_execution decidir-plano demo-01 "$VERSAO" aprovar --pessoa "$REVISOR"
+python -m services.execution.korda_execution executar "$PLANO" --run-id "$RUN_ID"
+```
+
+Antes de cada etapa, o host confere o login (`claude auth status`). Em `medicao.json` e nos eventos `agent_finished`, o custo vem com `custo_estimado: true` e `cobranca: "assinatura"`: é o preço de tabela que o CLI calcula, não cobrança. O isolamento da sessão (ambiente mínimo, `--safe-mode`, `--strict-mcp-config`, conferência do init) está em [Executor `claude_cli`](korda_execution/harness/README.md#executor-claude_cli). O executor `chat` (Feita) continua disponível como alternativa.
 
 ## Montagens e credenciais
 
@@ -191,8 +215,8 @@ Os testes de nível 1 também precisam de `docker build -t korda-simulados:dev i
 | [`korda_execution/operador.py`](korda_execution/operador.py) | Painel local (`/operador`): importa a revisão da entrevista, gera o plano, registra as duas decisões e serve o `pacote.zip` montado da pasta promovida. |
 | [`korda_execution/ferramentas.py`](korda_execution/ferramentas.py) | Ferramentas que o harness expõe ao agente. |
 | [`korda_execution/caminhos.py`](korda_execution/caminhos.py) | Política de caminhos e lista branca do dbt. |
-| [`korda_execution/harness/`](korda_execution/harness/README.md) | Executores (`chat` constrói e corrige pela API da Feita; `roteirizado` como plano B; `falso` para testes; `agente_sdk` guardado, recusado pelo worker), política e hook, contexto, orçamento, medição, `construir_e_verificar` e adaptador provisório de eventos (com custo) para o front. |
-| [`korda_execution/planejamento.py`](korda_execution/planejamento.py) | Comando `planejar`: uma chamada à API gera a construção (anexada ao plano) ou as perguntas para a descoberta. |
+| [`korda_execution/harness/`](korda_execution/harness/README.md) | Executores (`chat` constrói e corrige pela API da Feita; `claude_cli` pelo Claude Code CLI com o login do plano; `roteirizado` como plano B; `falso` para testes; `agente_sdk` guardado, recusado pelo worker), política e hook, contexto, orçamento, medição, `construir_e_verificar` e adaptador provisório de eventos (com custo) para o front. |
+| [`korda_execution/planejamento.py`](korda_execution/planejamento.py) | Comando `planejar`: uma chamada ao LLM (`chat` ou `claude_cli`) gera a construção (anexada ao plano) ou as perguntas para a descoberta. |
 | [`korda_execution/documento_base.py`](korda_execution/documento_base.py) | Prompt do planejamento da construção e leitura da decisão (`pronto_para_construir`, `perguntas`). |
 | [`korda_execution/artefatos.py`](korda_execution/artefatos.py) | Captura dos resultados e da infra (sem seguir links, com teto e hash) e promoção do pacote. |
 | [`korda_execution/entrega.py`](korda_execution/entrega.py) | `empacotar`: dossiê da execução, `decisoes.md`, `execucao.md`, `projeto_dbt/` e `manifesto.json`. |
@@ -202,7 +226,7 @@ Os testes de nível 1 também precisam de `docker build -t korda-simulados:dev i
 | [`pipeline/`](pipeline/README.md) | Projeto dbt da 01: testes, definições, ingestão e exportação (montados na sandbox) e o pipeline escrito à mão em `models/` (referência e plano B, nunca montado). |
 | [`tests/`](tests/fixtures/README.md) | Testes unitários e de integração; fixture dbt com dados sintéticos. |
 
-O worker (processo Python no host) usa só a biblioteca padrão e o CLI do Docker. As dependências ficam na imagem. O executor `chat` e o documento-base também usam só a biblioteca padrão. Só o `agente_sdk`, fora da demo, precisaria do `claude-agent-sdk` no host ([`requirements-harness.txt`](../../requirements-harness.txt)); os testes funcionam sem ele.
+O worker (processo Python no host) usa só a biblioteca padrão e o CLI do Docker. As dependências ficam na imagem. O executor `chat` e o documento-base também usam só a biblioteca padrão. O `claude_cli` e o `agente_sdk` (este fora da demo) precisam do `claude-agent-sdk` no host, e o `claude_cli` também do Claude Code CLI logado ([`requirements-harness.txt`](../../requirements-harness.txt)); os testes funcionam sem ele.
 
 Fluxo de nível 0: **fontes brutas** (`data/synthetic/output/<empresa>`) → **ingestão** (contêiner efêmero) → **landing zone** em Parquet → **sandbox** (`/work/fontes`). A ingestão não limpa nada: duplicatas, cancelados e formatos mistos chegam intactos para o agente tratar conforme o plano. Detalhes em [`korda_ingestao/README.md`](../../infra/sandbox/korda_ingestao/README.md).
 

@@ -4,9 +4,9 @@ O harness escreve e corrige os modelos da demo `01_demo`. O worker cuida da inge
 
 ## Planejar e construir
 
-1. **Antes da aprovação 1**, `planejar` envia o contexto validado e o plano base para uma chamada de chat sem ferramentas. O documento cobre modelos, regras aplicadas, métricas, testes de aceite e premissas. Um bloco JSON declara `pronto_para_construir` e as perguntas. Quando faltam informações essenciais, o host grava `perguntas.json` com a lacuna, o indicador afetado, a pergunta e o motivo. A descoberta pode responder numa nova revisão.
+1. **Antes da aprovação 1**, `planejar` envia o contexto validado e o plano base para uma chamada sem ferramentas (`chat`, pela Feita, ou `claude_cli`, pelo login do plano). O documento cobre modelos, regras aplicadas, métricas, testes de aceite e premissas. Um bloco JSON declara `pronto_para_construir` e as perguntas. Quando faltam informações essenciais, o host grava `perguntas.json` com a lacuna, o indicador afetado, a pergunta e o motivo. A descoberta pode responder numa nova revisão.
 2. **Quando a construção está pronta**, o planejador anexa o documento ao plano em `construction.document`, remove o bloco de decisão e recalcula `plan_version`. O revisor vê o texto e aprova a versão que o inclui. O planejamento registra sua própria resposta e medição no host.
-3. **Na execução aprovada**, o worker prepara a landing N0 ou N1 e o adaptador protegido carrega a bronze no DuckDB. Em modo chat, o harness recebe exatamente o documento aprovado, a projeção do plano, os perfis das fontes e as ferramentas autorizadas. Na v0.2, escreve os cinco modelos prata e ouro em arquivos que começam vazios.
+3. **Na execução aprovada**, o worker prepara a landing N0 ou N1 e o adaptador protegido carrega a bronze no DuckDB. Em modo `chat` ou `claude_cli`, o harness recebe exatamente o documento aprovado, a projeção do plano, os perfis das fontes e as ferramentas autorizadas. Na v0.2, escreve os cinco modelos prata e ouro em arquivos que começam vazios.
 4. **Na verificação**, o worker exige o build dbt e a exportação segundo o contrato protegido. Falhas de implementação podem voltar ao harness, até o limite de três correções do plano. Inconsistências nos dados de origem ou problemas de infraestrutura pedem intervenção. O avaliador confere os resultados fora da sandbox. Uma pessoa decide a promoção para o destino aprovado.
 
 ```
@@ -41,6 +41,7 @@ O retorno das perguntas à descoberta está disponível em arquivo. A ligação 
 | `roteirizado` | Padrão local. Escreve os modelos revisados que ficam no host e restaura os modelos autorizados que divergirem deles. O operador pode registrar o plano base diretamente. |
 | `chat` | Usa a API chat/completions da Feita no host para planejar antes da aprovação e depois construir ou corrigir. A construção exige `construction` na versão aprovada e as chamadas consomem créditos. |
 | `falso` | Usado por testes com cliente injetado. Exercita decisões e ferramentas com respostas preparadas. A construção também recebe um documento aprovado e a medição é sintética. |
+| `claude_cli` | Usa o Claude Code CLI do host, autenticado pelo **login do plano pessoal** (`claude /login`, sem chave), para planejar, construir e corrigir. Mesma interface e mesmos tetos do `chat`. O custo informado pelo CLI é nocional; o limite real é a cota do plano. Ver [Executor `claude_cli`](#executor-claude_cli). |
 | `agente_sdk` | Adaptador experimental de correção do PR #27. O worker da demo recusa essa opção. |
 
 O documento-base (construção) é gerado no `planejar`, com o prompt de [`documento_base.py`](../documento_base.py). Entram o contexto (sem metadados irrelevantes), o plano base e os nomes fixos de modelos e colunas ([`contrato_saida.py`](../contrato_saida.py)), lidos dos testes protegidos e de `vars.contrato_exportacao` no `dbt_project.yml`. A resposta começa com um bloco ```` ```json ```` com `pronto_para_construir` e `perguntas` (pergunta, lacuna, métricas afetadas, motivo), seguido das seções Modelos, Regras aplicadas, Métricas, Testes de aceite e Premissas e lacunas. O prompt pede evidência só pelo id, uma tabela por camada e até ~900 palavras por seção; a saída é limitada a 8.000 tokens, e uma resposta cortada é recusada. O prompt proíbe inventar regras. Lacuna que não impede construir fica em Premissas e lacunas. Se a lacuna impedir, a LLM gera as perguntas para a descoberta. Sem um bloco válido, nenhum plano é gerado. O bloco é removido antes de o documento entrar no plano como `construction`.
@@ -53,19 +54,19 @@ Exemplo em [`.env.example`](../../../../.env.example). Validadas por `ConfigHarn
 
 | Variável | Padrão | Efeito |
 | --- | --- | --- |
-| `KORDA_EXECUTOR` | `roteirizado` | Use `roteirizado` para a demo local ou `chat` para o gateway habilitado. Os testes usam `falso` com injeção de cliente. |
-| `KORDA_PERMITIR_LLM_REAL` | vazio | Precisa ser `1` para `chat` ou `agente_sdk` rodarem. Proteção contra gasto acidental. |
+| `KORDA_EXECUTOR` | `roteirizado` | Use `roteirizado` para a demo local, `chat` para o gateway habilitado ou `claude_cli` para o login do plano. Os testes usam `falso` com injeção de cliente. |
+| `KORDA_PERMITIR_LLM_REAL` | vazio | Precisa ser `1` para `chat`, `claude_cli` ou `agente_sdk` rodarem. Proteção contra gasto acidental (créditos ou cota do plano). |
 | `KORDA_LLM_CHAVE` | vazio | Chave do gateway (Feita) para `chat`. Fica no host; nunca vai para a sandbox, eventos ou logs. |
 | `KORDA_LLM_URL` | `https://api.feita.ai/gateway/v1` | Base da API chat/completions. Só `https`. |
-| `ANTHROPIC_API_KEY` | vazio | Variável do adaptador experimental de SDK. |
-| `KORDA_MODELO` | `anthropic/claude-opus-5.5` (`chat`) ou `claude-opus-5-5` (`agente_sdk`) | Modelo. |
+| `ANTHROPIC_API_KEY` | ausente | Variável do adaptador experimental de SDK. Com `claude_cli`, ela (e `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_CODE_USE_BEDROCK/VERTEX/FOUNDRY`) não pode existir no ambiente, nem vazia. |
+| `KORDA_MODELO` | `anthropic/claude-opus-5.5` (`chat`), `claude-opus-5-5` (`agente_sdk`) ou `sonnet` (`claude_cli`) | Modelo. No `claude_cli`, aceita os apelidos do CLI (`sonnet`, `opus`, `fable`) ou o nome completo. |
 | `KORDA_ORCAMENTO_EXECUCAO_USD` | `8.00` | Teto estimado por invocação de planejamento. A execução aprovada usa um teto separado do mesmo valor para construção e correções. |
 | `KORDA_MAX_TURNOS_CONSTRUCAO` | `40` | Limite de turnos da construção. |
 | `KORDA_MAX_TURNOS_TENTATIVA` | `12` | Limite de turnos de cada correção. |
 | `KORDA_PRECO_ENTRADA_USD_MTOK`, `KORDA_PRECO_SAIDA_USD_MTOK` | `4.00`, `20.00` | Preço por milhão de tokens usado para **estimar** o custo no `chat` (o gateway cobra em créditos). |
 | `KORDA_TAXA_USD_BRL` | `6.00` | Conversão para centavos de real. Suposição da equipe, não cotação. |
 
-Sem a chave ou sem `KORDA_PERMITIR_LLM_REAL=1`, os executores com LLM falham com mensagem clara. `KORDA_CORRETOR`, da versão anterior, é recusada com aviso.
+Sem a chave ou sem `KORDA_PERMITIR_LLM_REAL=1`, os executores com LLM falham com mensagem clara. O `claude_cli` não usa chave: falha sem `KORDA_PERMITIR_LLM_REAL=1`, com credencial de API no ambiente ou sem login no CLI. `KORDA_CORRETOR`, da versão anterior, é recusada com aviso.
 
 ## Sandbox e ferramentas
 
@@ -115,6 +116,7 @@ A chamada prévia de planejamento pode usar as evidências do contexto sintétic
 | --- | --- |
 | `run_id`, `executor`, `modelo` | Identificação. |
 | `synthetic` | `true` para `roteirizado` ou `falso`. |
+| `cobranca` | `api` (`chat`, `agente_sdk`: cobrado por uso), `assinatura` (`claude_cli`: custo nocional, dentro da cota do plano) ou `null` (sem LLM). |
 | `tentativas`, `turnos`, `duracao_s` | Número de sessões, turnos e duração registrados. |
 | `tokens_entrada`, `tokens_saida`, `tokens_cache_leitura` | Soma dos tokens informados. |
 | `custo_usd`, `custo_centavos` | Estimativa a partir dos tokens e preços configurados, convertida para centavos pela taxa configurada. |
@@ -124,6 +126,24 @@ A chamada prévia de planejamento pode usar as evidências do contexto sintétic
 Um erro HTTP do gateway inclui até 240 caracteres do corpo da resposta (com a chave trocada por `[chave]`), para mostrar o motivo, por exemplo crédito restrito a outro modelo. Cada `agent_finished` em `eventos.jsonl` traz também `ferramentas` (o catálogo `mcp__korda__*` oferecido à sessão), `tokens_por_turno` (`[entrada, saída]` informados pelo gateway em cada chamada) e, quando a API falhou, `erro_api` com a mensagem do `ErroLLM` (código HTTP ou tipo de falha de rede, nunca a chave).
 
 A construção de chat aparece como tentativa `0`. O worker grava em `revisao/<run>/medicao.json` a versão aprovada, a identificação do documento-base, o executor, as sessões, os builds e as correções. A chamada anterior de `planejar` tem seu próprio `medicao.json` em `planejamento/<versão>-<instante>/`. Para medir o custo total do processo, some os custos dos dois registros depois de conferir `custo_completo` em cada um. [Medição](medicao.py)
+
+## Executor `claude_cli`
+
+Roda planejamento, construção e correção pelo CLI do Claude Code instalado no host (`claude`), autenticado pelo login do plano pessoal. Não usa chave de API. Código: [`agente_sdk.py`](agente_sdk.py) (`ExecutorClaudeCli`, `ClienteClaudeCli`, `rodar_sessao_cli`), pelo `claude-agent-sdk` ([`requirements-harness.txt`](../../../../requirements-harness.txt)).
+
+**Portões.** `KORDA_EXECUTOR=claude_cli` e `KORDA_PERMITIR_LLM_REAL=1`, autorizado pelo dono do login. A configuração recusa iniciar se `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX` ou `CLAUDE_CODE_USE_FOUNDRY` existirem no ambiente, mesmo vazias: qualquer uma faria o CLI cobrar de outra conta. Antes de reservar o run (e antes do `planejar`), o host roda `claude auth status --json`, que não gasta cota, e exige `loggedIn`, `authMethod = claude.ai` e `apiProvider = firstParty`. Só o método e o tipo do plano são lidos; e-mail e organização não saem dali.
+
+**Ambiente mínimo.** O SDK monta o ambiente do CLI como `os.environ` + `options.env` e não consegue remover variáveis. Por isso o `cli_path` aponta para um lançador gerado por sessão (numa pasta temporária, apagada no fim), que troca o ambiente inteiro por `HOME`, um `PATH` fixo, `USER`, `LANG`/`LC_ALL`, as variáveis que o próprio SDK passa (`CLAUDE_CODE_ENTRYPOINT`, `CLAUDE_AGENT_SDK_VERSION`, `CLAUDE_CODE_SDK_READS_SESSION_STATE`, `PWD`) e quatro que cortam tráfego fora da conversa (`DISABLE_AUTOUPDATER`, `DISABLE_TELEMETRY`, `DISABLE_ERROR_REPORTING`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`). `KORDA_LLM_CHAVE`, o resto do `.env` e qualquer `ANTHROPIC_*` não chegam ao CLI; se uma credencial de API chegar ao lançador, ele sai com código 97 sem executar o CLI.
+
+**Isolamento da sessão.** O mesmo do `agente_sdk`: `--tools ""`, as embutidas em `--disallowedTools`, só as seis `mcp__korda__*` liberadas (num servidor MCP em processo que chama `despachar` → `FerramentasRestritas` → sandbox), `permission_mode = dontAsk`, o hook `politica.hook_pre_tool_use`, cwd numa pasta vazia e `setting_sources = []`. A mais: `--strict-mcp-config` (ignora o MCP do usuário), `--safe-mode` (desliga CLAUDE.md, skills, plugins, hooks e comandos do usuário, mantendo o login) e `--no-session-persistence` (a conversa não fica em `~/.claude/projects`). `--bare` não serve: nele o CLI nunca lê o login OAuth. O CLI roda no host, mas sem ferramenta de arquivo ou de shell: só enxerga o que as seis ferramentas devolvem, nunca o repositório, `evaluation/golden/` nem `pipeline/projeto/models/*.sql`.
+
+**Conferência do init.** Antes do primeiro turno do modelo (abortar ali não gasta cota), a sessão é abortada com `ErroSegurancaHarness` se o init listar ferramenta fora de `mcp__korda__*`, faltar alguma das seis, aparecer servidor MCP além de `korda`, plugin, `apiKeySource` diferente de `none`, ou skill, agente ou comando com o nome de algum item de `~/.claude/skills`, `~/.claude/agents` ou `~/.claude/commands`. No planejamento, a sessão não tem servidor MCP nem ferramenta alguma.
+
+**Custo e limites.** O `total_cost_usd` do CLI é **nocional** (preço de tabela da API), não cobrança: a medição e os eventos levam `custo_estimado: true` e `cobranca: "assinatura"`. Ele segue como freio, com os mesmos tetos do `chat` (60% do orçamento na construção, o restante dividido pelas correções, folga de 10%) em `max_budget_usd`, e `max_turns` 40 na construção e 12 por correção. O CLI só confere o teto depois do turno; até a fatia sem a folga, o resultado é aceito. O limite real é a cota do plano: se a sessão parar por limite de uso (`RateLimitEvent` com `status = rejected`, erro `rate_limit` ou HTTP 429), o motivo vai para `erro_api`, a fase devolve `codigo: limite_uso` e o executor não abre outra sessão naquela execução: o ciclo escala para uma pessoa, sem nova tentativa. O modelo padrão é `sonnet`, porque a cota do plano Pro acaba rápido com o Opus numa construção de 40 turnos. No `planejar`, o `medicao.json` guarda a estimativa pelos `KORDA_PRECO_*` (como no `chat`) e, à parte, `custo_nocional_cli_usd`.
+
+**Diferenças em relação ao `chat`.** O loop de turnos é o do CLI, não o de [`sessao_chat.py`](sessao_chat.py): não há compactação de histórico (o CLI usa cache de prompt) nem o lembrete de modelos que faltam; o prompt da construção já lista os modelos obrigatórios. `tokens_entrada` soma tokens novos, criação e leitura de cache.
+
+**Pendências.** (1) Falta o ensaio real; até lá, o comportamento do `--safe-mode` junto com o MCP em processo e a lista exata do init estão verificados só com mensagens roteirizadas. Se o `--safe-mode` desligar o servidor `korda`, a sessão aborta no init (sem gastar cota) e a saída é tirar o `--safe-mode`, mantendo `--strict-mcp-config` e `setting_sources = []`. (2) Isolar `HOME`/`CLAUDE_CONFIG_DIR` exigiria copiar a credencial OAuth, e a renovação do token na cópia pode invalidar o login principal; por isso não foi feito. (3) **Plano B**, se o SDK não aceitar a assinatura: chamar `claude -p --output-format stream-json` direto, com `--mcp-config` para um servidor MCP stdio que encaminha as seis ferramentas para `FerramentasRestritas` no host, `--strict-mcp-config`, `--allowedTools "mcp__korda__*"`, `--tools ""`, `--disallowedTools` com as embutidas, `--max-turns` e `--model`, lendo o `init` e o `result` do stream. Não implementado.
 
 ## Orçamento do executor `chat`
 
