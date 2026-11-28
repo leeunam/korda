@@ -1,0 +1,12 @@
+**
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!next.config.ts
+!tsconfig.json
+!public/
+!public/**
+!src/
+!src/**
+**/*.test.ts
+**/.DS_Store

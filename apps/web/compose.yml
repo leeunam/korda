@@ -1,0 +1,38 @@
+name: korda-web
+
+x-web: &web
+  image: korda-web:${WEB_IMAGE_TAG:-local}
+  build:
+    context: .
+    dockerfile: Dockerfile
+  environment:
+    KORDA_OPERADOR_TOKEN: ${KORDA_OPERADOR_TOKEN:-}
+    KORDA_OPERADOR_URL: ${KORDA_OPERADOR_URL:-}
+  read_only: true
+  tmpfs:
+    - /tmp:size=64M,mode=1777
+    - /app/.next/cache:size=128M,uid=10001,gid=10001
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  init: true
+  restart: unless-stopped
+  mem_limit: 512m
+  cpus: 1.0
+
+services:
+  # Landing (/) e grafo sintético (/run). Porta publicada só no loopback do host.
+  web:
+    <<: *web
+    ports: ["127.0.0.1:3000:3000"]
+
+  # Painel /operador: o proxy só aceita o serviço do operador em loopback, então o
+  # contêiner usa a rede do host para alcançar http://127.0.0.1:8790.
+  # Linux, ou Docker Desktop com host networking habilitado.
+  web-operador:
+    <<: *web
+    profiles: [operador]
+    network_mode: host
+    environment:
+      KORDA_OPERADOR_TOKEN: ${KORDA_OPERADOR_TOKEN:-}
+      KORDA_OPERADOR_URL: ${KORDA_OPERADOR_URL:-}
+      HOSTNAME: 127.0.0.1
