@@ -105,6 +105,37 @@ def nomes_do_usuario(home: Path | None) -> set[str]:
     return nomes
 
 
+PREFIXO_PLUGIN_EMBUTIDO = "cc-plugin-"
+PASTAS_PLUGINS_USUARIO = ("cache", "marketplaces", "synced", "data")
+
+
+def _plugins_instalados(home: Path | None) -> set[str]:
+    try:
+        registro = json.loads((Path(home) / ".claude/plugins/installed_plugins.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return set()
+    plugins = registro.get("plugins", registro) if isinstance(registro, dict) else {}
+    return {str(chave).split("@")[0] for chave in plugins} if isinstance(plugins, dict) else set()
+
+
+def plugin_embutido(plugin, home: Path | None, cwd: str | None = None) -> bool:
+    """Plugin que vem dentro do binário do Claude Code (`cc-plugin-*`; o --safe-mode os mantém ligados).
+
+    Qualquer outro, ou um com o mesmo nome de um plugin instalado pelo usuário, ou carregado de uma pasta
+    de plugins do ~/.claude ou do cwd, não é embutido.
+    """
+    if not isinstance(plugin, dict):
+        return False
+    nome, caminho = str(plugin.get("name") or ""), str(plugin.get("path") or "")
+    if not nome.startswith(PREFIXO_PLUGIN_EMBUTIDO) or nome in _plugins_instalados(home):
+        return False
+    proibidas = [Path(cwd)] if cwd else []
+    if home is not None:
+        proibidas += [Path(home) / ".claude/plugins" / p for p in PASTAS_PLUGINS_USUARIO]
+    alvo = Path(caminho)
+    return not any(alvo == pasta or pasta in alvo.parents for pasta in proibidas)
+
+
 def _nomes(itens) -> list[str]:
     return [str(i.get("name")) if isinstance(i, dict) else str(i) for i in (itens or [])]
 
@@ -120,8 +151,10 @@ def verificar_init(dados: dict, *, ferramentas_esperadas: set[str], home: Path |
     servidores = [n for n in _nomes(dados.get("mcp_servers")) if n != SERVIDOR]
     if servidores:
         raise ErroSegurancaHarness("a sessão carregou servidores MCP de fora: " + ", ".join(servidores))
-    if dados.get("plugins"):
-        raise ErroSegurancaHarness("a sessão carregou plugins: " + ", ".join(_nomes(dados["plugins"])))
+    de_fora = [p for p in dados.get("plugins") or [] if not plugin_embutido(p, home, dados.get("cwd"))]
+    if de_fora:
+        raise ErroSegurancaHarness("a sessão carregou plugins de fora do CLI: " + ", ".join(
+            f"{p.get('name')} ({p.get('path')})" if isinstance(p, dict) else str(p) for p in de_fora))
     fonte = dados.get("apiKeySource")
     if fonte not in (None, "none"):
         raise ErroSegurancaHarness(f"a sessão não usou o login do plano (apiKeySource={fonte!r})")

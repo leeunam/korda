@@ -221,6 +221,20 @@ class TestInit(unittest.TestCase):
         self._verificar()
         verificar_init({**self.BOM, "tools": [], "mcp_servers": []}, ferramentas_esperadas=set(), home=self.home)
 
+    def test_plugins_embutidos_do_cli_passam_e_os_do_disco_nao(self):
+        # Achado do primeiro ensaio real: o --safe-mode mantém os cc-plugin-* do binário do CLI.
+        (self.home / ".claude/plugins").mkdir(parents=True)
+        (self.home / ".claude/plugins/installed_plugins.json").write_text(
+            json.dumps({"version": 2, "plugins": {"cc-plugin-falso@mercado": []}}))
+        embutidos = [{"name": "cc-plugin-privacy", "path": "/$bunfs/root/privacy"},
+                     {"name": "cc-plugin-agents-md", "path": "builtin"}]
+        self._verificar(plugins=embutidos)
+        cache = str(self.home / ".claude/plugins/cache/mercado/cc-plugin-x/1.0")
+        for plugin in ({"name": "cc-plugin-x", "path": cache}, {"name": "cc-plugin-falso", "path": "/$bunfs/x"},
+                       {"name": "cc-plugin-y", "path": "/tmp/cwd-da-sessao/plug"}, "cc-plugin-z"):
+            with self.subTest(plugin=plugin), self.assertRaises(ErroSegurancaHarness):
+                self._verificar(plugins=embutidos + [plugin], cwd="/tmp/cwd-da-sessao")
+
     def test_aborta_com_qualquer_vazamento(self):
         casos = {"embutida": {"tools": KORDA + ["Bash"]}, "mcp": {"mcp_servers": [{"name": "github"}]},
                  "plugin": {"plugins": [{"name": "superpowers", "path": "/p"}]},
