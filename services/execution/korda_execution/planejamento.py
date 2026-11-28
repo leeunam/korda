@@ -1,7 +1,9 @@
 """Planejamento da construção: etapa do worker antes da aprovação 1.
 
-Uma chamada à API da Feita transforma o plano base (gabarito do contexto) e o
-contexto da descoberta no plano de construção. A própria LLM decide se há
+Uma chamada ao LLM transforma o plano base (gabarito do contexto) e o contexto
+da descoberta no plano de construção: pela API da Feita (`chat`) ou pelo CLI
+do Claude Code com o login do plano (`claude_cli`, uma sessão de um turno sem
+ferramentas; o custo do CLI é nocional e fica em `custo_nocional_cli_usd`). A própria LLM decide se há
 contexto para construir:
 - pronto: o documento entra no plano como `construction` (nova plan_version),
   e a pessoa aprova tudo junto na aprovação 1;
@@ -22,7 +24,7 @@ from services.planning.korda_planning.plano import CAMPOS_CONTEXTO, contrato_con
 
 from .documento_base import gerar_documento_base, remover_bloco_decisao
 from .harness.cliente_chat import ClienteChatHttp, ClienteComOrcamento, ErroLLM, cliente_offline
-from .harness.config import ConfigHarness
+from .harness.config import ConfigHarness, ErroConfiguracao
 from .harness.contexto import projetar_plano
 from .harness.tipos import usd_para_centavos
 from .worker import FalhaExecucao
@@ -38,20 +40,42 @@ def validar_contexto(contexto: dict, plano: dict) -> None:
         raise FalhaExecucao("o contexto informado não é a revisão que originou o plano")
 
 
+def _nocional(cliente) -> float | None:
+    """Soma do total_cost_usd informado pelo CLI (claude_cli): não é cobrança, é a conta da cota."""
+    custos = getattr(cliente, "custos_nocionais_usd", None)
+    if not custos or any(c is None for c in custos):
+        return None
+    return round(sum(custos), 6)
+
+
 def _gravar(caminho: Path, objeto) -> None:
     caminho.write_text(json.dumps(objeto, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
 def planejar(plano: dict, contexto: dict, *, raiz: Path, cfg: ConfigHarness | None = None, cliente_llm=None) -> dict:
-    """Gera a construção do plano ou as perguntas para a descoberta. Uma chamada de API.
+    """Gera a construção do plano ou as perguntas para a descoberta. Uma chamada ao LLM.
 
-    `cliente_llm` só existe para testes (executor `falso`).
+    `cliente_llm` só existe para testes (executor `falso`, ou `claude_cli` com sessão injetada).
+    `claude_cli` confere antes o login com `claude auth status`, que não gasta cota.
     """
     cfg = cfg or ConfigHarness.de_ambiente()
-    if cfg.executor not in ("chat", "falso"):
-        raise FalhaExecucao("o planejamento usa a API da Feita: defina KORDA_EXECUTOR=chat")
+    if cfg.executor not in ("chat", "claude_cli", "falso"):
+        raise FalhaExecucao("o planejamento usa um LLM: defina KORDA_EXECUTOR=chat (Feita) ou claude_cli (login)")
     if cfg.executor == "chat" and (not cfg.permitir_llm_real or not cfg.chave_api):
         raise FalhaExecucao("o planejamento por API exige autorização de LLM e credencial")
+    if cfg.executor == "claude_cli":
+        if not cfg.permitir_llm_real:
+            raise FalhaExecucao("o planejamento pelo CLI exige KORDA_PERMITIR_LLM_REAL=1")
+        from .harness import agente_sdk
+        from .harness.agente_sdk import ClienteClaudeCli
+        try:
+            agente_sdk.verificar_login()
+        except ErroConfiguracao as exc:
+            raise FalhaExecucao(str(exc)) from None
+        if cliente_llm is None:
+            cliente_llm = ClienteClaudeCli(cfg)
+        elif not isinstance(cliente_llm, ClienteClaudeCli):
+            raise FalhaExecucao("KORDA_EXECUTOR=claude_cli aceita só o ClienteClaudeCli")
     if cfg.executor == "falso" and not cliente_offline(cliente_llm):
         raise FalhaExecucao("KORDA_EXECUTOR=falso é só para testes: exige um cliente LLM falso")
     validar_plano(plano)
@@ -80,7 +104,8 @@ def planejar(plano: dict, contexto: dict, *, raiz: Path, cfg: ConfigHarness | No
             "synthetic": synthetic, "chamadas": medido.chamadas, "tokens_entrada": medido.tokens_entrada,
             "tokens_saida": medido.tokens_saida, "custo_usd": custo, "custo_centavos": usd_para_centavos(custo, cfg.taxa_usd_brl),
             "orcamento_usd": cfg.orcamento_execucao_usd, "custo_completo": medido.custo_completo, "custo_estimado": True,
-            "precos": cfg.precos_medicao(),
+            "precos": cfg.precos_medicao(), "cobranca": cfg.cobranca,
+            "custo_nocional_cli_usd": _nocional(cliente_llm),
             "duracao_s": round(time.monotonic() - inicio, 3), "secoes_ausentes": doc.secoes_ausentes if doc else None,
             "pronto_para_construir": doc.pronto_para_construir if doc else None, "plan_version": plano["plan_version"],
             "finish_reason": doc.finish_reason if doc else None,
