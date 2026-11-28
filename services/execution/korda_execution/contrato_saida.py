@@ -2,7 +2,8 @@
 
 Lido por código, para não divergir do que é cobrado:
 - os testes protegidos (`pipeline/projeto/tests/*.sql`): modelos em `ref('...')`,
-  colunas que esses testes selecionam e fontes em `source(..., '...')`;
+  colunas que esses testes selecionam, colunas usadas pelo apelido do modelo (ex.: `p.sha256`
+  numa junção) e fontes em `source(..., '...')`;
 - `vars.contrato_exportacao` do `dbt_project.yml`: colunas, na ordem, que o `exportar.py`
   e o teste `contrato_exportacao` exigem de cada modelo exportado.
 """
@@ -19,6 +20,8 @@ _REF = re.compile(r"ref\('(\w+)'\)")
 _FONTE = re.compile(r"source\('\w+',\s*'(\w+)'\)")
 # "select <lista> from {{ ref('m') }}" sem atravessar outro select.
 _SELECT_REF = re.compile(r"select\s+((?:(?!\bselect\b).)*?)\s+from\s+\{\{\s*ref\('(\w+)'\)\s*\}\}", re.I | re.S)
+# "{{ ref('m') }} p" ou "{{ ref('m') }} as p": o apelido p do modelo m.
+_REF_APELIDO = re.compile(r"\{\{\s*ref\('(\w+)'\)\s*\}\}\s+(?:as\s+)?(?!(?:left|right|inner|full|join|where|group|order|on|using)\b)([a-z_]\w*)", re.I)
 _APELIDO = re.compile(r"\bas\s+\w+", re.I)
 _IDENT = re.compile(r"(?:\b\w+\.)?\b([a-z_][a-z0-9_]*)\b(?!\s*\()", re.I)
 _RESERVADAS = {"distinct", "case", "when", "then", "else", "end", "and", "or", "not", "null", "is", "in"}
@@ -52,6 +55,8 @@ def contrato_saida(projeto: Path = PROJETO) -> dict:
             modelos.setdefault(modelo, [])
         for lista, modelo in _SELECT_REF.findall(sql):
             _juntar(modelos, modelo, _colunas(lista))
+        for modelo, apelido in _REF_APELIDO.findall(sql):
+            _juntar(modelos, modelo, re.findall(rf"\b{re.escape(apelido)}\.([a-z_]\w*)", sql, re.I))
         fontes.extend(f for f in _FONTE.findall(sql) if f not in fontes)
     _do_dbt_project(projeto / "dbt_project.yml", modelos)
     return {"modelos": modelos, "fontes": fontes}

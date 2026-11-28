@@ -159,14 +159,26 @@ class TestSessaoChat(unittest.TestCase):
         self.assertTrue(saidas[0].startswith("[saída antiga resumida: ler_arquivo"))
         self.assertTrue(all(json.loads(s)["ok"] for s in saidas[1:]))  # as 6 do último turno ficam íntegras
 
-    def test_lembra_de_escrever_uma_vez(self):
+    def test_lembra_de_escrever_sem_escrita_e_repete(self):
         cliente = ClienteChatFalso([RespostaChat.de_tool_calls([("ler_plano", {})]) for _ in range(5)])
         executar_sessao(cliente, "sistema", "construa", self.f, ["models/*"], emissor=self.emissor, tentativa=1,
                         max_turnos=5, teto_usd=5.0, precos=PRECOS, turnos_ate_escrever=2)
         lembretes = [m for m in cliente.pedidos[-1] if m["role"] == "user" and "sem escrever" in m["content"]]
-        self.assertEqual(len(lembretes), 1)
+        self.assertEqual(len(lembretes), 2)  # turnos 2 e 4
+        self.assertIn("a correção do modelo que falhou", lembretes[0]["content"])
         self.assertNotIn("sem escrever", json.dumps(cliente.pedidos[1], ensure_ascii=False))
         self.assertIn("sem escrever", json.dumps(cliente.pedidos[2], ensure_ascii=False))
+
+    def test_construcao_lembra_os_modelos_que_faltam(self):
+        a, b = "models/prata_a.sql", "models/prata_b.sql"
+        cliente = ClienteChatFalso([RespostaChat.de_tool_calls([("escrever_modelo", {"caminho": a, "conteudo": "select 1"})]),
+                                    *[RespostaChat.de_tool_calls([("ler_plano", {})]) for _ in range(3)]])
+        executar_sessao(cliente, "sistema", "construa", self.f, ["models/*"], emissor=self.emissor, tentativa=1,
+                        max_turnos=4, teto_usd=5.0, precos=PRECOS, turnos_ate_escrever=2, modelos_obrigatorios=[a, b])
+        lembretes = [m["content"] for m in cliente.pedidos[-1] if m["role"] == "user" and "faltam" in m["content"]]
+        self.assertEqual(len(lembretes), 1)
+        self.assertIn(b, lembretes[0])
+        self.assertNotIn(a, lembretes[0])
 
     def test_erro_de_api_e_tokens_por_turno_ficam_registrados(self):
         cliente = _ClienteQueFalha([RespostaChat.de_tool_calls([("ler_plano", {})], tokens=(1000, 200))])

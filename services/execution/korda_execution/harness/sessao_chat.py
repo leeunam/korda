@@ -12,8 +12,10 @@ como uma soma triangular. Para conter isso, as saídas de ferramenta dos último
 de escritas antigas sai dos argumentos (o agente pode reler o modelo). Conta
 turnos, não saídas: no ensaio-01 o agente fazia várias consultas por turno e,
 contando saídas, o esquema da bronze sumia no turno seguinte e era consultado
-de novo. Se o agente passar `TURNOS_ATE_ESCREVER` turnos sem escrever, recebe
-um lembrete para escrever e validar com o build. Ver o simulador em
+de novo. A cada `TURNOS_ATE_ESCREVER` turnos sem escrita nova, enquanto faltar
+algum modelo exato de editable_models, o agente recebe um lembrete com a lista
+do que falta (no ensaio-04, com um lembrete único, o DeepSeek escreveu 1 de 5
+modelos em 40 turnos). Ver o simulador em
 `tests/harness/simulador_custo.py`.
 """
 
@@ -30,8 +32,9 @@ from .tipos import FerramentasAgente, SaidaSessao
 
 MANTER_TURNOS = 3
 TURNOS_ATE_ESCREVER = 8
-LEMBRETE_ESCREVER = ("Você já usou {n} turnos sem escrever nenhum modelo. Pare de investigar: escreva agora os "
-                     "modelos com escrever_modelo e use rodar_dbt build para descobrir o que falta.")
+LEMBRETE_ESCREVER = ("Você está há {n} turnos sem escrever um modelo, e faltam: {faltam}. Pare de investigar: "
+                     "escreva agora esses modelos com escrever_modelo, mesmo que simples, e use rodar_dbt build "
+                     "para descobrir o que falta.")
 _RESUMO_DBT = re.compile(r"Done\. PASS=.*|Completed with .*")
 
 
@@ -97,7 +100,8 @@ def compactar_historico(mensagens: list[dict], manter_turnos: int = MANTER_TURNO
 def executar_sessao(cliente: ClienteChat, sistema: str, prompt: str, ferramentas: FerramentasAgente,
                     editable_models, *, emissor, tentativa: int, max_turnos: int, teto_usd: float,
                     precos: tuple[float, float], verificar_ativa=None, manter_turnos: int | None = MANTER_TURNOS,
-                    turnos_ate_escrever: int | None = TURNOS_ATE_ESCREVER) -> tuple[SaidaSessao, list[str]]:
+                    turnos_ate_escrever: int | None = TURNOS_ATE_ESCREVER,
+                    modelos_obrigatorios: list[str] | None = None) -> tuple[SaidaSessao, list[str]]:
     hook = hook_pre_tool_use(editable_models, emissor, obter_tentativa=lambda: tentativa)
     catalogo = ferramentas_openai()
     mensagens: list[dict] = [{"role": "system", "content": sistema}, {"role": "user", "content": prompt}]
@@ -107,7 +111,8 @@ def executar_sessao(cliente: ClienteChat, sistema: str, prompt: str, ferramentas
     subtype = "error_max_turns"
     erro_api = None
     por_turno: list[list[int]] = []
-    lembrou = False
+    ultima_escrita = ultima_escrita_n = 0
+    exatos = list(modelos_obrigatorios or [])
 
     async def executar_chamada(chamada: dict) -> str:
         try:
@@ -158,9 +163,13 @@ def executar_sessao(cliente: ClienteChat, sistema: str, prompt: str, ferramentas
         if uso_completo and _custo(entrada, saida, precos) >= teto_usd:
             subtype = "error_max_budget_usd"
             break
-        if turnos_ate_escrever is not None and not lembrou and not escritas and turnos >= turnos_ate_escrever:
-            mensagens.append({"role": "user", "content": LEMBRETE_ESCREVER.format(n=turnos)})
-            lembrou = True
+        if len(escritas) > ultima_escrita_n:
+            ultima_escrita, ultima_escrita_n = turnos, len(escritas)
+        faltam = [m for m in exatos if m not in escritas] or ([] if escritas else ["a correção do modelo que falhou"])
+        if turnos_ate_escrever is not None and faltam and turnos - ultima_escrita >= turnos_ate_escrever:
+            mensagens.append({"role": "user", "content": LEMBRETE_ESCREVER.format(n=turnos - ultima_escrita,
+                                                                                  faltam=", ".join(faltam))})
+            ultima_escrita = turnos  # o próximo lembrete só depois de outros N turnos
 
     custo = round(_custo(entrada, saida, precos), 6) if uso_completo else None
     return SaidaSessao(subtype=subtype, num_turns=turnos, total_cost_usd=custo,

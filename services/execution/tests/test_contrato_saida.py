@@ -20,6 +20,20 @@ class TestContratoSaida(unittest.TestCase):
         self.assertIn("ocupacao", c["modelos"]["ouro_por_viagem"])
         self.assertIn("bronze_documentos", c["fontes"])
         self.assertNotIn("count", c["modelos"]["prata_ctes"])  # funções e apelidos SQL não são colunas
+        # rastreabilidade_cte junta prata_ctes (apelido p) por p.sha256 e p.carga, fora da lista do select.
+        self.assertLessEqual({"sha256", "carga", "arquivo"}, set(c["modelos"]["prata_ctes"]))
+
+    def test_colunas_pelo_apelido_do_modelo(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            projeto = Path(tmp)
+            shutil.copy(PROJETO / "dbt_project.yml", projeto / "dbt_project.yml")
+            (projeto / "tests").mkdir()
+            (projeto / "tests/x.sql").write_text(
+                "select 1 from {{ ref('prata_ctes') }} as q left join {{ ref('prata_rateios') }} on true\n"
+                "where q.coluna_nova is null")
+            c = contrato_saida(projeto)
+        self.assertIn("coluna_nova", c["modelos"]["prata_ctes"])
+        self.assertNotIn("on", c["modelos"]["prata_rateios"])
 
     def test_muda_quando_o_contrato_de_exportacao_muda(self):
         with tempfile.TemporaryDirectory() as tmp:

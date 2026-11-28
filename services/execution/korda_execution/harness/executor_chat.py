@@ -68,15 +68,17 @@ class ExecutorChat:
                                     1, plan_version=self.plano_publico.get("plan_version"))
         self.documento_base = documento_base
         prompt = montar_prompt_construcao(self.plano_publico, self.perfis, documento_base, self.esquema_bronze)
+        obrigatorios = [m for m in self.plano_publico["editable_models"] if "*" not in m]
         return self._sessao(SISTEMA_CONSTRUCAO, prompt, TENTATIVA_CONSTRUCAO, self.teto_construcao(),
-                            self.cfg.max_turnos_construcao)
+                            self.cfg.max_turnos_construcao, obrigatorios)
 
     def __call__(self, falha: dict, tentativa: int) -> dict:
         prompt = montar_prompt(falha, tentativa, self.limite, self.plano_publico, self.perfis, self.documento_base,
                                self.esquema_bronze)
         return self._sessao(SISTEMA, prompt, tentativa, self.teto_correcao(tentativa), self.cfg.max_turnos_tentativa)
 
-    def _sessao(self, sistema: str, prompt: str, tentativa: int, teto: float, max_turnos: int) -> dict:
+    def _sessao(self, sistema: str, prompt: str, tentativa: int, teto: float, max_turnos: int,
+                modelos_obrigatorios: list[str] | None = None) -> dict:
         if self.restante_usd <= 0 or teto <= 0:
             return {"ok": False, "erro": "orçamento de LLM esgotado", "custo_centavos": 0}
         if isinstance(self.cliente, ClienteComOrcamento):
@@ -85,7 +87,8 @@ class ExecutorChat:
         saida, escritas = executar_sessao(
             self.cliente, sistema, prompt, self.ferramentas, self.plano_publico["editable_models"],
             emissor=self.emissor, tentativa=max(1, tentativa), max_turnos=max_turnos, teto_usd=teto,
-            precos=(self.cfg.preco_entrada_usd_mtok, self.cfg.preco_saida_usd_mtok), verificar_ativa=self.verificar_ativa)
+            precos=(self.cfg.preco_entrada_usd_mtok, self.cfg.preco_saida_usd_mtok), verificar_ativa=self.verificar_ativa,
+            modelos_obrigatorios=modelos_obrigatorios)
         self.ultima_saida = saida
         duracao = round(time.monotonic() - inicio, 3)
         # Custo desconhecido consome o teto inteiro, por precaução.
