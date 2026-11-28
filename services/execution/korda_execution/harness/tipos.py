@@ -63,6 +63,10 @@ class SaidaSessao:
     ferramentas_sessao: list[str] = field(default_factory=list)
     erro: str | None = None  # mensagem de ErroLLM (sem segredo), quando a API falhou
     tokens_por_turno: list[list[int]] = field(default_factory=list)  # [entrada, saída] de cada chamada
+    limite_uso: bool = False  # a cota do plano (claude_cli) acabou: escalar, sem tentar de novo
+    texto: str = ""  # resposta final do modelo (usada pelo planejamento sem ferramentas)
+    modelo: str | None = None  # modelo que a sessão informou no init (o alias "sonnet" vira o nome exato)
+    stop_reason: str | None = None  # motivo de parada do último turno ("max_tokens": resposta cortada)
 
 
 def usd_para_centavos(usd: float | None, taxa: float) -> int | None:

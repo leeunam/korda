@@ -1,7 +1,9 @@
 """Medição por execução (insumo da K14): tempo, tokens, tentativas e custo.
 
 Grava `medicao.json`. Execuções com executor falso ou roteirizado são marcadas
-`synthetic: true`: os números não medem um LLM real.
+`synthetic: true`: os números não medem um LLM real. `cobranca` diz se o custo
+foi cobrado por uso (`api`) ou é nocional, dentro da cota do plano
+(`assinatura`, executor `claude_cli`).
 """
 
 from __future__ import annotations
@@ -11,7 +13,8 @@ from pathlib import Path
 
 from .tipos import ResultadoTentativa
 
-EXECUTORES_COM_LLM = ("chat", "agente_sdk")
+EXECUTORES_COM_LLM = ("chat", "agente_sdk", "claude_cli")
+EXECUTORES_ASSINATURA = ("claude_cli",)
 
 
 class Medidor:
@@ -40,6 +43,8 @@ class Medidor:
             "executor": self.executor,
             "modelo": self.modelo,
             "synthetic": self.executor not in EXECUTORES_COM_LLM,
+            "cobranca": ("assinatura" if self.executor in EXECUTORES_ASSINATURA
+                         else "api" if self.executor in EXECUTORES_COM_LLM else None),
             "tentativas": len(t),
             "turnos": sum(r.turnos for r in t),
             "tokens_entrada": sum(r.tokens_entrada for r in t) + d.get("tokens_entrada", 0),

@@ -28,7 +28,10 @@ class FalhaPreparo(ErroConfiguracao):
 
 
 def preparar_construcao(plano, config=None, *, cliente_llm=None):
-    """Falha antes de reservar o run, montar a sandbox ou fazer uma chamada de API."""
+    """Falha antes de reservar o run, montar a sandbox ou fazer uma chamada de API.
+
+    `claude_cli` confere o login com `claude auth status`, que não gasta cota.
+    """
     config = config or ConfigHarness.de_ambiente()
     modelos = plano["editable_models"]
     historico = plano.get("schema_version") == "0.1.0" and modelos == ["models/*"]
@@ -38,10 +41,16 @@ def preparar_construcao(plano, config=None, *, cliente_llm=None):
     if config.executor == "chat" and (not config.permitir_llm_real or not config.chave_api):
         raise ErroConfiguracao("o executor chat exige autorização de LLM e credencial")
     if config.executor == "agente_sdk":
-        raise FalhaPreparo("a construção usa a API da Feita: use KORDA_EXECUTOR=chat ou roteirizado")
+        raise FalhaPreparo("a construção usa a API da Feita ou o login do CLI: use KORDA_EXECUTOR=chat, "
+                           "claude_cli ou roteirizado")
+    if config.executor == "claude_cli":
+        if not config.permitir_llm_real:
+            raise ErroConfiguracao("o executor claude_cli exige KORDA_PERMITIR_LLM_REAL=1")
+        from .harness import agente_sdk
+        agente_sdk.verificar_login()
     if config.executor == "falso" and not cliente_offline(cliente_llm):
         raise FalhaPreparo("KORDA_EXECUTOR=falso é só para testes: exige um cliente LLM falso")
-    if config.executor in ("chat", "falso") and not (plano.get("construction") or {}).get("document", "").strip():
+    if config.executor in ("chat", "claude_cli", "falso") and not (plano.get("construction") or {}).get("document", "").strip():
         raise FalhaPreparo("o plano aprovado não tem a construção: rode planejar e aprove a versão com ela")
     return config
 
@@ -127,6 +136,14 @@ def construir_modelos(config, plano, ferramentas, eventos, revisao, verificar_at
             corretor = RestauradorRoteirizado(ferramentas, referencia)
             eventos.emit_event("construcao", "build_started", "Construção roteirizada dos modelos autorizados",
                                plan_version=versao, executor=config.executor)
+        elif config.executor == "claude_cli":
+            from .harness.agente_sdk import ExecutorClaudeCli
+
+            perfis = json.loads((revisao / "fontes.json").read_text(encoding="utf-8"))
+            construtor = ExecutorClaudeCli(config, ferramentas, publico, perfis, limite, eventos, medidor,
+                                           verificar_ativa=verificar_ativa,
+                                           esquema_bronze=esquema_bronze(ferramentas))
+            corretor = construtor
         else:
             perfis = json.loads((revisao / "fontes.json").read_text(encoding="utf-8"))
             cliente = cliente_llm if cliente_llm is not None else ClienteChatHttp(config.llm_url, config.chave_api, config.modelo)
@@ -151,7 +168,7 @@ def construir_modelos(config, plano, ferramentas, eventos, revisao, verificar_at
     finally:
         resumo = medidor.resumo()
         resumo.update(plan_version=versao, documento_base=info_doc, orcamento_usd=config.orcamento_execucao_usd,
-                      precos=config.precos_medicao(), custo_estimado=config.executor == "chat",
+                      precos=config.precos_medicao(), custo_estimado=config.usa_llm, cobranca=config.cobranca,
                       construtor=config.executor, builds=(resultado or {}).get("tentativas", 0),
                       correcoes=(resultado or {}).get("correcoes", 0), duracao_etapa_s=round(time.monotonic() - inicio, 3))
         resumo["custo_completo"] = (resumo["custo_completo"] and (resultado or {}).get("custo_completo", True)
@@ -165,4 +182,5 @@ def construir_modelos(config, plano, ferramentas, eventos, revisao, verificar_at
         eventos.emit_event("construcao", "measurement_saved", "Medição da construção e das correções",
                            plan_version=versao, custo_completo=resumo["custo_completo"],
                            custo_total_centavos=resumo["custo_centavos"] if resumo["custo_completo"] else None,
-                           orcamento_centavos=orcamento_centavos, custo_estimado=config.executor == "chat")
+                           orcamento_centavos=orcamento_centavos, custo_estimado=config.usa_llm,
+                           cobranca=config.cobranca)
