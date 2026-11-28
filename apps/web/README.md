@@ -17,6 +17,20 @@ pnpm test    # testes (Vitest)
 pnpm build   # build de produção, como no Vercel
 ```
 
+### Com Docker
+
+```bash
+docker compose up --build    # http://127.0.0.1:3000
+```
+
+A [imagem](Dockerfile) usa a saída `standalone` do Next, roda como UID 10001 com sistema de arquivos somente leitura e publica a porta só no loopback do host. O contexto de build se limita ao app ([.dockerignore](.dockerignore)): `.env`, testes e o resto do repositório não entram.
+
+O proxy do painel `/operador` só aceita o serviço do operador em loopback. No serviço `web`, o loopback é o próprio contêiner, então o painel responde com erro de conexão. Para usá-lo, rode com a rede do host (Linux ou Docker Desktop com host networking habilitado), passando as variáveis pelo ambiente:
+
+```bash
+KORDA_OPERADOR_TOKEN=... docker compose --profile operador up --build web-operador
+```
+
 O grafo usa uma execução **sintética** gerada pelo seed. O painel do operador consulta a descoberta e o worker pelo serviço local.
 
 ## Painel local do operador
