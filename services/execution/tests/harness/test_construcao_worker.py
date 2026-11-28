@@ -14,11 +14,34 @@ from korda_execution import construcao
 from korda_execution.documento_base import SECOES
 from korda_execution.eventos import EmissorEventos
 from korda_execution.harness.adaptador_eventos import exportar_execucao
-from korda_execution.harness.cliente_chat import ClienteChatFalso, ClienteComOrcamento, ErroLLM, RespostaChat
+from korda_execution.harness.cliente_chat import ClienteChatFalso, ClienteComOrcamento, ErroLLM, ErroOrcamento, RespostaChat
 from korda_execution.harness.config import ConfigHarness, ErroConfiguracao
 from korda_execution.sandbox import ErroSandbox, LocalDockerSandbox
 
 from .fakes import FerramentasFalsas
+
+
+class TestEsquemaBronze(unittest.TestCase):
+    def test_formata_as_colunas_e_recusa_resposta_fora_do_formato(self):
+        f = Mock()
+        f.consultar_sql.return_value = {"ok": True, "linhas": [["bronze_pedidos", "pedido_id", "VARCHAR"],
+                                                               ["bronze_pedidos", "qt_itens", "BIGINT"],
+                                                               ["bronze_veiculos", "capacidade_kg", "BIGINT"]]}
+        self.assertEqual(construcao.esquema_bronze(f), "- main.bronze_pedidos: pedido_id varchar, qt_itens bigint\n"
+                                                       "- main.bronze_veiculos: capacidade_kg bigint")
+        self.assertIn("information_schema", f.consultar_sql.call_args.args[0])
+        f.consultar_sql.return_value = {"ok": True, "linhas": [[1]]}
+        self.assertIsNone(construcao.esquema_bronze(f))
+        f.consultar_sql.return_value = {"ok": False, "erro": "x"}
+        self.assertIsNone(construcao.esquema_bronze(f))
+
+    def test_prompt_leva_o_esquema(self):
+        from korda_execution.harness.contexto import montar_prompt, montar_prompt_construcao
+
+        publico = {"plan_version": "v", "editable_models": [], "limits": {}, "rules": {}, "metrics": {}, "tasks": []}
+        for texto in (montar_prompt_construcao(publico, {}, "doc", "- main.bronze_pedidos: pedido_id varchar"),
+                      montar_prompt({"erro": "x"}, 1, 3, publico, {}, "doc", "- main.bronze_pedidos: pedido_id varchar")):
+            self.assertIn("main.bronze_pedidos: pedido_id varchar", texto)
 
 
 class TestConstrucaoWorker(unittest.TestCase):
@@ -164,10 +187,11 @@ class TestConstrucaoWorker(unittest.TestCase):
         transporte.completar.return_value = resposta
         cliente = ClienteComOrcamento(transporte, 0.05, (4, 20), self.verificar)
         cliente.completar([], [])
-        with self.assertRaises(ErroLLM):
+        with self.assertRaises(ErroLLM) as incompleto:
             cliente.completar([], [])
+        self.assertNotIsInstance(incompleto.exception, ErroOrcamento)  # medição incompleta não é teto
         self.assertEqual(transporte.completar.call_count, 1)
-        with self.assertRaises(ErroLLM):
+        with self.assertRaises(ErroOrcamento):
             ClienteComOrcamento(transporte, .00001, (4, 20), self.verificar).completar([], [])
         self.assertEqual(transporte.completar.call_count, 1)
 

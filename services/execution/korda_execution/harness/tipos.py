@@ -61,6 +61,8 @@ class SaidaSessao:
     total_cost_usd: float | None
     usage: dict
     ferramentas_sessao: list[str] = field(default_factory=list)
+    erro: str | None = None  # mensagem de ErroLLM (sem segredo), quando a API falhou
+    tokens_por_turno: list[list[int]] = field(default_factory=list)  # [entrada, saída] de cada chamada
 
 
 def usd_para_centavos(usd: float | None, taxa: float) -> int | None:

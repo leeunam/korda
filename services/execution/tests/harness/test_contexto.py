@@ -109,6 +109,21 @@ class TestPromptConstrucao(unittest.TestCase):
         self.assertLess(len(texto), LIMITE_DOCUMENTO + 6_000)
 
 
+class TestPromptConstrucaoEnxuto(unittest.TestCase):
+    def test_traz_o_contrato_e_nao_repete_as_tarefas(self):
+        publico = projetar_plano(PLANO)
+        texto = montar_prompt_construcao(publico, {}, "doc")
+        self.assertIn("Contrato de saída", texto)
+        for nome in ("prata_ctes", "prata_rateios", "ouro_kpis", "ouro_por_pedido", "ouro_por_viagem",
+                     "custo_frete_rateado", "bronze_documentos"):
+            self.assertIn(nome, texto)
+        self.assertEqual(texto.count('"depends_on"'), len(publico["tasks"]))
+
+    def test_regras_falam_de_cte_selecao_e_historico_resumido(self):
+        for trecho in ("CTEs", "'<modelo>+'", "resumidos", "main.bronze_pedidos", "Escreva cedo"):
+            self.assertIn(trecho, SISTEMA_CONSTRUCAO)
+
+
 class TestContratoDeSaida(unittest.TestCase):
     def test_construcao_aponta_o_contrato_de_saida(self):
         from korda_execution.harness.contexto import SISTEMA, SISTEMA_CONSTRUCAO

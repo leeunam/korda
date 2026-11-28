@@ -121,6 +121,17 @@ class TestClienteChatHttp(unittest.TestCase):
         self.assertIn("401", str(ctx.exception))
         self.assertNotIn("fk-teste", str(ctx.exception))
 
+    def test_erro_http_traz_o_motivo_do_gateway_sem_a_chave(self):
+        s = _Servidor(status=402, corpo={"error": {"message": "limite de gasto da chave fk-teste atingido"}})
+        try:
+            with self.assertRaises(ErroLLM) as ctx:
+                self._cliente(s).completar([{"role": "user", "content": "oi"}], [])
+        finally:
+            s.fechar()
+        self.assertIn("HTTP 402", str(ctx.exception))
+        self.assertIn("limite de gasto da chave [chave] atingido", str(ctx.exception))
+        self.assertNotIn("fk-teste", str(ctx.exception))
+
     def test_resposta_invalida(self):
         s = _Servidor(corpo=b"<html>erro</html>")
         try:

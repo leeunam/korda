@@ -9,10 +9,22 @@ da entrada antes de chamar `FerramentasAgente`.
 from __future__ import annotations
 
 import json
+import re
 
 from .tipos import FerramentasAgente
 
 LIMITE_SAIDA_DBT = 8_000
+# Linhas de progresso sem diagnóstico: cabeçalho do dbt e START/OK/PASS de cada nó.
+_RUIDO_DBT = re.compile(
+    r"^\S*\s*(?:Running with dbt=|Registered adapter:|Found \d+ |Concurrency: |Unable to do partial parsing|"
+    r"\d+ of \d+ START |\d+ of \d+ (?:OK|PASS) )")
+
+
+def enxugar_saida_dbt(saida: str) -> str:
+    """Tira o progresso de nós que passaram; erros, falhas, avisos e o resumo `PASS=… ERROR=…` ficam."""
+    linhas = [l for l in saida.splitlines() if not _RUIDO_DBT.match(l.strip())]
+    texto = re.sub(r"\n{3,}", "\n\n", "\n".join(linhas)).strip()
+    return texto[-LIMITE_SAIDA_DBT:]
 
 
 def _schema(propriedades: dict, obrigatorias: list[str]) -> dict:
@@ -83,5 +95,5 @@ async def despachar(nome_curto: str, entrada: dict, ferramentas: FerramentasAgen
         r = ferramentas.rodar_dbt(entrada["subcomando"], entrada.get("selecao"))
         saida = ((r.get("stdout") or "") + "\n" + (r.get("stderr") or "")).strip()
         return _resultado({k: r.get(k) for k in ("ok", "codigo", "estourou_tempo", "duracao_s", "erro") if k in r}
-                          | {"saida": saida[-LIMITE_SAIDA_DBT:]})
+                          | {"saida": enxugar_saida_dbt(saida)})
     return _resultado(ferramentas.consultar_sql(entrada["sql"]))

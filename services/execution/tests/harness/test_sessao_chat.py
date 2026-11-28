@@ -6,8 +6,8 @@ import unittest
 from pathlib import Path
 
 from korda_execution.eventos import EmissorEventos
-from korda_execution.harness.cliente_chat import ClienteChatFalso, ErroLLM, RespostaChat
-from korda_execution.harness.sessao_chat import ferramentas_openai, executar_sessao
+from korda_execution.harness.cliente_chat import ClienteChatFalso, ErroLLM, ErroOrcamento, RespostaChat
+from korda_execution.harness.sessao_chat import compactar_historico, executar_sessao, ferramentas_openai
 
 from .fakes import FerramentasFalsas
 
@@ -114,6 +114,93 @@ class TestSessaoChat(unittest.TestCase):
         self.assertEqual(saida.subtype, "error_during_execution")
         self.assertEqual(escritas, [MODELO])
         self.assertGreater(saida.total_cost_usd, 0)
+
+
+    def test_historico_antigo_e_resumido_e_os_pares_continuam(self):
+        sql = "select " + "x, " * 500
+        cliente = ClienteChatFalso([
+            RespostaChat.de_tool_calls([("escrever_modelo", {"caminho": "models/prata_novo.sql", "conteudo": sql})]),
+            *[RespostaChat.de_tool_calls([("ler_arquivo", {"caminho": MODELO})]) for _ in range(5)],
+            RespostaChat.texto("pronto"),
+        ])
+        saida, escritas = executar_sessao(cliente, "sistema", "construa", self.f, ["models/*"], emissor=self.emissor,
+                                          tentativa=1, max_turnos=10, teto_usd=5.0, precos=PRECOS, manter_turnos=2)
+        self.assertEqual((saida.subtype, escritas), ("success", ["models/prata_novo.sql"]))
+        self.assertEqual(self.f.modelos["models/prata_novo.sql"], sql)  # a sandbox recebeu o SQL inteiro
+        ultimo = cliente.pedidos[-1]
+        ids = [c["id"] for m in ultimo if m["role"] == "assistant" for c in m.get("tool_calls") or []]
+        self.assertEqual([m["tool_call_id"] for m in ultimo if m["role"] == "tool"], ids)
+        saidas = [m["content"] for m in ultimo if m["role"] == "tool"]
+        self.assertTrue(all(s.startswith("[saída antiga resumida") for s in saidas[:-2]))
+        self.assertTrue(all(json.loads(s)["ok"] for s in saidas[-2:]))
+        self.assertNotIn(sql, json.dumps(ultimo))
+        self.assertIn("use ler_arquivo", json.dumps(ultimo, ensure_ascii=False))
+
+    def test_resumo_do_dbt_guarda_o_placar_e_e_estavel(self):
+        saida = json.dumps({"ok": False, "saida": "Erro X\nDone. PASS=3 WARN=0 ERROR=1 SKIP=0 TOTAL=4"})
+        mensagens = [{"role": "assistant", "content": None, "tool_calls": [
+            {"id": "a", "type": "function", "function": {"name": "rodar_dbt", "arguments": '{"subcomando": "build"}'}}]},
+            {"role": "tool", "tool_call_id": "a", "content": saida}]
+        compactar_historico(mensagens, manter_turnos=0)
+        resumo = mensagens[1]["content"]
+        self.assertIn("rodar_dbt build, erro", resumo)
+        self.assertIn("PASS=3 WARN=0 ERROR=1", resumo)
+        compactar_historico(mensagens, manter_turnos=0)
+        self.assertEqual(mensagens[1]["content"], resumo)
+
+
+    def test_compacta_por_turno_mesmo_com_chamadas_paralelas(self):
+        paralelas = [("consultar_sql", {"sql": f"select {i}"}) for i in range(6)]
+        cliente = ClienteChatFalso([RespostaChat.de_tool_calls([("ler_arquivo", {"caminho": MODELO})]),
+                                    RespostaChat.de_tool_calls(paralelas), RespostaChat.texto("fim")])
+        executar_sessao(cliente, "sistema", "construa", self.f, ["models/*"], emissor=self.emissor, tentativa=1,
+                        max_turnos=5, teto_usd=5.0, precos=PRECOS, manter_turnos=1)
+        saidas = [m["content"] for m in cliente.pedidos[-1] if m["role"] == "tool"]
+        self.assertTrue(saidas[0].startswith("[saída antiga resumida: ler_arquivo"))
+        self.assertTrue(all(json.loads(s)["ok"] for s in saidas[1:]))  # as 6 do último turno ficam íntegras
+
+    def test_lembra_de_escrever_sem_escrita_e_repete(self):
+        cliente = ClienteChatFalso([RespostaChat.de_tool_calls([("ler_plano", {})]) for _ in range(5)])
+        executar_sessao(cliente, "sistema", "construa", self.f, ["models/*"], emissor=self.emissor, tentativa=1,
+                        max_turnos=5, teto_usd=5.0, precos=PRECOS, turnos_ate_escrever=2)
+        lembretes = [m for m in cliente.pedidos[-1] if m["role"] == "user" and "sem escrever" in m["content"]]
+        self.assertEqual(len(lembretes), 2)  # turnos 2 e 4
+        self.assertIn("a correção do modelo que falhou", lembretes[0]["content"])
+        self.assertNotIn("sem escrever", json.dumps(cliente.pedidos[1], ensure_ascii=False))
+        self.assertIn("sem escrever", json.dumps(cliente.pedidos[2], ensure_ascii=False))
+
+    def test_construcao_lembra_os_modelos_que_faltam(self):
+        a, b = "models/prata_a.sql", "models/prata_b.sql"
+        cliente = ClienteChatFalso([RespostaChat.de_tool_calls([("escrever_modelo", {"caminho": a, "conteudo": "select 1"})]),
+                                    *[RespostaChat.de_tool_calls([("ler_plano", {})]) for _ in range(3)]])
+        executar_sessao(cliente, "sistema", "construa", self.f, ["models/*"], emissor=self.emissor, tentativa=1,
+                        max_turnos=4, teto_usd=5.0, precos=PRECOS, turnos_ate_escrever=2, modelos_obrigatorios=[a, b])
+        lembretes = [m["content"] for m in cliente.pedidos[-1] if m["role"] == "user" and "faltam" in m["content"]]
+        self.assertEqual(len(lembretes), 1)
+        self.assertIn(b, lembretes[0])
+        self.assertNotIn(a, lembretes[0])
+
+    def test_erro_de_api_e_tokens_por_turno_ficam_registrados(self):
+        cliente = _ClienteQueFalha([RespostaChat.de_tool_calls([("ler_plano", {})], tokens=(1000, 200))])
+        saida, _ = self._sessao(cliente)
+        self.assertEqual(saida.erro, "API do LLM respondeu HTTP 500")
+        self.assertEqual(saida.tokens_por_turno, [[1000, 200]])
+
+
+    def test_orcamento_insuficiente_e_teto_e_mantem_as_escritas(self):
+        class _SemVerba:
+            def __init__(self):
+                self.antes = [RespostaChat.de_tool_calls([("escrever_modelo", {"caminho": MODELO, "conteudo": "select 4"})])]
+
+            def completar(self, mensagens, ferramentas):
+                if self.antes:
+                    return self.antes.pop(0)
+                raise ErroOrcamento("orçamento insuficiente para a próxima chamada")
+
+        saida, escritas = self._sessao(_SemVerba())
+        self.assertEqual(saida.subtype, "error_max_budget_usd")
+        self.assertEqual(escritas, [MODELO])
+        self.assertIn("orçamento insuficiente", saida.erro)
 
 
 if __name__ == "__main__":

@@ -21,6 +21,10 @@ class ErroLLM(RuntimeError):
     """Falha de comunicação com a API do LLM."""
 
 
+class ErroOrcamento(ErroLLM):
+    """A próxima chamada não cabe no orçamento autorizado: nenhuma chamada foi feita."""
+
+
 @dataclass
 class RespostaChat:
     conteudo: str
@@ -74,6 +78,15 @@ class ClienteChatHttp:
     def __repr__(self) -> str:
         return f"ClienteChatHttp(url={self.url!r}, modelo={self.modelo!r})"
 
+    def _detalhe_erro(self, erro) -> str:
+        """Trecho curto do corpo de erro do gateway (diz, por exemplo, por que houve 402), sem a chave."""
+        try:
+            texto = erro.read(2000).decode("utf-8", "replace")
+        except Exception:
+            return ""
+        texto = " ".join(texto.replace(self._chave, "[chave]").split())[:240] if self._chave else ""
+        return f": {texto}" if texto else ""
+
     def completar(self, mensagens: list[dict], ferramentas: list[dict], *, max_tokens: int | None = None) -> RespostaChat:
         dados = {"model": self.modelo, "messages": mensagens}
         if ferramentas:
@@ -88,8 +101,9 @@ class ClienteChatHttp:
             with urllib.request.urlopen(pedido, timeout=self.timeout_s) as r:
                 bruto = r.read()
         except urllib.error.HTTPError as e:
+            detalhe = self._detalhe_erro(e)
             e.close()
-            raise ErroLLM(f"API do LLM respondeu HTTP {e.code}") from None
+            raise ErroLLM(f"API do LLM respondeu HTTP {e.code}{detalhe}") from None
         except (urllib.error.URLError, TimeoutError, OSError) as e:
             raise ErroLLM(f"falha de rede ao chamar a API do LLM ({type(e).__name__})") from None
         try:
@@ -125,8 +139,10 @@ class ClienteComOrcamento:
         saldo_sessao = self.restante_usd - self.reserva_outras_etapas_usd
         verba_saida = saldo_sessao * 1_000_000 - tamanho * self.entrada
         max_tokens = min(8192, int(verba_saida / self.saida))
-        if max_tokens <= 0 or not self.custo_completo:
-            raise ErroLLM("orçamento insuficiente para a próxima chamada")
+        if not self.custo_completo:
+            raise ErroLLM("medição de custo incompleta: novas chamadas pagas bloqueadas")
+        if max_tokens <= 0:
+            raise ErroOrcamento("orçamento insuficiente para a próxima chamada")
         self.custo_completo = False
         self.chamadas += 1
         resposta = self.cliente.completar(mensagens, ferramentas, max_tokens=max_tokens)

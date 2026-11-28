@@ -99,6 +99,9 @@ class TestExecutorChat(unittest.TestCase):
         self.assertEqual(dados["custo_total_centavos"],
                          fins[0]["dados"]["custo_centavos"] + fins[1]["dados"]["custo_centavos"])
         self.assertEqual(self.emissor.ler()[0]["type"], "build_started")
+        self.assertTrue(dados["ferramentas"] and all(f.startswith("mcp__korda__") for f in dados["ferramentas"]))
+        self.assertEqual(len(dados["tokens_por_turno"]), 2)
+        self.assertNotIn("erro_api", dados)
 
     def test_documento_base_desconta_do_orcamento_e_entra_no_custo_total(self):
         executor = self._executor([_escreve("models/a.sql"), RespostaChat.texto("ok")])
