@@ -2,9 +2,13 @@
 
 Executores: `roteirizado` (plano B: copia o pipeline feito à mão, sem LLM),
 `falso` (testes, sem LLM), `chat` (agente com loop próprio sobre uma API
-chat/completions, como o gateway da Feita) e `agente_sdk` (Claude Agent SDK,
-exige chave da Anthropic). Os dois últimos gastam créditos e só rodam com
-três sinais juntos: o executor, KORDA_PERMITIR_LLM_REAL=1 e a chave.
+chat/completions, como o gateway da Feita), `agente_sdk` (Claude Agent SDK,
+exige chave da Anthropic) e `claude_cli` (Claude Code CLI pelo login do plano
+pessoal, `claude /login`, sem chave). `chat` e `agente_sdk` gastam créditos e
+só rodam com três sinais juntos: o executor, KORDA_PERMITIR_LLM_REAL=1 e a
+chave. `claude_cli` gasta a cota do plano: exige o executor e
+KORDA_PERMITIR_LLM_REAL=1, e recusa qualquer credencial de API no ambiente
+(VARIAVEIS_PROIBIDAS_CLI), para a sessão nunca cair numa conta paga por uso.
 """
 
 from __future__ import annotations
@@ -15,10 +19,15 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Literal
 
-EXECUTORES = ("roteirizado", "falso", "chat", "agente_sdk")
-Executor = Literal["roteirizado", "falso", "chat", "agente_sdk"]
+EXECUTORES = ("roteirizado", "falso", "chat", "agente_sdk", "claude_cli")
+Executor = Literal["roteirizado", "falso", "chat", "agente_sdk", "claude_cli"]
 CHAVE_POR_EXECUTOR = {"chat": "KORDA_LLM_CHAVE", "agente_sdk": "ANTHROPIC_API_KEY"}
-MODELO_PADRAO = {"agente_sdk": "claude-opus-5-5"}
+EXECUTORES_ASSINATURA = ("claude_cli",)
+# Qualquer uma destas faria o CLI usar outra credencial que não o login do plano.
+VARIAVEIS_PROIBIDAS_CLI = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_USE_BEDROCK",
+                           "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY", "CLAUDE_CODE_OAUTH_TOKEN")
+# Sonnet por padrão: a cota do plano Pro acaba rápido com o Opus numa construção de 40 turnos.
+MODELO_PADRAO = {"agente_sdk": "claude-opus-5-5", "claude_cli": "sonnet"}
 MODELO_PADRAO_CHAT = "anthropic/claude-opus-5.5"
 URL_PADRAO = "https://api.feita.ai/gateway/v1"
 
@@ -61,7 +70,14 @@ class ConfigHarness:
 
     @property
     def usa_llm(self) -> bool:
-        return self.executor in CHAVE_POR_EXECUTOR
+        return self.executor in CHAVE_POR_EXECUTOR or self.executor in EXECUTORES_ASSINATURA
+
+    @property
+    def cobranca(self) -> str | None:
+        """`assinatura`: o custo do CLI é nocional (cota do plano); `api`: cobrado por uso; None: sem LLM."""
+        if self.executor in EXECUTORES_ASSINATURA:
+            return "assinatura"
+        return "api" if self.usa_llm else None
 
     def precos_medicao(self) -> dict:
         return {"entrada_usd_mtok": self.preco_entrada_usd_mtok, "saida_usd_mtok": self.preco_saida_usd_mtok,
@@ -81,6 +97,18 @@ class ConfigHarness:
             raise ErroConfiguracao(f"KORDA_LLM_URL deve usar https, recebido {url!r}")
         permitir = env.get("KORDA_PERMITIR_LLM_REAL", "").strip() == "1"
         chave = None
+        if executor in EXECUTORES_ASSINATURA:
+            if not permitir:
+                raise ErroConfiguracao(
+                    f"KORDA_EXECUTOR={executor} chama o LLM e gasta a cota do plano pessoal; defina "
+                    "KORDA_PERMITIR_LLM_REAL=1 somente com autorização do dono do login"
+                )
+            presentes = [n for n in VARIAVEIS_PROIBIDAS_CLI if n in env]
+            if presentes:
+                raise ErroConfiguracao(
+                    f"KORDA_EXECUTOR={executor} usa só o login do CLI (claude /login); remova do ambiente: "
+                    + ", ".join(presentes)
+                )
         if executor in CHAVE_POR_EXECUTOR:
             nome_chave = CHAVE_POR_EXECUTOR[executor]
             chave = env.get(nome_chave, "").strip() or None
